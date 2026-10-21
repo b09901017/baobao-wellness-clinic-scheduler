@@ -173,8 +173,10 @@
 - **E2E 自己挑幾支跑**：段二改了客戶清單卡片，本機跑了自己想到的二十幾支，漏了登記著 `customers.js` 的 `30`（它量「卡片上不可以有電話」）—— 全量才紅。
 - **新的測試檔還沒 `git add`**：`tests/no-secrets.test.js` 只掃被追蹤的檔案，段三新的 `sheet-fingerprint.test.js` 裡有 `上午10:00:00`，
   沒 add 之前掃不到、`npm test` 綠；commit 之後 HEAD 上就是紅的，段四才發現。
+- **`npm run shell:snapshot` 也只算被追蹤的檔案**（10/21 #179）：`public/` 多一支新的 `manifest-staging.webmanifest`，還沒 add 就產快照、跑 `npm test`，本機綠；
+  commit 之後 CI 的 `shell-version` 紅了，develop 沒有部署。**而且只看了全量 E2E 那一條就說「CI 全綠」**：PR 上的 `test` 是另一條 workflow。
 
-> 要挑 E2E 時問的是 `related.js` 的 `pick()` 不是自己的記憶嗎？新增了檔案，`git add` 之後有沒有再跑一次 `npm test`？
+> 要挑 E2E 時問的是 `related.js` 的 `pick()` 不是自己的記憶嗎？新增了檔案，`git add` 之後有沒有再跑一次 `shell:snapshot` 與 `npm test`？說「CI 綠」之前看的是 `gh pr checks` 的每一條嗎？
 
 ---
 
