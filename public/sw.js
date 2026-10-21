@@ -18,7 +18,7 @@
 // **改了 `public/` 底下的檔案就把 VERSION 加一**，再跑 `npm run shell:snapshot`。
 // 忘了加的話（以前是慢一輪）現在是**永遠停在舊版** —— `tests/shell-version.test.js` 擋著。
 
-const VERSION = 'v206';
+const VERSION = 'v209';
 const CACHE = `shell-${VERSION}`;
 const EXTERNAL = 'external-v1';
 
@@ -33,6 +33,7 @@ const SHELL = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
+  '/manifest-staging.webmanifest',
   '/css/tokens.css',
   '/css/app.css',
   '/js/app.js',
@@ -262,7 +263,7 @@ self.addEventListener('fetch', (event) => {
   // 其他跨網域一律不管：Firebase 的 API 呼叫、Google 登入流程都在這裡被放行
   if (url.origin !== self.location.origin) return;
   // Firebase 保留的網址（`/__/auth/…` 登入那一頁與它自己載的程式、`/__/firebase/…`）不是 app 的檔案：
-  // 現在 authDomain 是另一個網域、碰不到這裡；哪天改成同一個網域，先用手機裡的就會把登入那一頁的程式凍在舊版
+  // authDomain 是同一個網址（ADR-0168），登入那一頁就在這裡 —— 先用手機裡的就會把它的程式凍在舊版
   if (url.pathname.startsWith('/__/')) return;
 
   if (request.mode === 'navigate') {

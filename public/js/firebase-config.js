@@ -119,7 +119,34 @@ export function envOf(hostname = '') {
  */
 export const ENV = envOf(globalThis.location?.hostname ?? '');
 
-export const firebaseConfig = PROJECTS[ENV];
+/**
+ * Google 登入要經過哪一個網域。**純函式，可以測。**
+ *
+ * 開在那個專案自己的網址（`.web.app`／`.firebaseapp.com`）上時就用**同一個網址**（ADR-0168）：
+ * iPad 加到主畫面那一顆，登入時 SDK 要載一個 `authDomain` 的 iframe，跨網域的那一個在那裡載不起來，
+ * 登入按下去就是 `auth/network-request-failed`（瀏覽器分頁好好的，關掉「防止跨網站追蹤」也一樣）。
+ * Firebase Hosting 在每一個網址底下都有 `/__/auth/handler`，所以同一個網址不用另外架。
+ *
+ * **預覽頻道照舊走 `firebaseapp.com`**：那種網址每一支 PR 都不一樣，Google 那一側的
+ * 「已授權的重新導向 URI」一個一個登記不完 —— 沒登記的網址連瀏覽器分頁都登不進去。
+ * 認不得的網址也一樣退回原本那一個。
+ *
+ * @param {'emulator'|'staging'|'prod'} env
+ * @param {string} hostname
+ * @returns {string}
+ */
+export function authDomainFor(env, hostname = '') {
+  const project = PROJECTS[env];
+  if (env === 'emulator') return project.authDomain;
+  const host = String(hostname ?? '').toLowerCase();
+  const own = [`${project.projectId}.web.app`, `${project.projectId}.firebaseapp.com`];
+  return own.includes(host) ? host : project.authDomain;
+}
+
+export const firebaseConfig = {
+  ...PROJECTS[ENV],
+  authDomain: authDomainFor(ENV, globalThis.location?.hostname ?? ''),
+};
 
 /**
  * App Check 的 reCAPTCHA Enterprise 網站金鑰（ADR-0100 防護第 3 道）。**不是密鑰**：
