@@ -21,6 +21,8 @@ const require = createRequire(resolve(REPO, 'package.json'));
 const { initializeApp, applicationDefault } = require('firebase-admin/app');
 const firestore = require('firebase-admin/firestore');
 const { slotStatus } = await import(pathToFileURL(resolve(REPO, 'public/js/domain/visits.js')).href);
+// 病歷號：跟 app 認人同一支（那一格優先、再讀還寫成短備註的，ADR-0160）
+const { chartNosOf } = await import(pathToFileURL(resolve(REPO, 'public/js/domain/identify.js')).href);
 
 const ALIASES = { prod: 'wellness-clinic-scheduler', production: 'wellness-clinic-scheduler', staging: 'wellness-clinic-staging' };
 const WD = '日一二三四五六';
@@ -115,7 +117,11 @@ names.forEach((name, i) => {
   out.push({
     name,
     match: how,
-    customers: list.map((c) => ({ id: c.id, name: c.name, lineId: c.lineId ?? null, active: c.active !== false, flags: c.flags ?? [] })),
+    customers: list.map((c) => ({
+      id: c.id, name: c.name, lineId: c.lineId ?? null, active: c.active !== false, flags: c.flags ?? [],
+      // 畫在頁面上的照她存的樣子（不去掉前面的 0）；比對用的 chartNos 是 app 認人用的、去掉前面 0 的
+      chartNo: c.chartNo ?? null, chartNos: chartNosOf(c),
+    })),
     pastSlots: slots.filter((s) => !s.future).length,
     weekdays: tally('weekday'),
     partOfDay: tally('part'),
@@ -124,7 +130,9 @@ names.forEach((name, i) => {
     availability: past,
   });
   const metal = list.some((c) => (c.flags ?? []).some((f) => String(f).includes('金屬')));
-  console.log(`#${i + 1} 對到 ${list.length} 位（${how}）${metal ? '・體內金屬' : ''}・過去一年來過 ${out.at(-1).pastSlots} 段・以前記過不能的時間 ${past.length} 份・之後已排 ${out.at(-1).upcoming.length} 段`);
+  const charts = new Set(list.flatMap((c) => chartNosOf(c)));
+  const chartSay = charts.size === 1 ? '有病歷號' : charts.size ? `病歷號 ${charts.size} 個不一樣` : '沒有病歷號';
+  console.log(`#${i + 1} 對到 ${list.length} 位（${how}）・${chartSay}${metal ? '・體內金屬' : ''}・過去一年來過 ${out.at(-1).pastSlots} 段・以前記過不能的時間 ${past.length} 份・之後已排 ${out.at(-1).upcoming.length} 段`);
 });
 
 writeFileSync(join(folder, '過程', '客戶脈絡.json'), JSON.stringify({ readAt: new Date().toISOString(), projectId, people: out }, null, 2));

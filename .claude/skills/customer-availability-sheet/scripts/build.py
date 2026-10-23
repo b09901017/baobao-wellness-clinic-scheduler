@@ -101,6 +101,69 @@ def red_flags_by_name(folder):
     return out
 
 
+def full_names(folder):
+    """客戶脈絡.json → {她的叫法: app 上的全名}。對不到剛好一位的不換（照她的叫法畫，build 會講）。
+
+    她 10/23：「要寫全名，不要只有幾個字」。讀法.json 的 `name` 照舊是她的叫法（拿來對脈絡與客戶記憶），
+    頁面上（頁名、大字、一句話與「跟 X 一起來」裡提到的人）一律換成全名；客戶原文不動。
+    """
+    path = os.path.join(folder, '過程', '客戶脈絡.json')
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    for p in json.load(open(path, encoding='utf-8'))['people']:
+        if len(p['customers']) == 1 and (p['customers'][0].get('name') or '').strip():
+            out[p['name']] = p['customers'][0]['name'].strip()
+    return out
+
+
+def with_full_names(text, full):
+    """一句話裡提到的叫法換成全名；已經是全名的那幾個字不再換一次（全名多半包著叫法）。"""
+    pairs = sorted(((s, f) for s, f in full.items() if s != f), key=lambda x: -len(x[0]))
+    out, i = '', 0
+    while i < len(text):
+        for short, name in pairs:
+            if text.startswith(name, i):
+                out, i = out + name, i + len(name)
+                break
+            # 叫法前面已經是全名的開頭（「王」＋「小明」）就不換
+            lead = name.find(short)
+            if text.startswith(short, i) and not (lead > 0 and text[max(0, i - lead):i] == name[:lead]):
+                out, i = out + name, i + len(short)
+                break
+        else:
+            out, i = out + text[i], i + 1
+    return out
+
+
+def chart_by_name(folder):
+    """客戶脈絡.json → {名字: (病歷號那一格要寫的字, 是不是要提醒她)}。
+
+    她 10/23：「那張表也要呈現所有人的病歷號，很重要」。畫的是她存的樣子（`chartNo`，前面的 0 照留）；
+    那一格空著、號碼還寫在短備註裡的，用 app 認人的那一支（`chartNosOf()`）讀出來的。
+    沒有、或同一位有兩個不一樣的號碼 → 照實寫、標成要提醒（不挑一個）。對不到剛好一位客戶的不寫。
+    """
+    path = os.path.join(folder, '過程', '客戶脈絡.json')
+    if not os.path.exists(path):
+        return None
+    out = {}
+    for p in json.load(open(path, encoding='utf-8'))['people']:
+        if len(p['customers']) != 1:
+            continue
+        c = p['customers'][0]
+        nos = c.get('chartNos') or []
+        raw = str(c.get('chartNo') or '').strip()
+        if len(nos) > 1:
+            out[p['name']] = ('／'.join(nos), True)
+        elif raw:
+            out[p['name']] = (raw, False)
+        elif nos:
+            out[p['name']] = (nos[0], False)
+        else:
+            out[p['name']] = ('app 上沒有', True)
+    return out
+
+
 def lines_needed(text, size, width_units):
     """一行放不下時要幾行（中文字大約 size/5.5 個欄寬單位）。只用來估列高。"""
     per_char = size / 5.5
@@ -112,8 +175,10 @@ def build(folder):
     year, month = (int(x) for x in plan['month'].split('-'))
     last = calendar.monthrange(year, month)[1]
     red = red_flags_by_name(folder)
+    charts = chart_by_name(folder)
+    full = full_names(folder)
     if red is None:
-        print('注意：沒有 過程/客戶脈絡.json —— 體內金屬標不上去，先跑 history.mjs')
+        print('注意：沒有 過程/客戶脈絡.json —— 全名、體內金屬與病歷號都放不上去，先跑 history.mjs')
 
     FONT = 'Microsoft JhengHei'
     INK, SOFT = '2B3440', '4B5563'
@@ -133,7 +198,8 @@ def build(folder):
     names = set()
     unflagged = []
     for p in plan['people']:
-        title = p['name'][:31]
+        shown = full.get(p['name'], p['name'])
+        title = shown[:31]
         if title in names:
             raise ValueError(f'兩頁同名：{title}')
         names.add(title)
@@ -158,10 +224,22 @@ def build(folder):
         ws['G1'].font = f(11, False, SOFT)
         ws['G1'].alignment = Alignment(horizontal='right', vertical='bottom')
         ws.row_dimensions[2].height = 40
-        ws.merge_cells('B2:F2')
-        ws['B2'] = p['name']
+        ws.merge_cells('B2:D2')
+        ws['B2'] = shown
         ws['B2'].font = f(24, True)
         ws['B2'].alignment = Alignment(vertical='bottom')
+        # 病歷號：名字右邊，數字大、上面一行小字標「病歷號」
+        chart = (charts or {}).get(p['name'])
+        if chart:
+            text, warn = chart
+            ws.merge_cells('E1:F1')
+            ws['E1'] = '病歷號'
+            ws['E1'].font = f(10, True, SOFT)
+            ws['E1'].alignment = Alignment(vertical='bottom', indent=1)
+            ws.merge_cells('E2:F2')
+            ws['E2'] = text
+            ws['E2'].font = f(14 if warn else 20, True, 'B45309' if warn else INK)
+            ws['E2'].alignment = Alignment(vertical='bottom', indent=1)
         flags = (red or {}).get(p['name'])
         if red is not None and p['name'] not in red:
             unflagged.append(p['id'])
@@ -176,7 +254,7 @@ def build(folder):
 
         ws.row_dimensions[3].height = 26
         ws.merge_cells('B3:H3')
-        ws['B3'] = p['summary'] + (f"　・　{p['together']}" if p.get('together') else '')
+        ws['B3'] = with_full_names(p['summary'] + (f"　・　{p['together']}" if p.get('together') else ''), full)
         ws['B3'].font = f(12, False, SOFT)
         ws['B3'].alignment = Alignment(vertical='center')
         ws.row_dimensions[4].height = 18
@@ -283,7 +361,11 @@ def build(folder):
     wb.active = 0
     wb.save(out)
     flagged = sum(1 for p in plan['people'] if (red or {}).get(p['name']))
-    print(f"寫好了：{len(plan['people'])} 頁 → {os.path.basename(out)}・標了體內金屬 {flagged} 位"
+    with_chart = sum(1 for p in plan['people'] if (charts or {}).get(p['name']) and not charts[p['name']][1])
+    odd_chart = sum(1 for p in plan['people'] if (charts or {}).get(p['name']) and charts[p['name']][1])
+    print(f"寫好了：{len(plan['people'])} 頁 → {os.path.basename(out)}・病歷號 {with_chart} 位"
+          + (f"（另有 {odd_chart} 位沒有或不只一個，頁面上用橘字寫）" if odd_chart else '')
+          + f"・標了體內金屬 {flagged} 位"
           + (f"・對不到 app 的 {len(unflagged)} 位沒查：{'、'.join('#' + i for i in unflagged)}" if unflagged else ''))
 
 
