@@ -95,6 +95,26 @@ if os.path.exists(ctx_path):
             problems.append(f"#{p['id']} 體內金屬：app {'有' if want else '沒有'}，試算表{'有' if has else '沒有'}標")
         tagged += has
     print(f'體內金屬：標了 {tagged} 位，app 上有 {sum(metal.values())} 位')
+
+    # 病歷號：頁面上寫的（可能留著前面的 0）跟 app 認人用的 chartNos 比，前面的 0 不算
+    def norm(x):
+        return str(x).strip().lstrip('0') or '0'
+    nos = {c['name']: [norm(n) for n in (c['customers'][0].get('chartNos') or [])]
+           for c in json.load(open(ctx_path, encoding='utf-8'))['people'] if len(c['customers']) == 1}
+    shown = 0
+    for ws, p in zip(wb.worksheets, plan['people']):
+        want = nos.get(p['name'])
+        if want is None:
+            continue
+        page = str(ws['E2'].value or '')
+        if not want:
+            if page != 'app 上沒有':
+                problems.append(f"#{p['id']} 病歷號：app 上沒有，頁面上寫的不是「app 上沒有」")
+        elif sorted(norm(x) for x in page.split('／')) != sorted(want):
+            problems.append(f"#{p['id']} 病歷號：頁面上的跟 app 上的不一樣")
+        else:
+            shown += 1
+    print(f"病歷號：{shown} 位跟 app 一樣、{sum(1 for v in nos.values() if not v)} 位 app 上沒有")
 else:
     problems.append('沒有 過程/客戶脈絡.json —— 體內金屬沒有核對（先跑 history.mjs）')
 
