@@ -101,6 +101,41 @@ def red_flags_by_name(folder):
     return out
 
 
+def full_names(folder):
+    """客戶脈絡.json → {她的叫法: app 上的全名}。對不到剛好一位的不換（照她的叫法畫，build 會講）。
+
+    她 10/23：「要寫全名，不要只有幾個字」。讀法.json 的 `name` 照舊是她的叫法（拿來對脈絡與客戶記憶），
+    頁面上（頁名、大字、一句話與「跟 X 一起來」裡提到的人）一律換成全名；客戶原文不動。
+    """
+    path = os.path.join(folder, '過程', '客戶脈絡.json')
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    for p in json.load(open(path, encoding='utf-8'))['people']:
+        if len(p['customers']) == 1 and (p['customers'][0].get('name') or '').strip():
+            out[p['name']] = p['customers'][0]['name'].strip()
+    return out
+
+
+def with_full_names(text, full):
+    """一句話裡提到的叫法換成全名；已經是全名的那幾個字不再換一次（全名多半包著叫法）。"""
+    pairs = sorted(((s, f) for s, f in full.items() if s != f), key=lambda x: -len(x[0]))
+    out, i = '', 0
+    while i < len(text):
+        for short, name in pairs:
+            if text.startswith(name, i):
+                out, i = out + name, i + len(name)
+                break
+            # 叫法前面已經是全名的開頭（「王」＋「小明」）就不換
+            lead = name.find(short)
+            if text.startswith(short, i) and not (lead > 0 and text[max(0, i - lead):i] == name[:lead]):
+                out, i = out + name, i + len(short)
+                break
+        else:
+            out, i = out + text[i], i + 1
+    return out
+
+
 def chart_by_name(folder):
     """客戶脈絡.json → {名字: (病歷號那一格要寫的字, 是不是要提醒她)}。
 
@@ -141,8 +176,9 @@ def build(folder):
     last = calendar.monthrange(year, month)[1]
     red = red_flags_by_name(folder)
     charts = chart_by_name(folder)
+    full = full_names(folder)
     if red is None:
-        print('注意：沒有 過程/客戶脈絡.json —— 體內金屬與病歷號都放不上去，先跑 history.mjs')
+        print('注意：沒有 過程/客戶脈絡.json —— 全名、體內金屬與病歷號都放不上去，先跑 history.mjs')
 
     FONT = 'Microsoft JhengHei'
     INK, SOFT = '2B3440', '4B5563'
@@ -162,7 +198,8 @@ def build(folder):
     names = set()
     unflagged = []
     for p in plan['people']:
-        title = p['name'][:31]
+        shown = full.get(p['name'], p['name'])
+        title = shown[:31]
         if title in names:
             raise ValueError(f'兩頁同名：{title}')
         names.add(title)
@@ -188,7 +225,7 @@ def build(folder):
         ws['G1'].alignment = Alignment(horizontal='right', vertical='bottom')
         ws.row_dimensions[2].height = 40
         ws.merge_cells('B2:D2')
-        ws['B2'] = p['name']
+        ws['B2'] = shown
         ws['B2'].font = f(24, True)
         ws['B2'].alignment = Alignment(vertical='bottom')
         # 病歷號：名字右邊，數字大、上面一行小字標「病歷號」
@@ -217,7 +254,7 @@ def build(folder):
 
         ws.row_dimensions[3].height = 26
         ws.merge_cells('B3:H3')
-        ws['B3'] = p['summary'] + (f"　・　{p['together']}" if p.get('together') else '')
+        ws['B3'] = with_full_names(p['summary'] + (f"　・　{p['together']}" if p.get('together') else ''), full)
         ws['B3'].font = f(12, False, SOFT)
         ws['B3'].alignment = Alignment(vertical='center')
         ws.row_dimensions[4].height = 18

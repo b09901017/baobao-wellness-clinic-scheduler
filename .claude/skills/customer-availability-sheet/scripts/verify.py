@@ -33,7 +33,13 @@ first_monday = first - datetime.timedelta(days=first.weekday())
 total = bad = 0
 for ws, p in zip(wb.worksheets, plan['people']):
     pid = p['id']
-    if ws.title != p['name'][:31]:
+    # 頁名是 app 上的全名（她 10/23：「要寫全名」）；對不到剛好一位的照她的叫法
+    full = {}
+    ctx_file = os.path.join(folder, '過程', '客戶脈絡.json')
+    if os.path.exists(ctx_file):
+        full = {c['name']: c['customers'][0]['name'].strip() for c in json.load(open(ctx_file, encoding='utf-8'))['people']
+                if len(c['customers']) == 1 and (c['customers'][0].get('name') or '').strip()}
+    if ws.title != full.get(p['name'], p['name'])[:31] or ws['B2'].value != full.get(p['name'], p['name']):
         problems.append(f'#{pid} 頁名跟讀法.json 不一樣')
     head = next((r for r in range(1, 40) if [ws.cell(row=r, column=c).value for c in range(2, 9)] == list('一二三四五六日')), None)
     if head is None:
