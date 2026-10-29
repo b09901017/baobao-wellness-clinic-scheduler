@@ -1,0 +1,8 @@
+{
+  "mainDeploysProd": true,
+  "npmScripts": { "restore": "restore-backup.mjs", "staging:reset": "reset-staging.mjs", "seed:staging": "seed-staging.mjs" },
+  "writeScripts": ["restore-backup.mjs", "reset-staging.mjs", "seed-staging.mjs"],
+  "prodReadScripts": ["history.mjs", "snapshot.mjs", "run.mjs"],
+  "stagingScripts": ["reset-staging.mjs"],
+  "looseStaging": true
+}
