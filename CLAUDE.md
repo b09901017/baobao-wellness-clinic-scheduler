@@ -39,6 +39,8 @@
 **PR 的基底是 `develop`，不是 `main`。** 直接 PR 進 `main` 等於這段程式沒有在
 staging 上被點過 —— 只有急件這樣做。
 
+**合併**：PR 的 CI 全綠就合進 `develop`，不用再問（她 2026-10-15：「最後要幫我開pr以及合併進develop」）。合完 staging 會自動部署；拍照的 Function 不歸 CI，要部署的照 `docs/STAGING.md`。**進 `main` 要她另外說。**
+
 第一次設定、部署指令、白名單、清空 staging、還原演練都在 `docs/STAGING.md`。
 
 **真實客戶姓名與健康資訊一個字都不能進版控** —— 不只 `docs/`，註解、測試、`.scratch/` 的 issue、`.claude/` 的 skill 全都算。例子一律寫「客戶A」，規則跟名字的字數有關時用假名（王小明）。`tests/no-secrets.test.js` 盯著。
