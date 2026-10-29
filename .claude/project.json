@@ -4,5 +4,6 @@
   "writeScripts": ["restore-backup.mjs", "reset-staging.mjs", "seed-staging.mjs"],
   "prodReadScripts": ["history.mjs", "snapshot.mjs", "run.mjs"],
   "stagingScripts": ["reset-staging.mjs"],
-  "looseStaging": true
+  "looseStaging": true,
+  "skills": ["claude-md", "graphify", "grill-with-docs", "grilling", "kickoff", "matt-code-review"]
 }
