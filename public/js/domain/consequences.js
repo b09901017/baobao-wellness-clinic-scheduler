@@ -256,7 +256,7 @@ export function bookingConsequences({
   // n返 是加約的，**不扣任何次數**。這一句是她最會擔心的那件事：
   // 整套系統的核心焦慮就是次數對不對得起來，而一場「不用先加購」的來訪
   // 憑直覺看起來像會偷扣一次。講一次，她就不用回去客戶詳情比對。
-  for (const nth of nthLabels(visit)) {
+  for (const nth of nthLabels(visit, added)) {
     lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   }
   // 送的／體驗是同一種擔心（ADR-0121、gift-and-trial 01）：一段「不用先加購」的來訪看起來像會偷扣一次
@@ -617,10 +617,14 @@ function planOfGroups(groups = [], adopts = [], visitsBy = {}) {
   return { writes, rows, before, after };
 }
 
-/** 這一筆來訪裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。 */
-function nthLabels(visit) {
+/**
+ * 這次新加的段裡有哪幾段是 n返，講成「三返」這種話。同一個返數只講一次。寫法照 `giftNames()`（只看 `added`）——
+ * 那一天原本的三返不是這一次加的，新加的一段扣額度的復能會扣（段四審查 二、1）。
+ */
+function nthLabels(visit, added = null) {
+  const slots = visit?.slots ?? [];
   const seen = new Set();
-  for (const slot of visit?.slots ?? []) {
+  for (const slot of (added ?? slots.map((_, at) => at)).map((i) => slots[i])) {
     // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）
     if (isExamNotMine(slot)) continue;
     const label = nthLabel(nthOf(slot));

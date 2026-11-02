@@ -157,6 +157,27 @@ describe('紅字：有接得上的健檢', () => {
   });
 });
 
+// 段四審查 二、2：三返借二返那門課，醫師那一句照舊寫「二返」會看錯
+describe('提醒：三返沒選醫師叫它「三返」', () => {
+  const doctorSays = (slot) => validateVisit(visitOf([slot]), vctx()).warnings.filter((w) => w.includes('還沒選醫師'));
+  test('帶標記的三返 → 「三返 還沒選醫師」', () => {
+    const said = doctorSays(third());
+    assert.equal(said.length, 1, said.join('｜'));
+    assert.match(said[0], /三返 還沒選醫師/);
+  });
+  test('一般的三返 → 同一句', () => {
+    const said = doctorSays({
+      entitlementId: null, courseId: 'course-followup', courseName: '三返', followupNth: 3, followupForVisitId: null,
+      startsAt: '11:00', endsAt: '11:30', status: 'pending_confirm',
+    });
+    assert.ok(said.some((w) => /三返 還沒選醫師/.test(w)), said.join('｜'));
+  });
+  test('帶標記的二返 → 照舊「二返 還沒選醫師」', () => {
+    const said = doctorSays(notMine());
+    assert.ok(said.some((w) => /二返 還沒選醫師/.test(w)), said.join('｜'));
+  });
+});
+
 describe('紅字：沒有標記的段一句都不多', () => {
   test('一般的二返（扣額度、接健檢）與一般的三返 → 沒有 examNotMine 那一種', () => {
     const second = {
@@ -203,6 +224,23 @@ describe('確認框：bookingConsequences()', () => {
     const { lines } = bookingConsequences({ visit: visitOf([nth]), coursesById });
     assert.ok(lines.some((l) => /三返是加約的/.test(l)));
     assert.ok(!lines.some((l) => l.includes('健檢不是你排的')));
+  });
+
+  // 段四審查 二、1：那一天原本的三返不是這一次加的，新加的扣額度的段會扣
+  const nthSlot = {
+    entitlementId: null, courseId: 'course-followup', courseName: '三返', followupNth: 3, followupForVisitId: 'v-exam',
+    startsAt: '11:00', endsAt: '11:30', status: 'pending_confirm',
+  };
+  test('那一天已有三返、新加一段扣額度的 → 不講「三返是加約的」', () => {
+    const visit = visitOf([nthSlot, { entitlementId: 'ent-x', courseId: 'course-checkup', startsAt: '14:00', endsAt: '15:00', status: 'pending_confirm' }], { id: 'v1' });
+    const { lines } = bookingConsequences({ visit, coursesById, merge: { reopened: false }, added: [1] });
+    assert.ok(!lines.some((l) => /三返是加約的/.test(l)), lines.join('｜'));
+  });
+
+  test('新加的就是三返 → 照講', () => {
+    const visit = visitOf([{ entitlementId: 'ent-x', courseId: 'course-checkup', startsAt: '08:00', endsAt: '09:00', status: 'pending_confirm' }, nthSlot], { id: 'v1' });
+    const { lines } = bookingConsequences({ visit, coursesById, merge: { reopened: false }, added: [1] });
+    assert.ok(lines.some((l) => /三返是加約的/.test(l)), lines.join('｜'));
   });
 });
 

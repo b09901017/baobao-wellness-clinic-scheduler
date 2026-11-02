@@ -2138,6 +2138,8 @@ function assignmentWarnings(visit, {
     const course = coursesById[slot.courseId];
     if (!course || !isLiveSlot(slot)) return;
     const at = slotLabel(i);
+    // 三返借二返那門課：醫師、診間那幾句叫它「三返」，不叫「二返」（段四審查 二、2）
+    const name = nthLabel(nthOf(slot)) ?? course.name;
     // 這一圈每一句都是這一段的（`warningDetails()` 要知道是哪一段）；品項那一句自己另算一種來源
     const say = (text, source) => found.push({ text, slots: [i], ...(source ? { source } : {}) });
 
@@ -2150,7 +2152,7 @@ function assignmentWarnings(visit, {
     }
     // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
     const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
-    if (ahead) say(`${at}：${nthLabel(nthOf(slot)) ?? course.name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
+    if (ahead) say(`${at}：${name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
     // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
@@ -2158,14 +2160,14 @@ function assignmentWarnings(visit, {
     //
     // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
     if (picksDoctor(course) && !slot.doctorId) {
-      say(`${at}：${course.name} 還沒選醫師`);
+      say(`${at}：${name} 還沒選醫師`);
     }
     if (!picksDoctor(course) && slot.doctorId) {
-      say(`${at}：${course.name} 不需要指定醫師`);
+      say(`${at}：${name} 不需要指定醫師`);
     }
 
     if (course.assigns === 'room') {
-      if (!slot.roomId) say(`${at}：${course.name} 還沒選診間`);
+      if (!slot.roomId) say(`${at}：${name} 還沒選診間`);
       else {
         const allowed = roomsForCourse(course, rooms);
         // **停用的那一間不是「別間」**（ADR-0127）：問的是它的類型排不排得進這門課（`roomFitsCourse()`），
@@ -2173,20 +2175,20 @@ function assignmentWarnings(visit, {
         const mine = (rooms ?? []).find((r) => r.id === slot.roomId && !r.deletedAt) ?? null;
         if (allowed.length && !allowed.some((r) => r.id === slot.roomId) && !roomFitsCourse(course, mine)) {
           say(
-            `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
+            `${at}：${name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
           );
         }
       }
-      if (slot.therapistId) say(`${at}：${course.name} 不需要指派治療師`);
+      if (slot.therapistId) say(`${at}：${name} 不需要指派治療師`);
     }
 
     if (course.assigns === 'therapist') {
-      if (!slot.therapistId) say(`${at}：${course.name} 還沒選治療師`);
-      if (slot.roomId) say(`${at}：${course.name} 不佔診間`);
+      if (!slot.therapistId) say(`${at}：${name} 還沒選治療師`);
+      if (slot.roomId) say(`${at}：${name} 不佔診間`);
     }
 
     if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
-      say(`${at}：${course.name} 不需要診間也不需要治療師`);
+      say(`${at}：${name} 不需要診間也不需要治療師`);
     }
 
     // 排的品項不是她買的那一款。2026-09-04 她問的：「我營養點滴如果一開始
