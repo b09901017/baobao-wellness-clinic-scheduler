@@ -78,6 +78,9 @@
 - **`chargeSwitchConsequences()` 多收 `customer`、`chain`**（04）：`visitEditor.js:1394` 現在沒傳 → 改成帶標記時「約二返」那幾句不講（不會講錯，只是少講）。06 接
 - **這台雲端 VM 沒有 `codegraph`**（`which codegraph` 空的、`npx` 也沒有）：04 的 ripple-check 用 grep 做。在她家裡那台跑的段照舊用它
 - **本機的 `develop` 停在 f36c654**（舊的），`--related` 會拿整條舊差異挑（lessons 十二）。04 時已 `git branch -f develop origin/develop`（093e1d9）
+- **相關 E2E 結果（11/2，雲端 VM、CI=1、一個 worker）**：`--related` 挑 48 支（對 develop 動了 27 個檔案），**全綠**。
+  中途模擬器被背景 30 分鐘上限砍掉（停在 `67` 前兩條），重起之後補跑 `67`～`82` 那 8 支：56 passed。前面 00～65 那段 301 passed，
+  其中 `29-slot-first` S2 第一次逾時、retry 綠（那一頁這一輪沒動）—— 記著，段五 CI 全量再看一次。**在雲端 VM 起模擬器要給長的 timeout**（`run_in_background` 預設 30 分鐘會砍）
 
 ### 段二
 
