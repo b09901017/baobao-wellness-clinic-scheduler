@@ -1,6 +1,6 @@
 # 03：試算表那一列、月底對帳的分桶
 
-Status: todo
+Status: done
 Blocked by: 02
 
 ## 動工前先讀
@@ -42,4 +42,15 @@ Blocked by: 02
 
 ## 做完時留下的
 
-（做完的人寫）
+- `sheetReport.js` 的 `extraRows()`：多一支內部的 `rowNthOf(slot)` —— n返 照返數；**沒有額度、不是送的／體驗的二返算 2**：
+  帶標記的（`isExamNotMine()`）與以前就在的舊資料（`isFollowupCourse()`：二返那門課）都是。所以帶標記的二返進 n返 那一組、
+  名字 `nthLabel(2)`＝「二返（不算次數）」、排在三返那一列前面（`sort` 照返數）；舊資料裡同名的那一列**併成同一列**（不再是 `free`，
+  排序也跟著挪到三返前面）。`kindOf()`／`keyOf()`／群組的 `nth` 都改問 `rowNthOf()`；帶標記的三返～十返照返數進原本那一列（不看連結）
+- 兩條路（自動推送 `syncBundle()`、手動貼上 `customerReport()`）都叫 `extraRows()`，所以一起變；`followupNotes()` 沒動（它只繞接著那一次健檢的段）
+- 不升 `SYNC_FORMAT`、不改 `.gs`（列的形狀沒變，`remaining`／`total` 照舊一槓）；`sheetFingerprint()` 拿整頁資料算，多的那一列在裡面
+- 月底對帳 `reconcile.mjs` **沒改**：帶標記的二返 `bucketOfSlot()` → `course:course-followup`、照片那一列二返 → 同一桶；三返兩邊都是 `nth:3`。
+  `bucketLabel()` 照舊「二返（沒有扣額度）」（對兩種二返都講得通）
+- 測試：`tests/sheet-rows-without-entitlement.test.js` 多一組「健檢不是她排的」7 支（那一列與先後、跟接著健檢的三返同一列、
+  二返額度列四個數字與合計不變、健檢底下那一行不變、舊資料併成一列、只做帶標記二返那一天的不變量、手動貼上同一列同順序）；
+  `tests/month-end-reconciliation.test.js` 多 2 支（Abovee 二返＋三返 vs app 帶標記那兩段 → 0 件、兩桶 1／1；app 少一段 → 照舊 missing）
+- `SPEC.md` 4.8 補一段；`public/sw.js` v210 → v211、`npm run shell:snapshot`
