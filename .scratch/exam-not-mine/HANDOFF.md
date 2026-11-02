@@ -9,7 +9,7 @@
 | 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
 | 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、1697c65）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
 | 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | **done**：08～10（69322b5、929489f、0eae523）＋ E2E `85`；`npm run verify` 見「中途發現 → 段三」最後一條 |
-| 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
+| 四 | `/matt-code-review` 審這一輪全部 | xhigh | **done**：`REVIEW.md`（要修四條、不修六條、沒有要她決定的） |
 | 五 | 照審查修、手動驗收清單（自己在模擬器走過）、CI 全量、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
 
 ## 每一段共同的規矩
@@ -281,6 +281,44 @@
 做完要交：`REVIEW.md`、更新這份 HANDOFF（分段表、要使用者決定的、她的回答）、**段五的開場**寫進下面（照審查修哪幾條、手動驗收清單、CI 全量 `gh workflow run e2e-full.yml --ref claude/exam-not-mine`、
 開 PR 進 `develop`、CI 全綠就合）；commit 並 push；最後回覆簡短說找到什麼、要她決定什麼。
 
-### 段五：PR（effort medium）
+### 段五：照審查修、驗收、PR（effort medium）
 
-（段四做完時寫）
+這一輪在做「健檢不是我排的」（ADR-0169）：時段上多一格 `examNotMine: true`，讓健檢不是她排的客人可以排二返、三返～十返，不扣額度、不接健檢，其餘照二返那門課。
+分支 `claude/exam-not-mine`，在主資料夾（她家裡那台 `C:\Users\DELL\Desktop\baobao-wellness-clinic-scheduler`；雲端 VM 上是 `/home/baobao/acct1/baobao-wellness-clinic-scheduler`），不是 worktree。
+開工前 `git pull`、`git status` 乾淨、跟 origin 一致；本機 `develop` 對齊 `origin/develop`（lessons 十二）。
+
+**段一～段四做完了**：01～10 ＋ E2E `82`～`85`、審查在 `.scratch/exam-not-mine/REVIEW.md`。**要她決定的：沒有**（審查的四條都是範圍裡的錯或文件沒跟上）。
+
+先讀：`CLAUDE.md`、`docs/agents/lessons.md`（一、二、五、十）、`REVIEW.md` 全部、這份 HANDOFF 的「使用者已經決定的」「每一段共同的規矩」。
+
+**1. 照 `REVIEW.md`「二、要修的」修四條**，每一條先寫會紅的測試、跑過確認紅 → 修到綠；改既有函式之前照 `ripple-check`（`codegraph sync` → `callers`／`impact`，再 grep）：
+- 二、1 `consequences.js` 的 `nthLabels(visit, added)`（照 `giftNames()` 只看新加的段）—— 單元測試：那一天已有三返、新加一段扣額度的復能，確認框沒有「三返是加約的」；新加的就是三返時照講
+- 二、2 `visits.js` 的 `assignmentWarnings()`：醫師／診間那幾句的名字用 `nthLabel(nthOf(slot)) ?? course.name` —— 單元測試：三返（一般的與帶標記的）沒選醫師寫「三返 還沒選醫師」；二返照舊「二返」
+- 二、3 `slotFromPicks()` 的 `notMine` 那一支收退路課程（是某一門的二返才用），編輯器 `readNotMineSlot()` 把這一段原本的課程傳進去 —— 單元測試：主檔兩門二返、二返那門課停用兩種情況，改開始時間存得下去而且是新的時間；一般的段答案不變
+- 二、4 文件：操作手冊 388、394 行與常見問題 505 行補「已經展開的話直接點「其他 ▸」」；邊界測試清單 R3 補「按那一次健檢」那一步、驗收標準照走的結果寫；
+  操作手冊那一節「跳紅字的兩種」「它長什麼樣」收成操作上的話＋一行連到 ADR-0169；`CLAUDE.md`「健檢不是我排的」那一列試算表那一句補「舊資料裡沒有額度的二返併進同一列」
+- 可順手（不強求）：提示字「健檢不是你排的：這一場不扣任何次數、不接 app 裡的任何一次健檢。」收成 `masterData.js` 一個常數，三頁共用
+- 動到 `public/` 的 commit 升 `sw.js` 的 `VERSION`（**現在 v217**）、跑 `npm run shell:snapshot`；一條一個 commit（或一、二併一個），commit 訊息不帶真名
+
+**2. 手動驗收清單：自己在本機模擬器走過**（`npm run emulators` 背景 ＋ `seed:staging` 對模擬器；**不要碰 staging／正式**），走得通才寫進 PR，照「你可以怎麼點」寫、一個真名都不帶：
+- 日曆新增，一位沒有二返額度也沒有健檢的客人：日曆 → 點那一天 → 抬頭「＋」→ 新增來訪 → 找人 → 點那一位 →「額度」那一排的收合（已展開就跳過）→「其他 ▸」→「健檢不是我排的」→ 第幾返按「三返」→ 醫師 → 存 → 確認框有「三返的健檢不是你排的」那一句、沒有「加約的」
+- 同一位、醫師先不選就存：第一道提醒寫「三返 還沒選醫師」（二、2）
+- 壓表：同一位 → 那張卡「做什麼」→ 收合 →「其他 ▸」→「健檢不是我排的」→ 二返 → 時間 →「加這一段」
+- 一位有二返額度、有做完健檢的客人照樣按 → 存檔前兩句紅字（邊界測試清單 R1）；按「先不要，回去」一筆都沒存
+- 既有那一段改回一般：日曆 → 點那一列 → 鉛筆 → 那一排換回二返那一筆 →「這是哪一次健檢的」按那一次 → 存（R3，照實記確認框與「約二返」）
+- 一天已有三返、再加一段扣額度的復能：確認框沒有「三返是加約的」（二、1）
+- 拍 Abovee 交給 E2E `85` 與她在 staging 點（模擬器的 Function 是假模型）；PR 內文寫她在 staging 怎麼點（照操作手冊那一節）
+
+**3. 驗證與 PR**：
+- `npm run verify` 綠（本機只跑相關的那幾支，跑完依 port 停掉模擬器）
+- **CI 全量**：`gh workflow run e2e-full.yml --ref claude/exam-not-mine`，盯結果用 `gh run list/view --json … --jq`（這台沒有 `jq`）；
+  段一記過 `29-slot-first` S2 第一次逾時、retry 綠，看一下這次
+- push 之前、開 PR 之前自己看一眼 commit 訊息與 PR 內文沒有真名、病歷號、健康資訊（repo 是 public）
+- 開 PR 進 **`develop`**（不是 `main`），內文：這一輪做了什麼（連 ADR-0169）、審查修了哪幾條（連 `REVIEW.md`）、手動驗收清單、她在 staging 要點的
+- 開完照 ccd_pr 那一套：`get_status`／`bind_pr`；**CI 全綠就合進 `develop`**（CLAUDE.md：她 2026-10-15 說過不用再問）；合完 staging 自動部署。
+  這一輪沒動 `functions/`、沒動試算表的 `.gs`（`SYNC_FORMAT` 沒升），不用另外部署。**不進 `main`**（要她另外說）
+
+**主控會開下一段（如果還有）：不要自己開 session，也不要存 limit-guard 的開場 JSON。**
+
+做完要交：REVIEW.md 二的四條底下寫「修了：commit」、這份 HANDOFF 分段表段五的狀態（PR 連結、合併 commit）、
+最後回覆簡短說修了什麼、PR 與 CI 結果、她在 staging 要點的清單。
