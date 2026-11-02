@@ -181,8 +181,45 @@ export const GIFT_KINDS = Object.freeze(['trial', 'gift']);
 export const GIFT_LABELS = Object.freeze({ trial: '體驗', gift: '送的' });
 
 /**
+ * **健檢不是我排的**（2026-11-02，ADR-0169）。別人轉來的客人，健檢不在 app 裡，她替他排二返或三返～十返。她：
+ *
+ * > 我希望要按的名稱是「健檢不是我排的」
+ *
+ * 時段上的 `examNotMine: true`：那一段不扣任何一筆額度、不接任何一次健檢，課程是二返那門課（`examNotMineCourse()`）。
+ * 它**不是**送的／體驗（`giftKindOf()` 對它回 null），也不是 n返 的另一種規則 —— 沒有這一格的段一條都不放寬。
+ *
+ * **讀一律走這一支、只認 `true`**，永遠不從形狀推：「二返那門課＋沒有額度＋沒有連結」那種形狀舊資料可能就有，
+ * 從形狀推的話它們會安安靜靜地變成「健檢不是她排的」。一般的段沒有這一格（不寫 `false`／`null`）。
+ * 住在這裡（不是 `nthFollowup.js`）：那一支經 `followups.js` → `entitlements.js` → `naming.js` 繞回這裡。
+ */
+export const isExamNotMine = (slot) => slot?.examNotMine === true;
+
+/** 那一顆的字（她挑的）。畫面、提醒、驗證的句子都用它。 */
+export const EXAM_NOT_MINE_LABEL = '健檢不是我排的';
+
+/**
+ * 健檢不是她排的那一段用哪一門課：主檔上的「二返那門課」（某一門課的 `followupCourseId` 指著的那一門）。
+ * **剛好一門才回**，一門都沒有、兩門以上回 `null` —— 那一顆就不畫（猜一門的話，她之後多設一門二返時那幾段掛錯課）。
+ * 刪掉、停用的不算（同 `abovee.js` 認三返的那一支）。
+ *
+ * **驗證不問這一支**：存檔問的是「它是不是某一門課的二返」（`followups.js` 的 `isFollowupCourse()`，任何一門都算），
+ * 她之後多設一門二返時，既有帶標記的段照樣存得下去。
+ *
+ * @param {object[]} courses 課程主檔
+ * @returns {object|null}
+ */
+export function examNotMineCourse(courses = []) {
+  const live = (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false);
+  const targets = new Set(live.map((c) => c.followupCourseId).filter(Boolean));
+  const found = live.filter((c) => targets.has(c.id));
+  return found.length === 1 ? found[0] : null;
+}
+
+/**
  * 這一段是體驗、送的，還是都不是。**讀一律走這一支。**
  *
+ * - **健檢不是她排的段一律不是**（`isExamNotMine()`，ADR-0169）—— 就算那一格寫了值、二返那門課被勾了預設體驗
+ *   （`validateVisit()` 另外看那一格原本的值擋下來）
  * - **扣著額度或是 n返 的段一律不是**（兩格都有值的壞資料照額度讀 —— 名字、試算表、編輯器講同一件事；
  *   `validateVisit()` 另外看那一格原本的值擋下來）
  * - 有那一格就照那一格（`null` 也算 —— 存過一次就寫實了，不再猜）
@@ -199,6 +236,7 @@ export const GIFT_LABELS = Object.freeze({ trial: '體驗', gift: '送的' });
  */
 export function giftKindOf(slot, coursesById = {}) {
   if (!slot) return null;
+  if (isExamNotMine(slot)) return null;
   if (slot.entitlementId) return null;
   if (slot.followupNth != null && slot.followupNth !== '') return null;
   if (slot.giftKind !== undefined) return GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;

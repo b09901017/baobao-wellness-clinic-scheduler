@@ -17,8 +17,8 @@ import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
   sameDayVisitFor, settle, slotCancelReasonOf, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
-import { picksDoctor, canBeGift, GIFT_KINDS } from './masterData.js';
-import { courseIdForNth, examChoicesForNth, nthSlotFields } from './nthFollowup.js';
+import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse } from './masterData.js';
+import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 
 /**
@@ -35,6 +35,10 @@ import { endOf, isValidTime } from './visitTime.js';
  *   課程就是它（擇一池那門課照器材重推，ADR-0075）、`entitlementId` 是 null、返數不碰。
  *   **任何一門課都可以，健檢與二返除外**（`canBeGift()`）—— 這一條路是唯一不靠額度也不靠健檢就組得出一段的地方
  * @param {'trial'|'gift'} [picks.giftKind] 體驗還是送的；沒給（或看不懂）就是體驗（她：「四門都寫體驗」）
+ * @param {boolean} [picks.examNotMine] 按了「健檢不是我排的」（ADR-0169）：課程是二返那門課（`examNotMineCourse()`）、
+ *   不扣任何一筆額度、不接任何一次健檢，`nth` 2 是二返、3～10 是三返～十返（沒給 → 「先選第幾返」）。
+ *   **它贏**：同時給了 `entitlementId`／`isNth`／`giftCourseId`／`followupForVisitId` 也一律清掉 —— 畫面上那一顆是她最後按的。
+ *   只認 `true`；沒給（或 `false`）的段一個字都不變，而且身上沒有 `examNotMine` 這一格
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -42,7 +46,7 @@ import { endOf, isValidTime } from './visitTime.js';
  * @param {string|null} [picks.bed]
  * @param {string|null} [picks.therapistId]
  * @param {string|null} [picks.doctorId]
- * @param {number|null} [picks.nth] 第幾返
+ * @param {number|null} [picks.nth] 第幾返（n返 3～10；按了「健檢不是我排的」時 2～10）
  * @param {string|null} [picks.followupForVisitId] 接在哪一次健檢後面（二返、n返）
  * @param {number|string|null} [picks.minutes] 約的時候選的時長（ADR-0122）。只在那門課有
  *   `bookingMinutes` 而且值在裡面時算數（`slotMinutes()`）；沒給就是預設那一顆
@@ -59,7 +63,7 @@ import { endOf, isValidTime } from './visitTime.js';
  */
 export function slotFromPicks(picks, ctx) {
   const {
-    entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial',
+    entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial', examNotMine = false,
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null, minutes = null, status = INITIAL_STATUS, cancelReason = null,
@@ -68,12 +72,18 @@ export function slotFromPicks(picks, ctx) {
   const fail = (error) => ({ slot: null, errors: [error], course: null, assigns: null });
 
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
-  const entitlement = isNth ? null : (entitlements.find((e) => e.id === entitlementId) ?? null);
+  // 健檢不是她排的那一段（ADR-0169）蓋過其餘三種身分：不扣額度、不是 n返 那一條（不接健檢）、不是送的／體驗
+  const notMine = examNotMine === true;
+  const nthPath = isNth && !notMine;
+  const entitlement = nthPath || notMine ? null : (entitlements.find((e) => e.id === entitlementId) ?? null);
 
   // 這一段算哪一個課程
   let course = null;
   let nthExam = null;
-  if (isNth) {
+  if (notMine) {
+    // 二返那門課，**沒有健檢也找得到**（n返 那一條從那一次健檢借，這裡沒有那一次）
+    course = examNotMineCourse(courses);
+  } else if (nthPath) {
     // n返 借那一次健檢配的二返課程；還沒選健檢就先看第一個候選（壓表那一排就是這樣決定畫不畫這一顆）
     const exams = examChoicesForNth({ entitlements, coursesById, visits });
     // 候選連取消、未到的也列（標狀態、按不下去，issues/11）—— 預設看第一個按得下去的（排著的與做完的，ADR-0145）
@@ -98,7 +108,7 @@ export function slotFromPicks(picks, ctx) {
       : home;
     course = derived && canBeGift(derived, courses) ? derived : null;
   }
-  const gift = !entitlement && !isNth && giftCourseId && course
+  const gift = !notMine && !entitlement && !nthPath && giftCourseId && course
     ? (GIFT_KINDS.includes(giftKind) ? giftKind : 'trial')
     : null;
 
@@ -106,8 +116,10 @@ export function slotFromPicks(picks, ctx) {
   const assigns = assignsFor(entitlement, course, equipmentId);
   const stop = (error) => ({ slot: null, errors: [error], course, assigns });
   if (!isValidTime(startsAt)) return stop('先選幾點開始');
-  if (isNth && !nth) return stop('先選第幾返');
-  if (isNth && !followupForVisitId) {
+  // 二返～十返她自己按（日曆、壓表不預選）；1、11 那種不是她按得出來的，當成還沒選
+  if (notMine && !nthLabel(nth)) return stop('先選第幾返');
+  if (nthPath && !nth) return stop('先選第幾返');
+  if (nthPath && !followupForVisitId) {
     return stop('先選這是哪一次健檢的 —— 沒有它，試算表上這一場沒有位置可以印');
   }
 
@@ -137,12 +149,18 @@ export function slotFromPicks(picks, ctx) {
     giftKind: gift,
     // n返 覆蓋掉上面那幾樣（沒有額度、返數、哪一次健檢）。**放在最後不是隨便放的** ——
     // 上面那一份是「一段普通的來訪」的形狀，這一份只換掉真的不一樣的三樣
-    ...(isNth ? nthSlotFields({
+    ...(nthPath ? nthSlotFields({
       nth,
       examVisitId: followupForVisitId,
       courseId: courseIdForNth(visits.find((v) => v.id === followupForVisitId) ?? null, entitlements, coursesById)
         ?? course.id,
     }) : {}),
+    // 健檢不是她排的（ADR-0169）：三返～十返照 n返 的形狀寫返數與快照「三返」（不寫的話日曆印成「二返」），
+    // 但**不接健檢**；二返不寫返數（`nthOf()` 的約定：二返回 null）。標記只有這幾段有 —— 一般的段沒有這一格
+    ...(notMine && Number(nth) >= MIN_NTH
+      ? nthSlotFields({ nth: Number(nth), examVisitId: null, courseId: course.id })
+      : {}),
+    ...(notMine ? { examNotMine: true } : {}),
     note,
     // **新的一段一定自己寫狀態**（CLAUDE.md「新增一個會建立時段的入口」）：不寫的話
     // 併進一筆已確認的來訪時，它會繼承整筆的狀態，被靜默標成談定了。

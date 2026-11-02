@@ -1,6 +1,6 @@
 # 02：時段的形狀、組時段、存檔驗證
 
-Status: todo
+Status: done
 Blocked by: 01
 
 ## 動工前先讀
@@ -63,4 +63,34 @@ Blocked by: 01
 
 ## 做完時留下的
 
-（做完的人寫）
+- **她主檔上二返那門課有幾門：一門**（`course-followup`「二返」，只有健檢那一門指著它）。2026-11-02 唯讀讀了
+  staging（`wellness-clinic-staging`）與正式站（`wellness-clinic-scheduler`）的 `config/app/courses`，兩邊一樣：20 門課、全部開著。
+  腳本只讀課程、只印課程 id／名字，沒有寫任何東西
+- `masterData.js`：
+  - `isExamNotMine(slot)` —— `slot?.examNotMine === true`，**全站只准問它**（`tests/exam-not-mine.test.js` 掃 `public/js`：
+    除了 `masterData.js`，程式碼裡不准有 `.examNotMine`／`['examNotMine']`，註解不算；畫面自己的草稿也問它）
+  - `EXAM_NOT_MINE_LABEL = '健檢不是我排的'` —— 那一顆的字，驗證的句子用它；05 畫按鈕用同一個
+  - `examNotMineCourse(courses)` —— 二返那門課，**剛好一門才回**（刪掉、停用的不算，同 `abovee.js` 的 `live()`），給「畫不畫那一顆」與組時段
+  - `giftKindOf()` 第一行：帶標記的一律 `null`（就算那一格寫了值、二返那門課被勾了預設體驗）
+- `slotDraft.js` 的 `slotFromPicks()`：多一個 `picks.examNotMine`（只認 `true`）＋ `picks.nth`（2～10）
+  - 課程＝`examNotMineCourse(courses)`（不是剛好一門 → 「先選要做什麼」）
+  - **標記贏**：`entitlementId`／`isNth`／`giftCourseId`／`giftKind`／`followupForVisitId` 一律不看（內部用 `nthPath = isNth && !notMine`）
+  - `nth` 不是 2～10（含 null）→ `stop('先選第幾返')`，`course`／`assigns` 照樣交回去
+  - 二返：`courseName` 課程名、**沒有 `followupNth` 這個鍵**；3～10：`nthSlotFields({ nth, examVisitId: null, courseId })`（快照「三返」）
+  - 最後 `examNotMine: true`；**一般的段沒有這個鍵**（測試拿四種一般的 picks 比 `examNotMine: false` 跟沒給 deepEqual）
+- `visits.js` 的 `validateVisit()`（`visitErrors()`）：帶標記的段走 `examNotMineErrors(slot, courses)`（新的、沒 export），
+  一格不對講一句：額度、接了健檢、送的／體驗（任何非 null 的 `giftKind`）、課程不是二返（`isFollowupCourse()`，任何一門都算）、返數不是空或 3～10。
+  通過時跳過「要選一個額度」與「n返 一定要指定是哪一次健檢的」；`followupForVisitId` 那一大段與「返數要是 3 到 10 —— 二返走額度那條路」也不問它。
+  `visits.js` 多 import `followups.js` 的 `isFollowupCourse`（同一行 import 本來就有，函式裡才用）
+- **呼叫端（ripple-check）**：`slotFromPicks()` 的四個畫面呼叫端（壓表 `schedule.js:2194`、來訪編輯器 `visitEditor.js:1159`、
+  拍 Abovee `aboveeImport.js` 的 `picksOf()` → `planAbovee()`、`aboveeConfirm.js:421`）都沒有傳 `examNotMine` → 一個字都不變；
+  05～09 要接的時候在 picks 裡加 `examNotMine: true` ＋ `nth`。`giftKindOf()` 的 23 個呼叫端對沒有標記的段答案一樣；
+  `validateVisit()` 的呼叫端對沒有標記的段一樣
+- 測試 `tests/exam-not-mine.test.js`（41 支）：判準每一條一支 ——
+  一般的 n返 沒接健檢照舊擋、一般的二返沒額度照舊擋、標記寫成字串 `"true"` 不算、帶標記又帶額度／接健檢／送的／課程不是二返／返數 2 或 11 各擋一句、
+  `giftKindOf()` 退路（手組沒有 `giftKind` 那一格＋二返那門課勾預設體驗）、`withGiftKinds()` 寫 null、`counts()`、`followupsOfExam()`、
+  `syncFollowupTasks()`（含 `placeSeconds()`：加了帶標記的已完成二返與三返前後 deepEqual）、兩排「接哪一次健檢」不變、
+  `withSlotStatuses()`／`withGiftKinds()`／`withSlotNotes()` 跑兩次形狀一樣而且存得下去
+- 帶標記的段現在只跳一句「二返 還沒選醫師」（`assign`，跟一般的二返一樣）；「二返還沒接到健檢」那一句不跳（它沒有二返額度）。
+  紅字是 04
+- `public/sw.js` `VERSION` v209 → v210、`npm run shell:snapshot`

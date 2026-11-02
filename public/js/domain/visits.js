@@ -17,10 +17,12 @@ import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, bookingMinutesOf, durationChoicesOf, equipmentForCourse, DOCTOR_ROLE,
-  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf,
+  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
+import {
+  examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks, isFollowupCourse,
+} from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
@@ -1727,12 +1729,17 @@ function visitErrors(visit, {
     // 有額度的那一段照舊扣、照舊驗（不算次數的課也一樣：她之後會自己勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     const gift = giftKindOf(slot, coursesById);
+    // **健檢不是她排的是第三種**（ADR-0169）：不扣、不接。它只放寬兩道（「要選一個額度」、n返「一定要指定是哪一次健檢的」），
+    // 而且只放過那一種形狀 —— 哪一格不對都在 `examNotMineErrors()` 講出來，底下額度與健檢那兩條都不再問它
+    const notMine = isExamNotMine(slot);
     // 兩種身分都有的壞資料 `giftKindOf()` 照額度／n返 讀（回 null），所以這兩句看那一格原本的值
     const marked = GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
-    if (slot.giftKind != null && !marked) {
+    if (slot.giftKind != null && !marked && !notMine) {
       errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
     }
-    if (marked && slot.entitlementId) {
+    if (notMine) {
+      errors.push(...examNotMineErrors(slot, courses).map((e) => `${at}：${e}`));
+    } else if (marked && slot.entitlementId) {
       errors.push(`${at}：${giftLabel(marked)}的段不扣任何次數，不可以同時指定額度`);
     } else if (marked && nth) {
       errors.push(`${at}：n返 不可以同時是${giftLabel(marked)}的`);
@@ -1746,7 +1753,7 @@ function visitErrors(visit, {
 
     // 返數本身。`isNthSlot()` 看的是「填過沒」，`nthOf()` 看的是「合不合法」——
     // 分開問才講得出真正錯的是什麼（填了 33 的時候不要抱怨「要選一個額度」）。
-    if (nth && nthOf(slot) == null) {
+    if (nth && nthOf(slot) == null && !notMine) {
       errors.push(
         `${at}：返數要是 ${MIN_NTH} 到 ${MAX_NTH} 之間的整數 —— 二返走額度那條路，不是這裡`,
       );
@@ -1821,7 +1828,7 @@ function visitErrors(visit, {
     // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
     // （見 assignmentWarnings）—— 舊資料一筆都沒有這個欄位，擋下來等於
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
-    if (slot.followupForVisitId) {
+    if (slot.followupForVisitId && !notMine) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
       // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
       // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
@@ -1867,7 +1874,7 @@ function visitErrors(visit, {
             + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
         }
       }
-    } else if (nth) {
+    } else if (nth && !notMine) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
       // 二返有一整批舊資料身上沒有這個欄位（ADR-0011 的同一條原則），
       // 擋下來她連改一個時間都存不回去；n返 是全新的，一筆舊資料都沒有，
@@ -1876,6 +1883,34 @@ function visitErrors(visit, {
     }
   });
 
+  return errors;
+}
+
+/**
+ * 健檢不是她排的那一段（ADR-0169）存不存得下去：**只放過那一種形狀**（`docs/agents/lessons.md` 第四節：豁免寫成它想放過的形狀）。
+ *
+ * - 課程是二返那門課 —— 問 `isFollowupCourse()`（任何一門都算），不問 `examNotMineCourse()`（剛好一門）：
+ *   她之後替別的課也設二返時，既有帶標記的段照樣存得下去
+ * - 不扣額度、不接健檢、不是送的／體驗（那三格一定是空的）
+ * - 返數是空的（二返）或 3～10（三返～十返）—— 二返不寫成 2（`nthOf()` 的約定）
+ *
+ * 一格不對講一句、講出是哪一格；課程沒填或不存在由呼叫端那一句講（「要選一個課程」），這裡不重複。
+ *
+ * @returns {string[]} 不帶「第幾個時段」前綴
+ */
+function examNotMineErrors(slot, courses = []) {
+  const errors = [];
+  const say = `「${EXAM_NOT_MINE_LABEL}」`;
+  if (slot.entitlementId) errors.push(`${say}不扣任何次數，不可以同時指定額度`);
+  if (slot.followupForVisitId) errors.push(`${say}不接 app 裡的任何一次健檢，不可以同時指定是哪一次健檢的`);
+  if (slot.giftKind != null) errors.push(`${say}不是送的，也不是體驗`);
+  const course = (courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  if (course && !isFollowupCourse(course.id, courses)) {
+    errors.push(`${say}只能是二返或三返到十返 —— 課程要是二返那門課`);
+  }
+  if (isNthSlot(slot) && nthOf(slot) == null) {
+    errors.push(`${say}的返數要是 ${MIN_NTH} 到 ${MAX_NTH}（二返不寫返數）`);
+  }
   return errors;
 }
 
