@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
 | 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、1697c65）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
-| 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo |
+| 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo（11/2 雲端開的那一次額度 94% 起步，只讀沒改，見「中途發現 → 段三」；照原本的段三開場重開） |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
 | 五 | 照審查修、手動驗收清單（自己在模擬器走過）、CI 全量、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
 
@@ -99,6 +99,22 @@
   段末 `npm run verify`（`--related` 對 develop，雲端 VM、CI=1、一個 worker）：單元 5310 綠；對 develop 動了 41 個檔案 → **58 支、424 passed（38.1 分），一支 flaky 都沒有**
 
 ### 段三
+
+- **11/2 雲端 VM 上開的段三一開始 5 小時額度就是 94%**：只讀完開場、spec、lessons、issue 08～10 與 02／04～07 的「做完時留下的」、`aboveeImport.js` 的
+  `entitlementChoices()`／`resolveItem()`／`optionValueOf()`／`pickOption()`／`linkBatchExams()`／`closeBlockedKeys()`／`secondEntOf()`／`asRecorded()`／`chargeChangeOf()`／`picksOf()`／`composeGroups()`，
+  **一行程式都沒改**。08 從頭做。讀完之後打算這樣做（給接手的人，照 ripple-check 再確認）：
+  - 列上的旗標叫 **`notMine`**（不叫 `examNotMine` —— `tests/exam-not-mine.test.js` 掃 `.examNotMine`；列不是時段）
+  - `optionValueOf()`：`notMine` 排在 `isNth` 前面 → `NOT_MINE_PICK`
+  - `pickOption()`：`base` 多 `notMine: false`；`value === NOT_MINE_PICK` → `{ ...base, notMine: true, nth: 照片的返數 }`
+    （`item.course?.nth`，照片認成二返那門課 → 2，**別的課 → null**，交給 `slotFromPicks()` 擋「先選第幾返」—— 確認層要把那一句畫在那一列，09 確認 `problems` 畫在哪）
+  - `picksOf()`：多 `examNotMine: Boolean(item.notMine)`；`nth` 改成 `item.isNth || item.notMine ? item.nth ?? null : null`；`notMine` 時 `entitlementId` 交 null
+  - `resolveItem()`：`next` 多 `notMine: false`＋那一句的旗標（例如 `notMineHint`）；**不預選 `NOT_MINE_PICK`**。
+    n返：846 行現在照樣預選 `NTH_PICK`，而沒有接得上的健檢時 `slotFromPicks()` 組不出來（「先選要做什麼」）—— 判斷要用跟 `slotOptions.js:100-119` 同一支（畫不畫「＋ n返」），
+    不是就不預選、不勾、講那一句；二返：`entitlementChoices()` 是空的才講（有一筆用完的照舊預選＋超用）
+  - `asRecorded()` 多清 `notMine`、那一句的旗標
+  - 不用改、只要測試釘住：`secondEntOf()`（`entitlementId` 是 null → 不進 `linkBatchExams()`／`refreshNoExam()`）、`closeBlockedKeys()`（`isNth` false）、
+    `chargeChangeOf()`（帶標記的三返 `followupNth` 有值 → null；二返 `entitlementId` null、`giftKindOf()` 對帶標記的回 null → null）
+- 段三一個 commit 都沒有；`public/sw.js` 還是 **v215**
 
 ## 每一段的開場
 
