@@ -7,7 +7,7 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
-| 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、07 那一個）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
+| 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、1697c65）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
 | 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
 | 五 | 照審查修、手動驗收清單（自己在模擬器走過）、CI 全量、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
