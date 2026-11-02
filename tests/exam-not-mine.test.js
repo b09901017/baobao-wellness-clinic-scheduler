@@ -205,6 +205,40 @@ describe('slotFromPicks：按了「健檢不是我排的」', () => {
     const noFollowup = COURSES.map((c) => ({ ...c, followupCourseId: null }));
     assert.deepEqual(slotFromPicks(picks({ examNotMine: true, nth: 3 }), ctx({ courses: noFollowup })).errors, ['先選要做什麼']);
   });
+
+  // 段四審查 二、3：既有那一段改時間，二返那門課後來停用了、或主檔上變成兩門 —— 編輯器把這一段原本的課程傳進來
+  describe('退路課程（notMineCourseId）', () => {
+    const disabled = COURSES.map((c) => (c.id === 'course-followup' ? { ...c, active: false } : c));
+    const twoFollowups = [
+      ...COURSES,
+      { ...coursesById['course-followup'], id: 'course-followup-b', name: '二返B' },
+      { ...COURSES.find((c) => c.followupCourseId === 'course-followup'), id: 'course-exam-b', followupCourseId: 'course-followup-b' },
+    ];
+    for (const [what, courses] of [['二返那門課停用了', disabled], ['主檔上兩門二返', twoFollowups]]) {
+      test(`${what} → 照這一段原本的課程組、新的時間存得進去`, () => {
+        const { slot, errors } = slotFromPicks(
+          picks({ examNotMine: true, nth: 3, startsAt: '14:00', notMineCourseId: 'course-followup' }), ctx({ courses }),
+        );
+        assert.deepEqual(errors, []);
+        assert.equal(slot.courseId, 'course-followup');
+        assert.equal(slot.startsAt, '14:00');
+        assert.equal(slot.examNotMine, true);
+      });
+    }
+    test('退路不是任何一門的二返 → 不用它', () => {
+      assert.deepEqual(slotFromPicks(picks({ examNotMine: true, nth: 3, notMineCourseId: 'course-checkup' }), ctx({ courses: disabled })).errors,
+        ['先選要做什麼']);
+    });
+    test('二返那門課找得到 → 照舊用它，退路不算數', () => {
+      const { slot } = slotFromPicks(picks({ examNotMine: true, nth: 2, notMineCourseId: 'course-followup-b' }), ctx({ courses: twoFollowups.slice(0, -1) }));
+      assert.equal(slot.courseId, 'course-followup');
+    });
+    test('沒按那一顆時這一格一個字都不改', () => {
+      const plain = slotFromPicks(picks({ giftCourseId: 'course-followup' }), ctx());
+      const withIt = slotFromPicks(picks({ giftCourseId: 'course-followup', notMineCourseId: 'course-followup' }), ctx());
+      assert.deepEqual(withIt, plain);
+    });
+  });
 });
 
 describe('slotFromPicks：沒按那一顆，一個字都不變', () => {

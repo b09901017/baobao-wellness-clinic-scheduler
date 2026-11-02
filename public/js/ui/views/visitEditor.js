@@ -1205,6 +1205,8 @@ function readNotMineSlot({ v, i, slot, ctx }) {
   const note = String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null;
   const { slot: made } = slotFromPicks({
     examNotMine: true,
+    // 二返那門課停用了、或變成兩門：照這一段原本的課程組（驗證也認任何一門二返，段四審查 二、3）
+    notMineCourseId: was ? slot.courseId : null,
     nth: picked,
     startsAt: v[`s${i}-start`] || slot.startsAt,
     roomId: room.roomId,

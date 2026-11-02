@@ -20,6 +20,7 @@ import {
 import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse } from './masterData.js';
 import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
+import { isFollowupCourse } from './followups.js';
 
 /**
  * 她選的那幾樣 → 一段時段。
@@ -39,6 +40,9 @@ import { endOf, isValidTime } from './visitTime.js';
  *   不扣任何一筆額度、不接任何一次健檢，`nth` 2 是二返、3～10 是三返～十返（沒給 → 「先選第幾返」）。
  *   **它贏**：同時給了 `entitlementId`／`isNth`／`giftCourseId`／`followupForVisitId` 也一律清掉 —— 畫面上那一顆是她最後按的。
  *   只認 `true`；沒給（或 `false`）的段一個字都不變，而且身上沒有 `examNotMine` 這一格
+ * @param {string|null} [picks.notMineCourseId] 按了「健檢不是我排的」、而 `examNotMineCourse()` 不是剛好一門時的退路：
+ *   既有那一段原本的課程（來訪編輯器傳）。**是某一門的二返**（`isFollowupCourse()`，停用的也算）才用 ——
+ *   跟 `validateVisit()` 認的同一件事；不然二返那門課停用了、或變成兩門時，改時間組不出來、安靜地存回舊的（段四審查 二、3）
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -63,7 +67,7 @@ import { endOf, isValidTime } from './visitTime.js';
  */
 export function slotFromPicks(picks, ctx) {
   const {
-    entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial', examNotMine = false,
+    entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial', examNotMine = false, notMineCourseId = null,
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null, minutes = null, status = INITIAL_STATUS, cancelReason = null,
@@ -82,7 +86,8 @@ export function slotFromPicks(picks, ctx) {
   let nthExam = null;
   if (notMine) {
     // 二返那門課，**沒有健檢也找得到**（n返 那一條從那一次健檢借，這裡沒有那一次）
-    course = examNotMineCourse(courses);
+    course = examNotMineCourse(courses)
+      ?? (notMineCourseId && isFollowupCourse(notMineCourseId, courses) ? (coursesById[notMineCourseId] ?? null) : null);
   } else if (nthPath) {
     // n返 借那一次健檢配的二返課程；還沒選健檢就先看第一個候選（壓表那一排就是這樣決定畫不畫這一顆）
     const exams = examChoicesForNth({ entitlements, coursesById, visits });
