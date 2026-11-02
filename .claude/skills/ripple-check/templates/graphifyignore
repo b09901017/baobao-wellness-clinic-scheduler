@@ -1,0 +1,22 @@
+# graphify 不掃的東西（.gitignore 裡的 node_modules、dist 本來就不掃）。
+# 範本來自客廳 skills/ripple-check/templates/graphifyignore；複製成專案根目錄的 .graphifyignore 再照專案改。
+
+# 別的 repo 的複本、上游授權檔：不是這個專案自己的東西
+.claude/skills/
+docs/licenses/
+.scratch/*/probes/
+
+# 不是這個 app 的輪（工具、客廳）：查 app 的架構時只是雜訊。開這類的輪，順手加一行
+# .scratch/<slug>/
+
+# 金鑰、憑證：.gitignore 已經擋了也再寫一次
+keys/
+*.pem
+*-sa.json
+
+# .local：預設不進圖，只放回目錄、research/、產生資料的程式（每個檔寫在 .local/README.md）
+!.local/
+.local/*
+!.local/README.md
+!.local/research/
+# !.local/<產生資料的程式>

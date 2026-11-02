@@ -5,5 +5,5 @@
   "prodReadScripts": ["history.mjs", "snapshot.mjs", "run.mjs"],
   "stagingScripts": ["reset-staging.mjs"],
   "looseStaging": true,
-  "skills": ["claude-md", "graphify", "grill-with-docs", "grilling", "kickoff", "matt-code-review"]
+  "skills": ["claude-md", "graphify", "grill-with-docs", "grilling", "kickoff", "matt-code-review", "ripple-check"]
 }

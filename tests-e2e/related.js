@@ -61,6 +61,8 @@ export const IGNORED = [
   '.firebaserc', '.gitignore',
   // 換行符（checkout 出來的樣子）與 skill 的版本鎖，app 一個字都不讀
   '.gitattributes', 'skills-lock.json',
+  // 查牽連的工具（CodeGraph、graphify）要掃哪些檔，app 一個字都不讀
+  'codegraph.json', '.graphifyignore', '.codegraph/',
 ];
 
 /**

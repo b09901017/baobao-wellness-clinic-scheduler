@@ -68,6 +68,8 @@ E2E 裡**不要用 `page.waitForTimeout()`**，等 locator 的狀態：`app.laye
 
 ## 容易漏掉的連動
 
+動到已經存在、別處在用的程式碼之前，以及修完 bug 之後，照 `ripple-check` skill 查牽連、找同一個形狀的缺陷（CodeGraph、ast-grep；文件與決定查 graphify 的圖）。這張表是查完之後要回來對的那一份。**`.local/` 不進任何一張圖**（`.graphifyignore`、`codegraph.json`：裡面有真名，工具讀檔不經過 `redact.mjs`）；skill 的 `private-index-check.mjs` 會印 `.local` 的檔名，這個專案要跑一律接 `| node .local/references/redact.mjs`。
+
 | 改了這個 | 一定要一起檢查 |
 |---|---|
 | `/domain` 的業務規則 | `SPEC.md` 對應章節。推翻既有決定就補一支 ADR，不要改掉舊的。**新長出來的連動關係要回來補進這張表** —— 不補的話它的價值會隨每一輪重構衰減，而下一輪又得從頭清查一次 |
