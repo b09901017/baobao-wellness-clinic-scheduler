@@ -6,7 +6,7 @@
 
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
-| 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | todo |
+| 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **進行中**：01～03 done（9c4351ca、97f3da7b、4c2f8b99），04 todo（額度到頂停在這裡） |
 | 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | todo |
 | 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
@@ -66,6 +66,12 @@
 
 ### 段一
 
+- **一般的三返那一句提醒寫「二返 還沒選醫師」**（`visits.js` 約 2116 行 `${course.name} 還沒選醫師`）：n返 借二返那門課，句子印課程名、不印返數。
+  既有行為（不是這一輪弄的），帶標記的三返也一樣。建議：那一句改走 `followupName()`／`slotSay()`。沒修
+- **E2E：02、03 的 commit 只跑了全套單元測試（5265 支綠），相關 E2E 還沒跑**。`--related --dry` 挑到 44 支（動到 `visits.js`／`masterData.js`），
+  本機一個 worker 要二、三十分鐘，所以留到段一最後一次跑（模擬器要先 `npm run emulators`；01 那一次 smoke 綠了）。
+  這幾支 commit 只加了帶 `examNotMine` 才走的分支，畫面還沒有任何一處傳它
+
 ### 段二
 
 ### 段三
@@ -95,6 +101,19 @@
 做完要交：每支一個 commit（commit 訊息不帶任何真名）、`Status: done`、issue 底下「做完時留下的」（實際做成什麼：函式名、欄位、測試檔名；02 要記「她主檔上二返那門課有幾門」）、
 `npm run verify` 綠、更新這份 HANDOFF（分段表的狀態、中途發現、要使用者決定的）、**段二的開場**寫進下面（照段一這一份的格式，把 05～07 要知道的 02、04 實際做成的名字寫進去）；
 最後回覆簡短說做了什麼、卡在哪。
+
+### 段一（續）：只剩 04（effort xhigh）
+
+段一做到 03 時 5 小時額度到頂停下來。接手的人：
+- 先讀 `CLAUDE.md`、`docs/agents/lessons.md`、`spec.md`、這份 HANDOFF 的「每一段共同的規矩」「過目抓到的」「中途發現 → 段一」、issue 02、03 的「做完時留下的」（02、04 要用的名字都在 02 那一份）
+- 做 **issue 04**（紅字＋確認框）：照 issue 04 的「要做的」。要用的：`masterData.js` 的 `isExamNotMine()`、`EXAM_NOT_MINE_LABEL`；有沒有接得上的健檢問
+  `nthFollowup.js` 的 `examChoicesForNth()` 的 `pickable`（不要用 `examChoicesFor()`）；新的 `source` 要進 `visits.js` 的 `MUST_SEE`；
+  確認框句子照 `consequences.js` 的 `giftNames(…, added)` 寫法；`chargeSwitchConsequences()` 要擴到「改成帶標記／拿掉標記」（M7）
+- `public/sw.js` 現在是 **v211**，04 動 `public/` 就升 v212、跑 `npm run shell:snapshot`
+- 04 做完：`npm run emulators`（背景）→ `node scripts/e2e.mjs --related` 跑一次（會挑到四十幾支，一個 worker），補上 02～04 欠的 E2E
+- 然後照原本段一的交付：issue 04 `Status: done`＋「做完時留下的」、更新這份 HANDOFF、寫下面段二的開場（05～07 要知道 02 的 `slotFromPicks()` 收 `picks.examNotMine: true` ＋ `nth` 2～10、標記贏、
+  `examNotMineCourse()` 剛好一門才回；04 做成的名字）
+- **主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON**
 
 ### 段二（effort high）
 
