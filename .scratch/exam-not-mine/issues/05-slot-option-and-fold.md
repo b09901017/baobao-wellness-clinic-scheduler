@@ -1,6 +1,6 @@
 # 05：「做什麼」那一排多一顆、收合改字
 
-Status: todo
+Status: done
 Blocked by: 02
 
 ## 動工前先讀
@@ -51,4 +51,23 @@ Blocked by: 02
 
 ## 做完時留下的
 
-（做完的人寫）
+- `slotOptions.js`：
+  - **`NOT_MINE_PICK = '__notmine__'`**（那一排上的值，跟 `NTH_PICK` 同一種底線前綴；`giftCourseIdOf()` 對它回 null）
+  - **`notMineOption(courses)`**：`{ entitlementId: NOT_MINE_PICK, label: EXAM_NOT_MINE_LABEL, remaining: '—', durationMin, course: 二返那門課,
+    entitlement: null, isNotMine: true, folded: true, extra: true }`；`examNotMineCourse()` 不是剛好一門（含停用）→ `null`。**旗標是 `isNotMine`**（不帶 `isNth`／`isGift`）
+  - `slotOptionsFor()` 最後接 `notMineOption()`（有才接）；來訪編輯器的 `entRow()` 由 06 接（05 沒動編輯器 —— 接上卻沒接 `readDraft()` 的話按下去是壞的）
+  - `arrangeSlotOptions()`：`extra` 那幾顆排在收合的最後、不照分類，`group` 是 **`EXTRA_GROUP = '其他'`**；前兩組改成 `!o.extra` 才收
+  - `foldOpen()`：既有判斷不動，多一條 `value === NOT_MINE_PICK` → true
+  - `trialFromMinutes()`：`NOT_MINE_PICK` 不換
+- `giftFold.js`：第三塊「其他 ▸」＝分類那一套：**`data-giftfold-group="extra"`** 的鈕（字讀 `group`）、**`<div data-giftfold-in="extra">`** 那一層；
+  value 是 `extra` 那一顆時那一層一打開就是開的、鈕是 `aria-pressed="true"`（09 照這個認：重畫時傳 `value` 就對，不用另外開）。
+  `toggle()`／`sync()` 一個字都沒改（分類那一套本來就認字串 key）。`foldLabel()` 三種字都改「送的／體驗／其他」
+- 副字：壓表 `schedule.js`、拍 Abovee `aboveeConfirm.js` 認 `o.isNotMine` → 「不扣次數」；編輯器本來就照 `o.entitlement` 判
+- **拍 Abovee 的確認層暫時濾掉那一顆**（`aboveeConfirm.js` 的 `optionsFor()` 最後 `.filter((o) => !o.isNotMine)`）：`pickOption()` 還認不得它，按了會清空那一列 —— **09 接上時拿掉那個 filter**
+- 改的既有測試：`gift-fold.test.js`（收起來的最後一顆是 `isNotMine`、第一排濾 `extra`、編輯器組法加 `notMineOption()`、三種字）、
+  `uncounted-courses.test.js`、`slot-options-order.test.js`（同樣兩處）、E2E `67` 的 G12 那一句字
+- 新測試 `tests/exam-not-mine-option.test.js`（18 支）：那一顆的形狀、不撞值、不是剛好一門／停用不畫、一般的客人上面那一排不變、沒額度沒健檢的客人也只在收合裡、
+  編輯器組法跟壓表一樣、`defaultGiftCourse()` 不變、`foldOpen()` 三種、`trialFromMinutes()`、畫法（「其他」鈕、那一層藏著、不被併進醫師門診、選著時開著、收著時開關寫它、二返不是一門時沒有）
+- E2E 跑了 `49`、`56`、`67`、`72`：27 passed
+- `public/sw.js` v212 → v213、`npm run shell:snapshot`
+

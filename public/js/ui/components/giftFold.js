@@ -5,8 +5,9 @@
 // > 然後我希望這種不算次數的，在壓表或是新增來訪那邊可以先預設不出現先收合或是擺到底下，畢竟不常用
 //
 // **哪幾顆收起來、什麼順序、要不要一打開就展開只在 `domain/slotOptions.js`**（`folded`、`arrangeSlotOptions()`、
-// `foldOpen()`）—— 這一支只畫：沒收起來的那幾顆＋最後一顆「送的／體驗…」，按了露出底下兩塊：
-// 不算次數的課一排、「別的課當體驗」分類 → 課程兩步（同加購那一排：一類只有一門的那一顆直接就是那一門）。
+// `foldOpen()`）—— 這一支只畫：沒收起來的那幾顆＋最後一顆「送的／體驗／其他…」，按了露出底下三塊：
+// 不算次數的課一排、「別的課當體驗」分類 → 課程兩步（同加購那一排：一類只有一門的那一顆直接就是那一門）、
+// 「其他 ▸」再收一層（`extra` 那幾顆：「健檢不是我排的」，exam-not-mine 05）。
 //
 // 每一顆選項長什麼樣由呼叫端給（`chip(o)`）：三個入口各自的屬性（`data-ent`、`data-chip`、`data-abl-opt`）照舊，
 // 按下去走各自原本那一條路。這一支自己的屬性用自己的前綴（`data-giftfold-*`，CLAUDE.md「共用元件身上的屬性名字」）。
@@ -41,15 +42,19 @@ export function html({ options = [], value = null, open, chip, cls = 'chips', sm
   if (!folded.length) return main.length ? row(mainChips) : empty;
 
   const size = sm ? ' chip--sm' : '';
-  const first = folded.filter((o) => !o.other);
+  const first = folded.filter((o) => !o.other && !o.extra);
+  // 「其他 ▸」那一層（exam-not-mine 05）：收合裡再收一層，點了才露出來（「健檢不是我排的」）。
+  // 用分類那一套（`data-giftfold-group`／`data-giftfold-in`），所以展開、換一層、選著時一打開就是開的都跟分類一樣
+  const extra = folded.filter((o) => o.extra);
   const groups = [];
-  for (const o of folded.filter((x) => x.other)) {
+  for (const o of folded.filter((x) => x.other && !x.extra)) {
     const g = groups.find((x) => x.group === o.group);
     if (g) g.items.push(o);
     else groups.push({ group: o.group, items: [o] });
   }
   const at = groups.findIndex((g) => g.items.some((o) => o.entitlementId === value));
   const picked = folded.find((o) => o.entitlementId === value) ?? null;
+  const extraOpen = extra.some((o) => o.entitlementId === value);
   // 收起來時開關上要寫選了哪一門 —— 不重畫的入口（壓表）是從畫面上讀的（`sync()`），所以每一顆帶著名字
   const named = (o) => chip(o).replace(/<button\b/, `<button data-giftfold-name="${esc(o.label)}"`);
 
@@ -68,6 +73,10 @@ export function html({ options = [], value = null, open, chip, cls = 'chips', sm
           ${groups.map((g, i) => (g.items.length > 1
             ? `<div data-giftfold-in="${i}"${i === at ? '' : ' hidden'}>${row(g.items.map(named).join(''))}</div>`
             : '')).join('')}` : ''}
+        ${extra.length ? `
+          ${row(`<button class="chip${size}" type="button" data-giftfold-group="${EXTRA_KEY}"
+            aria-pressed="${extraOpen}">${esc(extra[0].group ?? '其他')}<span class="chip__note">▸</span></button>`)}
+          <div data-giftfold-in="${EXTRA_KEY}"${extraOpen ? '' : ' hidden'}>${row(extra.map(named).join(''))}</div>` : ''}
       </div>
     </div>`;
 }
@@ -79,10 +88,13 @@ export function html({ options = [], value = null, open, chip, cls = 'chips', sm
  * @param {string|null} [picked] 選著的那一門（沒選底下任何一顆就是 null）
  */
 export function foldLabel(open, picked = null) {
-  if (open) return '送的／體驗<span class="chip__note">▾ 收起來</span>';
-  if (picked) return `${esc(picked)}<span class="chip__note">送的／體驗 ▸</span>`;
-  return '送的／體驗…';
+  if (open) return '送的／體驗／其他<span class="chip__note">▾ 收起來</span>';
+  if (picked) return `${esc(picked)}<span class="chip__note">送的／體驗／其他 ▸</span>`;
+  return '送的／體驗／其他…';
 }
+
+/** 「其他 ▸」那一層在分類那一套裡的編號（分類用 0、1、2…，撞不到）。 */
+const EXTRA_KEY = 'extra';
 
 /**
  * 「送的／體驗…」與「別的課當體驗」的分類那幾顆。接在呼叫端的 click 委派裡；是這一支的就回 `true`。

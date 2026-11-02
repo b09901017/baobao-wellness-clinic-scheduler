@@ -580,7 +580,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
-              sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
+              sub: o.isNth || o.isGift || o.isNotMine ? '不扣次數' : `剩 ${o.remaining}`,
               on: o.entitlementId === value, attr: 'data-abl-opt',
             }),
           })}
@@ -758,6 +758,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   /** 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。 */
   function optionsFor(item) {
     if (!item.customerId) return [];
+    // 「健檢不是我排的」那一顆（exam-not-mine 05）在這一層還沒接上（`pickOption()` 認不得它）—— 09 接上之前不畫
     return slotOptionsFor({
       entitlements: ctx.entitlementsBy[item.customerId] ?? [],
       visits: ctx.visitsBy[item.customerId] ?? [],
@@ -765,7 +766,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       equipment: ctx.master.equipment,
       // n返 借的課程跟著她選的那一次健檢走
       followupForVisitId: item.isNth ? item.followupForVisitId : null,
-    }, { includeUsedUp: true });
+    }, { includeUsedUp: true }).filter((o) => !o.isNotMine);
   }
 
   /**

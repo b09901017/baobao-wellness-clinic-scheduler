@@ -1299,7 +1299,7 @@ function dayPanel(row) {
                     data-ent="${esc(o.entitlementId)}">${esc(o.label)}
               ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
                     0 看起來像「用完了」，而它根本不是一筆額度 */''}
-              ${o.isNth || o.isGift ? '<span class="chip__note">不扣次數</span>'
+              ${o.isNth || o.isGift || o.isNotMine ? '<span class="chip__note">不扣次數</span>'
                 : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`,
         })}
       </div>

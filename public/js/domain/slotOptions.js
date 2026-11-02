@@ -26,10 +26,18 @@
 import { customerPools } from './scheduling.js';
 import { coursesForEntitlement } from './visits.js';
 import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
-import { isUncounted, canBeGift, groupByCourse, isTrialMinutes, trialMinutesOf } from './masterData.js';
+import {
+  isUncounted, canBeGift, groupByCourse, isTrialMinutes, trialMinutesOf, examNotMineCourse, EXAM_NOT_MINE_LABEL,
+} from './masterData.js';
 
 /** 「＋ n返」那一顆的值。**不是任何一筆額度的 id。** */
 export const NTH_PICK = '__nth__';
+
+/**
+ * 「健檢不是我排的」那一顆的值（exam-not-mine 05，ADR-0169）。**不是任何一筆額度的 id**，跟 `NTH_PICK` 同一種底線前綴。
+ * 只活在畫面上：組時段時換回 `examNotMine: true` ＋ 第幾返（`slotDraft.js` 的 `slotFromPicks()`）。
+ */
+export const NOT_MINE_PICK = '__notmine__';
 
 const COURSE_PICK = '__course__:';
 
@@ -118,7 +126,37 @@ export function slotOptionsFor(
     }
   }
 
-  return arrangeSlotOptions([...out, ...giftOptions(courses)], courses);
+  const notMine = notMineOption(courses);
+  return arrangeSlotOptions([...out, ...giftOptions(courses), ...(notMine ? [notMine] : [])], courses);
+}
+
+/**
+ * 「健檢不是我排的」那一顆（exam-not-mine 05，ADR-0169）。**壓表、來訪編輯器、拍 Abovee 都從這一支拿**
+ * （壓表與拍 Abovee 經 `slotOptionsFor()`，來訪編輯器自己組那一排時叫它）。
+ *
+ * **不塞進 `giftOptions()`**：那一組每一顆都是 `isGift`，壓表會把它當 `giftCourseId` 交出去，`defaultGiftCourse()` 也讀那一組。
+ * 自己的旗標 `isNotMine`（不帶 `isNth`／`isGift`）；收在「送的／體驗／其他…」裡**再收一層「其他 ▸」**（`extra`，她 11/2：
+ * 一般的時候不要不小心按到）—— `giftFold.html()` 畫那一層、`arrangeSlotOptions()` 把它排在收合的最後。
+ *
+ * 二返那門課不是剛好一門（`examNotMineCourse()`）就不畫：回 `null`。
+ *
+ * @param {object[]} courses 主檔
+ * @returns {object|null}
+ */
+export function notMineOption(courses = []) {
+  const course = examNotMineCourse(courses);
+  if (!course) return null;
+  return {
+    entitlementId: NOT_MINE_PICK,
+    label: EXAM_NOT_MINE_LABEL,
+    remaining: '—',
+    durationMin: course.durationMin ?? 30,
+    course,
+    entitlement: null,
+    isNotMine: true,
+    folded: true,
+    extra: true,
+  };
 }
 
 /**
@@ -160,14 +198,14 @@ export function giftOptions(courses = [], { keep = null } = {}) {
  *
  * 只有一種會換：**扣著那門課額度的段**、按的是那門課的「體驗的時候排幾分」（`isTrialMinutes()`）→ 那門課的體驗。
  * - **反過來不自動**：體驗的段按 60 照樣是體驗 60（她說的是「選 20 就預設是體驗」）；要扣額度她按那一顆額度
- * - n返（`NTH_PICK`）、還沒選、已經是送的／體驗的不換；那門課停用了也不換（那一顆不在「送的／體驗…」裡）
+ * - n返（`NTH_PICK`）、「健檢不是我排的」（`NOT_MINE_PICK`）、還沒選、已經是送的／體驗的不換；那門課停用了也不換（那一顆不在「送的／體驗…」裡）
  *
  * @param {{value: string|null, course: object|null, minutes: number|string|null, courses: object[]}} o
  *   `value` 是那一排上現在按著的那一顆（額度 id、`NTH_PICK`、`giftPick()`），`course` 是這一段現在算哪一門課
  * @returns {{value: string, giftKind: 'trial'}|null} 要換成哪一顆；不用換是 `null`
  */
 export function trialFromMinutes({ value = null, course = null, minutes = null, courses = [] } = {}) {
-  if (!value || value === NTH_PICK || giftCourseIdOf(value)) return null;
+  if (!value || value === NTH_PICK || value === NOT_MINE_PICK || giftCourseIdOf(value)) return null;
   if (!course || course.deletedAt || course.active === false) return null;
   return isTrialMinutes(course, minutes, courses) ? { value: giftPick(course.id), giftKind: 'trial' } : null;
 }
@@ -175,13 +213,13 @@ export function trialFromMinutes({ value = null, course = null, minutes = null, 
 /**
  * 「送的／體驗…」那一組要不要一打開就展開（gift-and-trial 04）：
  * 這一排沒有任何一顆**還有剩的**額度（拍 Abovee 列的用完那幾顆不算），不然上面那一排是空的；
- * 或這一段現在就是送的／體驗（收起來的話畫面上是「一顆都沒按」）。
+ * 或這一段現在就是送的／體驗、或「健檢不是我排的」（收起來的話畫面上是「一顆都沒按」）。
  *
  * @param {object[]} options 那一排（每一顆至少有 `entitlement`、`remaining`）
  * @param {string|null} value 現在按著的那一顆
  */
 export function foldOpen(options = [], value = null) {
-  if (giftCourseIdOf(value)) return true;
+  if (giftCourseIdOf(value) || value === NOT_MINE_PICK) return true;
   return !(options ?? []).some((o) => !o.folded && o.entitlement && Number(o.remaining) > 0);
 }
 
@@ -193,6 +231,9 @@ export function foldOpen(options = [], value = null) {
 export function defaultGiftCourse(courses = []) {
   return arrangeSlotOptions(giftOptions(courses), courses).find((o) => !o.other && isUncounted(o.course))?.course ?? null;
 }
+
+/** 收合裡再收一層的那一組叫什麼（`extra` 那幾顆的 `group`，exam-not-mine 05）。畫面上那一顆的字。 */
+export const EXTRA_GROUP = '其他';
 
 /** 二返與 n返 那一組叫什麼（每一顆的 `group`）。它不是課程的分類 —— 那一組永遠排在最後。 */
 export const FOLLOWUP_GROUP = '二返・n返';
@@ -228,7 +269,8 @@ const giftRank = (o) => {
  *    而且**那一組另起一行**（`breakBefore`）—— 照分類排之後健檢是最後一類，只隔一條線的話兩顆實體上還是隔壁
  *
  * 4. **送的／體驗那幾顆（`folded`）一律在最後**（gift-and-trial 04，推翻上面 1 的「類裡再那一類不算次數的課」）：
- *    先不算次數的課、再「別的課當體驗」；兩組各自照分類，同一類裡照 `GIFT_FIRST` → 名字
+ *    先不算次數的課、再「別的課當體驗」；兩組各自照分類，同一類裡照 `GIFT_FIRST` → 名字；
+ *    **最後是「其他」那一層**（`extra`：「健檢不是我排的」，exam-not-mine 05），不照分類
  *
  * 每一顆多兩格：`group`（那一類的名字）、`breakBefore`（二返那一組的第一顆，前面還有別的時）。
  *
@@ -262,7 +304,9 @@ export function arrangeSlotOptions(options = [], courses = []) {
       group,
       breakBefore: group === FOLLOWUP_GROUP && at > 0 && i === 0,
     }))),
-    ...folded(options.filter((o) => o.folded && !o.other)),
-    ...folded(options.filter((o) => o.folded && o.other)),
+    ...folded(options.filter((o) => o.folded && !o.other && !o.extra)),
+    ...folded(options.filter((o) => o.folded && o.other && !o.extra)),
+    // 「其他 ▸」那一層（exam-not-mine 05）：永遠最後，不照分類（二返那門課的分類是醫師門診，照分類會被併進那一顆）
+    ...options.filter((o) => o.folded && o.extra).map((o) => ({ ...o, group: EXTRA_GROUP, breakBefore: false })),
   ];
 }
