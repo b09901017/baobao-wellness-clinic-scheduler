@@ -654,6 +654,12 @@ export const COVERAGE = {
     'public/js/ui/views/schedule.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
     'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
   ],
+  // 健檢不是我排的：拍 Abovee（exam-not-mine 08、09）—— 讀照片不替她按、不勾、講一句；按了之後第幾返照照片、沒有接健檢；存進去不扣；再拍一次已經記了
+  '85-exam-not-mine-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js',
+    'public/js/domain/masterData.js', 'tests-e2e/fixtures/ai/',
+  ],
 };
 
 /**
