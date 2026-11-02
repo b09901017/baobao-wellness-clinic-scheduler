@@ -638,6 +638,12 @@ export const COVERAGE = {
     'public/sw.js', 'public/js/ui/swUpdate.js', 'public/js/ui/views/home.js', 'public/js/ui/views/settings.js',
     'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/data/visits.js', 'public/js/data/config.js',
   ],
+  // 健檢不是我排的（exam-not-mine，ADR-0169）：帶標記的段存進去、讀回來、日曆上的名字、長按確認之後形狀不變、待辦照二返那門課
+  '82-exam-not-mine': [
+    'public/js/domain/masterData.js', 'public/js/domain/visits.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/naming.js', 'public/js/domain/taskRules.js', 'public/js/domain/consequences.js',
+    'public/js/data/visits.js', 'public/js/ui/views/calendar.js',
+  ],
 };
 
 /**

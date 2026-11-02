@@ -6,7 +6,7 @@
 
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
-| 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **進行中**：01～03 done（9c4351ca、97f3da7b、4c2f8b99），04 todo（額度到頂停在這裡） |
+| 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
 | 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | todo |
 | 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
@@ -70,6 +70,14 @@
 - **E2E：02、03 的 commit 只跑了全套單元測試（5265 支綠），相關 E2E 還沒跑**。`--related --dry` 挑到 44 支（動到 `visits.js`／`masterData.js`），
   本機一個 worker 要二、三十分鐘，所以留到段一最後一次跑（模擬器要先 `npm run emulators`；01 那一次 smoke 綠了）。
   這幾支 commit 只加了帶 `examNotMine` 才走的分支，畫面還沒有任何一處傳它
+  → **段一（續）補了**：新的 E2E `82-exam-not-mine`（帶標記的段存進 Firestore、日曆名字、長按確認存得下去、待辦照二返那門課）；
+  `--related` 跑了一次（結果見最後一條）
+- **n返 那一句「三返是加約的」看整筆、不看這一次新加的段**（`consequences.js` 的 `nthLabels(visit)`，`bookingConsequences()` 用；
+  `aboveeConsequences()` 那一圈有照 `added`）：併進一天原本就有一段三返的來訪、再加一段復能，確認框照樣講「三返是加約的」。
+  既有行為（過目 S6 記下的），04 只讓它跳過帶標記的段。建議：`nthLabels(visit, added)` 照 `giftNames()` 的寫法。沒修
+- **`chargeSwitchConsequences()` 多收 `customer`、`chain`**（04）：`visitEditor.js:1394` 現在沒傳 → 改成帶標記時「約二返」那幾句不講（不會講錯，只是少講）。06 接
+- **這台雲端 VM 沒有 `codegraph`**（`which codegraph` 空的、`npx` 也沒有）：04 的 ripple-check 用 grep 做。在她家裡那台跑的段照舊用它
+- **本機的 `develop` 停在 f36c654**（舊的），`--related` 會拿整條舊差異挑（lessons 十二）。04 時已 `git branch -f develop origin/develop`（093e1d9）
 
 ### 段二
 
@@ -117,7 +125,41 @@
 
 ### 段二（effort high）
 
-（段一做完時寫）
+這一輪在做「健檢不是我排的」：時段上多一格 `examNotMine: true`，讓健檢不是她排的客人可以排二返、三返～十返，不扣額度、不接健檢，其餘（日曆、醫師、待辦、試算表）照二返那門課。
+分支 `claude/exam-not-mine`，在主資料夾（她家裡那台 `C:\Users\DELL\Desktop\baobao-wellness-clinic-scheduler`；雲端 VM 上是 `/home/baobao/acct1/baobao-wellness-clinic-scheduler`），不是 worktree。
+開工前 `git pull`、`git status` 乾淨、跟 origin 一致；本機 `develop` 對齊 `origin/develop`（lessons 十二）。
+
+**段一做完了**（01～04 ＋ E2E `82`）：domain 那一側全部在，畫面一處都還沒傳標記。**這一段做 05 → 06 → 07，照這個順序**（06、07 都吃 05）。不做 08～10（拍 Abovee 與文件在段三）。
+
+先讀：
+- `CLAUDE.md`、`docs/agents/lessons.md`（尤其一：三個入口只改到一個；五：確認框講真的會發生的事）
+- `.scratch/exam-not-mine/spec.md`（全部）
+- 這份 HANDOFF 的「每一段共同的規矩」「使用者已經決定的」「過目抓到的」（M3、M4、M5、M7、M8、S7、S8、S13）「中途發現 → 段一」
+- issue 02、04 的「做完時留下的」（名字都在那裡），再讀 05～07
+
+段一做成、這一段要用的名字：
+- `masterData.js`：`isExamNotMine(slot)`（**全站只准問它**，`tests/exam-not-mine.test.js` 掃 `public/js`：除了 `masterData.js` 不准寫 `.examNotMine`，畫面自己的草稿也問它）、
+  `EXAM_NOT_MINE_LABEL`（'健檢不是我排的'，05 那一顆的字用它）、`examNotMineCourse(courses)`（二返那門課，**剛好一門才回**、刪掉停用的不算 —— 「畫不畫那一顆」問它；她主檔上現在一門）
+- `slotDraft.js` 的 `slotFromPicks()`：收 **`picks.examNotMine: true` ＋ `picks.nth`（2～10）**。**標記贏**（`entitlementId`／`isNth`／`giftCourseId`／`giftKind`／`followupForVisitId` 一律不看）；
+  `nth` 不是 2～10（含 null：不預選）→ `stop('先選第幾返')`，`course`／`assigns` 照樣交回去（醫師那一排靠它畫）；二返沒有 `followupNth` 這個鍵、3～10 寫快照 `courseName`
+- `validateVisit()`：帶標記的段只放過那一種形狀（`examNotMineErrors()`），哪一格不對講一句
+- 04：紅字是 `warningDetails()` 的 source **`examNotMine`**（進 `mustSee()`；二返而身上還有二返額度、或任何一段而有接得上的健檢）—— 壓表與編輯器存檔前那一道 `confirmReview(warnings)` 本來就列 warnings，不用另接；
+  確認框那一句在 `bookingConsequences()`（新加的帶標記段，帶標記的三返不再講「加約的」）；
+  **`chargeSwitchConsequences()` 已經認得「改成帶標記／拿掉標記」**，06 要在 `visitEditor.js:1394` 多傳 `customer: ctx.customer`、`chain: await chainInputs(customerId, coursesById)`（`data/visits.js:471`）——
+  不傳的話「約二返」重新長出來那一句不講
+
+**收合那一題她回了**（「使用者已經決定的」最後一條）：`foldOpen()` 既有的判斷不動（沒有額度的客人收合照舊自己打開，E2E `67` 的 G6／G13／G14 照舊）；
+「健檢不是我排的」在收合裡**再收一層「其他 ▸」**（`giftFold.js` 既有的分類那一套，`data-giftfold-group`），點了才出現；這一段選著它時那一層打開。05 照這個畫第三塊；收合那一顆的字改「送的／體驗／其他…」（三種形狀都改）
+
+照「每一段共同的規矩」做：改既有的函式之前照 `ripple-check`（有 `codegraph` 就 sync → callers／impact；雲端 VM 上沒有，用 grep）；先寫會紅的測試；
+動到 `public/` 的每一個 commit 升 `sw.js` 的 `VERSION`（**現在 v212**）、跑 `npm run shell:snapshot`；06、07 各一支新的 E2E（登記進 `tests-e2e/related.js`），04 的紅字與確認框也在那兩支量（`82` 沒量，因為段一還沒有畫面傳標記）；
+本機不跑全量 E2E；中途發現記進「中途發現 → 段二」、不岔出去修；同時最多兩個 subagent；一個真名都不准進版控（commit 訊息也算）。
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。**
+
+做完要交：每支一個 commit、`Status: done`、issue 底下「做完時留下的」（05 那一顆的常數名、旗標名、`giftFold` 第三塊的屬性；06 的 `readNotMineSlot()`；07 的 view 怎麼表示）、
+`npm run verify` 綠、更新這份 HANDOFF（分段表、中途發現、要使用者決定的）、**段三的開場**寫進下面（08 要知道 05 的常數與 `slotFromPicks()` 的 picks、09 要知道 `giftFold` 第三塊怎麼開）；
+做完 commit 並 push；最後回覆簡短說做了什麼、卡在哪。
 
 ### 段三（effort xhigh）
 
