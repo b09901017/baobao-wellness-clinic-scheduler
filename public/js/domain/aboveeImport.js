@@ -30,16 +30,18 @@ import {
   slotMinutesField, slotSay, slotStatus, validateVisit, warningDetails, withExtraSlot, withSlotStatuses,
 } from './visits.js';
 import { chargesEntitlement, counts, isProduct } from './entitlements.js';
-import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
+import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, isFollowupCourse, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { changeChargeSay, closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
-  giftKindOf, isTrialMinutes, trialMinutesOf,
+  giftKindOf, isTrialMinutes, trialMinutesOf, EXAM_NOT_MINE_LABEL,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { endOf, isValidTime, toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
-import { NTH_PICK, giftCourseIdOf, giftPick, trialFromMinutes } from './slotOptions.js';
-import { MIN_NTH, nthOf } from './nthFollowup.js';
+import {
+  NTH_PICK, NOT_MINE_PICK, EXTRA_GROUP, giftCourseIdOf, giftPick, notMineOption, slotOptionsFor, trialFromMinutes,
+} from './slotOptions.js';
+import { MIN_NTH, nthLabel, nthOf } from './nthFollowup.js';
 import { fullNameOf, slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
 import { bookingSystemOf } from './taskRules.js';
@@ -693,11 +695,68 @@ export function newRowSay(item) {
   }
   // ADR-0145：系統裡沒有、照片上也沒有（勾著的）健檢 —— 她 10/9：「先預設不壓，也提醒要先去約健檢 ? 但還是可以先存然後去日曆接」
   if (item.noExam) return '還沒有接得上的健檢 —— 先去約健檢；要先記的話勾起來，約好健檢之後去日曆接。';
+  // ADR-0169：照片上是回訪、這位走不了一般那一條 —— 沒替她按、沒替她勾（`notMineHintFor()`）
+  if (item.notMineHint) return notMineSay(item.notMineHint);
   if (!item.appCancelledHere) return '';
   // 同一門課：取消之後又約了同一格（ADR-0144，她 2026-10-09：「預設不勾並提醒已取消過」），或她還沒回 Abovee 放掉
   return item.appCancelledSame
     ? 'app 上這一段取消過 —— 是重新約的再勾；沒有重約的話回 Abovee 放掉那個時段。'
     : 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。';
+}
+
+/**
+ * 照片上是二返或三返～十返，而這位客戶**走不了一般那一條**（exam-not-mine 08，ADR-0169）：
+ *
+ * - 三返～十返：「要做什麼」那一排上沒有「＋ n返」（沒有接得上的健檢）—— 跟那一排畫不畫它問同一支 `slotOptionsFor()`
+ * - 二返：身上**一筆**二返額度都沒有（`entitlementChoices()` 是空的；有一筆用完的照舊預選那一筆＋超用的提醒，過目 S9）
+ *
+ * 讀照片那一下**不替她按、不替她勾**（她 11/2：「多一點步驟…讓一般的時候不會不小心多送」）—— 那一列講一句（`notMineSay()`），
+ * 她自己點開「其他」按「健檢不是我排的」（`pickOption()` 的 `NOT_MINE_PICK`）。照片上已取消的那一列不講（不會去記它）。
+ *
+ * @returns {{nth: number, offered: boolean}|null} `nth`：照片上第幾返（二返是 2）；`offered`：那一排上有沒有那一顆
+ *   （二返那門課不是剛好一門時沒有 —— 那一句就不叫她去按）。不是這種情況回 `null`
+ */
+function notMineHintFor(item, ctx) {
+  const course = item?.course;
+  if (!course?.courseId || !item.customerId) return null;
+  const courses = ctx.master?.courses ?? [];
+  let nth = null;
+  if (course.nth) {
+    if (nthOffered(item.customerId, ctx)) return null;
+    nth = course.nth;
+  } else if (isFollowupCourse(course.courseId, courses)) {
+    if (entitlementChoices(item.customerId, course, ctx).length) return null;
+    nth = 2;
+  } else {
+    return null;
+  }
+  return { nth, offered: Boolean(notMineOption(courses)) };
+}
+
+/** 這位客戶「要做什麼」那一排上有沒有「＋ n返」（確認層畫的那一排，`aboveeConfirm.js` 的 `optionsFor()` 同一份）。 */
+function nthOffered(customerId, ctx) {
+  return slotOptionsFor({
+    entitlements: ctx.entitlementsBy?.[customerId] ?? [],
+    visits: ctx.visitsBy?.[customerId] ?? [],
+    courses: ctx.master?.courses ?? [],
+    equipment: ctx.master?.equipment ?? [],
+  }, { includeUsedUp: true }).some((o) => o.isNth);
+}
+
+/**
+ * `notMineHintFor()` 那一列的那一句（`newRowSay()` 講）。指的是畫面上真的有的那兩個字：收合「送的／體驗／其他…」
+ * 裡的「其他」（`EXTRA_GROUP`）、那一顆「健檢不是我排的」（`EXAM_NOT_MINE_LABEL`）。那一顆不畫的時候講原本那一句（選別的）。
+ */
+function notMineSay({ nth, offered }) {
+  const label = nthLabel(nth) ?? '回訪';
+  const nthBack = nth >= MIN_NTH;
+  const why = nthBack ? '這位客戶沒有接得上的健檢' : '這位客戶身上沒有二返額度';
+  if (!offered) {
+    return nthBack
+      ? `照片上是${label}，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。`
+      : `照片上是${label}，${why} —— 選別的，或先去加購。`;
+  }
+  return `照片上是${label}，${why} —— 健檢不是你排的話，在「送的／體驗／其他…」裡點「${EXTRA_GROUP}」、按「${EXAM_NOT_MINE_LABEL}」。`;
 }
 
 /**
@@ -760,6 +819,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
     // 送的／體驗也是上一位的（gift-and-trial 02）：換一個人重算，留著的話她剛換的那一位會被記成送的
     isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
+    // 「健檢不是我排的」（ADR-0169）是她替上一位按的；那一句也是上一位的（下面照這一位重算）
+    notMine: false, notMineHint: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著 —— 「照片要把這一段改成什麼」（04）也是：留著的話換成的那一位被改狀態
@@ -843,7 +904,11 @@ export function resolveItem(item, customerId, ctx, items = null) {
   // 課程是二返那一門，照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
   let value = null;
   const courses = ctx.master?.courses ?? [];
-  if (course?.nth) value = NTH_PICK;
+  // 照片上是回訪、而這位走不了一般那一條（ADR-0169）：一顆都不替她按（以前預選 n返，那一排上卻沒有 n返 ——
+  // 一顆都沒按著、組不出來、還先勾了），也不勾，那一列講一句（`newRowSay()`）
+  const notMineHint = notMineHintFor(next, ctx);
+  if (notMineHint) value = null;
+  else if (course?.nth) value = NTH_PICK;
   // Abovee 寫體驗（06）、或課程那一格寫 EECP20（分鐘＝體驗的時候排幾分，ADR-0154；預約來源寫正式課也一樣 ——
   // 她 10/5：「EECP20 就是 EECP 體驗」）：那門課的體驗，**不看身上有沒有額度**（她選的：「就算他身上有買那門課也不扣」）。
   // 健檢、二返沒有體驗 → 照下面挑額度，那一列多一句（`trialSay()`）
@@ -857,13 +922,15 @@ export function resolveItem(item, customerId, ctx, items = null) {
   }
   // 按好之後那幾排（器材、品項、接哪一次健檢）跟她自己按那一顆走同一支
   Object.assign(next, pickOption(next, value, ctx, items));
+  // `pickOption()` 清掉那一句（她按了任何一顆就不講了）—— 讀照片那一下的放在它之後。已取消的那一列不講（不會去記它）
+  next.notMineHint = notMineHint && !next.cancelled ? notMineHint : null;
 
   // 照照片上的狀態決定（03，`photoWantsChecked()`：過去的完成與失約勾、過去的待確認不勾、未來的完成與失約不勾、
   // 已取消不勾；那一張沒拍到那一欄照舊 ADR-0030 的「還沒到的勾」）；她自己選的人不自動勾（上面的 `recognized`）
   // 09：這一位的全部來訪讀不到 → 上面的預選是拿不完整的那一份算的，不替她勾（`partialSay()` 講出來）
   const partialHistory = historyPartial(ctx, next.customerId);
   const checked = recognized && !next.cancelled && photoWantsChecked(next, ctx.today)
-    && !next.appCancelledHere && !partialHistory;
+    && !next.appCancelledHere && !partialHistory && !notMineHint;
   return { ...next, kind: 'new', checked, partialHistory };
 }
 
@@ -876,6 +943,8 @@ export const unverified = (item) => item?.who?.how === 'nameNoChart' && Boolean(
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
+  // 「健檢不是我排的」排在 n返 前面：帶標記的三返也有返數，但它不是 n返 那一顆（ADR-0169）
+  if (item?.notMine) return NOT_MINE_PICK;
   if (item?.isNth) return NTH_PICK;
   if (item?.giftCourseId) return giftPick(item.giftCourseId);
   return item?.entitlementId ?? null;
@@ -893,6 +962,9 @@ export function optionValueOf(item) {
  *   讀照片那一下的預選（`linkBatchExams()`）看整批，她自己再按一次只看資料庫的話，同一列按一次就換一個答案（10/9 審查）
  * - n返：返數照照片（`三返` → 3），照片上不是 n返 就預選三返（她 10/5）；
  *   接哪一次健檢**不替她選**（壓表同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
+ * - 「健檢不是我排的」（`NOT_MINE_PICK`，ADR-0169）：返數照照片（`三返` → 3、`二返` → 2）；**照片上不是回訪就不預選**
+ *   （日曆、壓表同一條：她自己按）—— 勾了交給 `slotFromPicks()` 擋「先選第幾返」，確認層照「還差一步」講出來。
+ *   不扣、不接健檢：那幾格在 `base` 已經清掉。**讀照片那一下從來不按它**（`resolveItem()`）
  *
  * 時長（`minutes`）、診間、治療師、醫師是照片上的，不跟著這一排動。
  */
@@ -901,8 +973,11 @@ export function pickOption(item, value, ctx, items = null) {
     ...item,
     entitlementId: null, isNth: false, nth: null, giftCourseId: null, giftKind: null,
     equipmentId: null, followupForVisitId: null, noExam: false,
+    // 換一顆就不是「健檢不是我排的」了；讀照片那一下那一句（`notMineHintFor()`）她按了任何一顆就不講
+    notMine: false, notMineHint: null,
     ivProductId: item.course?.ivProductId ?? null,
   };
+  if (value === NOT_MINE_PICK) return { ...base, notMine: true, nth: photoNthOf(item, ctx) };
   if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
   const courseId = giftCourseIdOf(value);
   if (courseId) return { ...base, ...giftRow(item, courseId, ctx) };
@@ -920,6 +995,13 @@ export function pickOption(item, value, ctx, items = null) {
   // 這一列換成剛選的樣子再問：它原本接著的那一次不可以把自己擋住
   const batch = items ? items.map((i) => (i.key === row.key ? row : i)) : null;
   return { ...row, followupForVisitId: onlyOpen(examChoices(row.customerId, ent, ctx, batch, row)) };
+}
+
+/** 照片上這一列是第幾返：`三返`～`十返` 照字、二返那門課是 2、別的課 `null`（不預選）。 */
+function photoNthOf(item, ctx) {
+  const course = item?.course;
+  if (course?.nth) return course.nth;
+  return course?.courseId && isFollowupCourse(course.courseId, ctx.master?.courses ?? []) ? 2 : null;
 }
 
 /**
@@ -1130,7 +1212,7 @@ export function refreshNoExam(items, ctx) {
 const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
-  isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
+  isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null, notMine: false, notMineHint: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null, move: null, adoptMove: false, moveWarnings: null,
   chargeChange: null, adoptCharge: false, chargeLocked: false,
@@ -2089,7 +2171,9 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 扣法跟 Abovee 不一樣、那一段已完成鎖著（ADR-0154）：改不了，只能提醒
   || (item?.kind === 'recorded' && Boolean(item?.chargeChange) && Boolean(item?.chargeLocked))
   // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
-  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam))
+  // 照片上是回訪、這位走不了一般那一條（ADR-0169）：沒先按、沒先勾，要她決定是不是「健檢不是我排的」
+  || (!item?.cancelled && item?.kind === 'new'
+    && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam || item?.notMineHint))
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
   // 合併扣課兩列不一樣、二返簽不成已完成 —— 這幾種都沒先勾好，要她決定（`photoRowSays()` 講為什麼）
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
@@ -2485,8 +2569,10 @@ export function aboveeLoadRange(transcripts = []) {
 /** 一列交給 `slotFromPicks()` 的那一份。 */
 export function picksOf(item) {
   return {
-    entitlementId: item.isNth ? null : item.entitlementId,
+    entitlementId: item.isNth || item.notMine ? null : item.entitlementId,
     isNth: Boolean(item.isNth),
+    // 「健檢不是我排的」（ADR-0169）：標記＋返數交給 `slotFromPicks()` 那一條（它贏）。只認 `true`
+    examNotMine: item.notMine === true,
     giftCourseId: item.giftCourseId ?? null,
     // 沒有 giftCourseId 的列這一格不算數（`slotFromPicks()` 只在走送的／體驗那一條時讀它）
     giftKind: item.giftCourseId ? (item.giftKind ?? 'trial') : null,
@@ -2497,7 +2583,8 @@ export function picksOf(item) {
     bed: null,
     therapistId: item.therapistId,
     doctorId: item.doctorId,
-    nth: item.isNth ? (item.nth ?? null) : null,
+    // 返數只有 n返 與「健檢不是我排的」交出去（後者二返是 2；`null` ＝ 還沒選，`slotFromPicks()` 擋「先選第幾返」）
+    nth: item.isNth || item.notMine ? (item.nth ?? null) : null,
     followupForVisitId: item.followupForVisitId,
     minutes: item.minutes ?? null,
     // 合併扣課那一段身上那一句（她 10/5）。記一句是她的欄位，之後改掉也可以

@@ -1,6 +1,6 @@
 # 08：拍 Abovee（domain：那一列的形狀、預選、勾不勾）
 
-Status: todo
+Status: done
 Blocked by: 04, 05
 
 ## 動工前先讀
@@ -50,4 +50,30 @@ Blocked by: 04, 05
 
 ## 做完時留下的
 
-（做完的人寫）
+- **列上的旗標**（`aboveeImport.js`）：
+  - **`notMine: true`**（她按了那一顆；不叫 `examNotMine` —— 列不是時段，`tests/exam-not-mine.test.js` 掃的是 `.examNotMine`）＋ 既有的 **`nth`**（2～10；`null` ＝ 還沒選）。`isNth` 一律 `false`
+  - **`notMineHint: { nth, offered } | null`**：讀照片那一下算的「走不了一般那一條」（`notMineHintFor()`，新的、沒 export）。
+    三返～十返：那一排上沒有「＋ n返」（`nthOffered()` 問 `slotOptionsFor()` 同一份 —— 確認層畫的那一排）；二返：`entitlementChoices()` 是空的（刪掉的不算；一筆用完的照舊預選，S9）。
+    `offered`：`notMineOption(courses)` 有沒有那一顆（二返那門課不是剛好一門時沒有）。照片上已取消的列不給
+- `resolveItem()`：`next` 多清 `notMine`、`notMineHint`；有 hint → **一顆都不按**（以前三返照樣預選 `NTH_PICK`，那一排上卻沒有 n返 → 一顆都沒按著、組不出來、**還先勾了**、卡住整張的「記錄」）、**不勾**；
+  hint 寫在 `pickOption()` 之後（`pickOption()` 的 `base` 會清掉它）
+- `newRowSay()`：多一句（`notMineSay()`，排在 `noExam` 之後）：
+  `照片上是三返，這位客戶沒有接得上的健檢 —— 健檢不是你排的話，在「送的／體驗／其他…」裡點「其他」、按「健檢不是我排的」。`（二返講「身上沒有二返額度」）；
+  那一顆不畫時退回原本確認層那一句（「選別的，或先去約健檢」／「選別的，或先去加購」）。「其他」與那一顆的字讀常數（`EXTRA_GROUP`、`EXAM_NOT_MINE_LABEL`）
+- `needsAttention`：帶 `notMineHint` 的新列排進「要你看」（同 `noExam`）；`pastStillOpen()` 因為 `newRowSay()` 有字自動不收它
+- `optionValueOf()`：`notMine` 排在 `isNth` 前面 → `NOT_MINE_PICK`
+- `pickOption()`：`base` 多清 `notMine`、`notMineHint`；`NOT_MINE_PICK` → `{ notMine: true, nth: photoNthOf() }`（照片 `三返`～`十返` 照字、二返那門課 2、**別的課 `null` 不預選**）。醫師、時長、診間照照片（`base` 不動）
+- `picksOf()`：多 **`examNotMine: item.notMine === true`**；`entitlementId` 在 `notMine` 時交 `null`；`nth` 在 `isNth || notMine` 時交出去
+- `asRecorded()`：多清 `notMine`、`notMineHint`（`claimTimeless()` 那一條：三返的照片對到匯入的沒有時間的舊段時，hint 不跟著變成「已經記了」）
+- **還沒選返數的那一列**：不另開草稿旗標（06 的 `pendingNth` 是因為編輯器的「帶標記、沒有返數」就是二返）—— 這裡列上的 `nth: null` 照交，`slotFromPicks()` 擋「先選第幾返」，
+  勾著的話確認層照既有的「還差一步：先選第幾返」講、底下那一顆數成 `stuck`；沒勾點開是「勾起來的話：存不下去 —— 先選第幾返」（`whatIfChecked()`）
+- **不用改、測試釘住的**：`secondEntOf()`（`entitlementId` null → 不進 `linkBatchExams()`／`refreshNoExam()`／`stuckLinks()`）、`closeBlockedKeys()`（`isNth` false → 不算二返簽不成）、
+  `chargeChangeOf()`（帶標記的三返 `followupNth` 有值 → null；二返 `giftKindOf()` null → 不提議改扣法）、`trialSay()`（`entitlementId` null → 不講）、`mergeRows()`（`looksMerged()` 要額度與器材）
+- 呼叫端（codegraph `callers` ＋ grep）：`resolveItem()`＝`readAbovee()`、`mergedItem()`、確認層「換一位」（`pickWho()`）；`pickOption()`＝`resolveItem()`、`pickMinutes()`、確認層按丸子；
+  `optionValueOf()`＝`pickMinutes()`、確認層 `detailHtml()`；`picksOf()`＝`composeGroups()`、確認層 `slotOf()`；`asRecorded()`＝`claimHalves()`、`claimTimeless()`、`flagMoved()`；
+  `newRowSay()`＝`pastStillOpen()`、確認層 `rowHtml()`。一般的列（沒有 hint、沒按那一顆）每一支答案一樣
+- 測試 **`tests/exam-not-mine-abovee.test.js`**（23 支）：讀照片那一下（三返／二返／額度刪掉／四返／那一顆不畫）、一般的客人不變（有健檢的三返、有額度的二返、用完的二返、從來不替她按）、
+  按了之後（三返與二返組出來的段、照片不是回訪 → 先選第幾返、一般的客人也按得下去、換回別的一顆、「排多久」、換一位、那一排上有那一顆）、整張一起看（不進接健檢那一圈、課程完成記成已完成、確認框那一句）、
+  下一次再拍到（三返、二返已經記了不提議改扣法、沒有時間的舊段清掉 hint）
+- 確認層那一句（`aboveeConfirm.js:588-590`）、filter 與「第幾返」那一排是 09
+- `public/sw.js` v215 → v216、`npm run shell:snapshot`
