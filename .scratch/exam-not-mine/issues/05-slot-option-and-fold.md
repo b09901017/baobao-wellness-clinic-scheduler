@@ -7,7 +7,7 @@ Blocked by: 02
 
 - `CLAUDE.md` 連動表「額度那一排的順序」「送的／體驗、預設體驗的課、「這一段可以做什麼」那一排」兩列
 - `public/js/domain/slotOptions.js`（全部）、`public/js/ui/components/giftFold.js`
-- HANDOFF「使用者已經決定的」的收合會不會自己打開那一題（她的答案決定 `foldOpen()` 怎麼改或不改）
+- HANDOFF「使用者已經決定的」的收合那一題 —— 她 11/2 回「可以」：`foldOpen()` 不動；「健檢不是我排的」在收合裡再收一層「其他 ▸」（`data-giftfold-group`），點了才出現；選著它時那一層打開
 
 ## 她要的
 
@@ -32,7 +32,7 @@ Blocked by: 02
   那一組每一顆都是 `isGift`，壓表會把它當 `giftCourseId` 交出去（`schedule.js:2199`），`defaultGiftCourse()` 也讀那一組
 - 那一顆：值是一個新的常數（像 `NTH_PICK` 那樣帶底線前綴、不是任何 id）、字「健檢不是我排的」、**自己的旗標（不帶 `isNth`／`isGift`）**、`folded`；二返那門課找不到（或兩門以上）就不畫
 - 壓表與拍 Abovee 那兩處副字認新的旗標（「不扣次數」）
-- `giftFold.html()` 多第三塊：照她的答案（HANDOFF「使用者已經決定的」的收合那一題）；`arrangeSlotOptions()` 把它單獨排在收合的最後
+- `giftFold.html()` 多第三塊「其他 ▸」：**收合裡再收一層**，用既有的分類那一套（`data-giftfold-group`），點了才露出「健檢不是我排的」；這一段選著它時那一層一打開就是開的。`arrangeSlotOptions()` 把它單獨排在收合的最後
 - `giftFold.js` 那一顆的字改成「送的／體驗／其他…」。字有三種形狀（`giftFold.js:81-85`）：開著「送的／體驗 ▾ 收起來」、收著且選了一門「X 送的／體驗 ▸」、其餘「送的／體驗…」——
   三種都要改；`grep "送的／體驗"` 不要只 grep「送的／體驗…」
 - `foldOpen()`：**既有的判斷不動**；收到新的那個值時回 true（同 `giftCourseIdOf` 那一條，不動既有行為）
