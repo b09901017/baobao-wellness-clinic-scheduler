@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
 | 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、1697c65）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
-| 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo（11/2 雲端開的那一次額度 94% 起步，只讀沒改，見「中途發現 → 段三」；照原本的段三開場重開） |
+| 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | **done**：08～10（69322b5、929489f、0eae523）＋ E2E `85`；`npm run verify` 見「中途發現 → 段三」最後一條 |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
 | 五 | 照審查修、手動驗收清單（自己在模擬器走過）、CI 全量、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
 
@@ -114,7 +114,17 @@
   - `asRecorded()` 多清 `notMine`、那一句的旗標
   - 不用改、只要測試釘住：`secondEntOf()`（`entitlementId` 是 null → 不進 `linkBatchExams()`／`refreshNoExam()`）、`closeBlockedKeys()`（`isNth` false）、
     `chargeChangeOf()`（帶標記的三返 `followupNth` 有值 → null；二返 `entitlementId` null、`giftKindOf()` 對帶標記的回 null → null）
-- 段三一個 commit 都沒有；`public/sw.js` 還是 **v215**
+- 上面那一次只讀沒改。**11/2 晚在她家裡那台重開、照上面的做法做完 08～10**（照 ripple-check 再對了一次，做法沒變；細節在 issue 08、09 的「做完時留下的」）。多做的兩件：
+  - 讀照片那一下的那一句是 **`notMineHint: { nth, offered }`**（`offered`：二返那門課不是剛好一門、那一顆不畫時，那一句退回原本的「選別的，或先去約健檢／加購」，
+    不叫她去按一顆不存在的鈕）；帶它的列排進「要你看」（`needsAttention`，同 `noExam`）。照片上已取消的列不給
+  - 05 改了收合那一顆的字（「送的／體驗…」→「送的／體驗／其他…」），操作手冊、常見問題、SPEC、CONTEXT 還寫著舊的 16 處 —— 10 一起改了（lessons 十）
+- **三返～十返的照片、而同一張照片上才有那一次健檢（還沒存）**：那一列照樣講「沒有接得上的健檢 —— 健檢不是你排的話…」。
+  既有的限制：確認層的「＋ n返」只看存著的健檢（`slotOptionsFor()`），同一張照片上新的健檢從來接不上 n返（二返接得上，ADR-0145）；
+  以前那一列預選 n返、一顆都沒按著、還先勾著（卡住整張的「記錄」），現在不勾、講一句 —— 句子裡的「健檢不是你排的話」是條件句，不算講錯，但對那一種客人沒幫助。
+  建議（不急）：n返 也接得上同一張照片上的健檢（照 ADR-0145 二返那一套），或那一句多一種「先記健檢那一列、再拍一次」。沒做
+- **照片是二返、身上有二返額度、但沒有接得上的健檢**：照舊是 `noExam` 那一句（「先去約健檢；要先記的話勾起來，約好健檢之後去日曆接」），**不提**「健檢不是我排的」。
+  照 issue 08（過目 S9）：二返只在一筆二返額度都沒有時才指她去那一顆 —— 有額度的客人按了它會跳紅字。記著給段四確認這樣對不對。沒改
+- **E2E**：08 跑了 `41`、`51`、`65`、`68`（27 passed，3.7 分）；09 跑了 `41`、`51`、`65`、`68`、`85`（28 passed，2.4 分）。段末 `npm run verify`（她家裡那台、CI=1、一個 worker）：單元 5333 綠；對 develop 動了 51 個檔案 → **62 支、440 passed、1 skipped（31.9 分），一支 flaky 都沒有**（跳過的是 `61` 的 H1：Windows 上模擬器不回 headers，本來就跳，lessons 九）。跑完依 port 停掉了模擬器
 
 ## 每一段的開場
 
@@ -239,7 +249,37 @@
 
 ### 段四：審查（effort xhigh）
 
-（段三做完時寫；`/matt-code-review` 審 `develop` 到這一輪最後一個 commit 的全部改動，單獨一段）
+這一輪在做「健檢不是我排的」（ADR-0169）：時段上多一格 `examNotMine: true`，讓健檢不是她排的客人可以排二返、三返～十返，不扣額度、不接健檢，其餘照二返那門課。
+分支 `claude/exam-not-mine`，在主資料夾（她家裡那台 `C:\Users\DELL\Desktop\baobao-wellness-clinic-scheduler`；雲端 VM 上是 `/home/baobao/acct1/baobao-wellness-clinic-scheduler`），不是 worktree。
+開工前 `git pull`、`git status` 乾淨、跟 origin 一致；本機 `develop` 對齊 `origin/develop`（lessons 十二）。
+
+**段一～段三做完了**：01～10 每支一個 commit（分段表上有 hash）＋ E2E `82`～`85`。**這一段只審查、不改程式**：用 `/matt-code-review` 審
+**`develop`（093e1d9c）到這一輪最後一個 commit** 的全部改動，兩個軸：
+
+- Standards：`CLAUDE.md`（連動表新的那一列「健檢不是我排的」、「拍 Abovee 記很多段」、「新增一個會建立時段的入口」、「一句按下去會發生什麼」、「`public/` 底下任何檔案」那幾列）、`docs/agents/lessons.md`（尤其一、二、五、十）
+- Spec：`.scratch/exam-not-mine/spec.md` ＋ issue 01～10（每一支的「要做的」「判準」對「做完時留下的」）、ADR-0169
+
+先讀：
+- `CLAUDE.md`、`docs/agents/lessons.md`、`spec.md`、這份 HANDOFF 的「使用者已經決定的」「過目抓到的」「中途發現」（段一～段三）
+- issue 01～10 的「做完時留下的」
+
+特別要看的（審查的人自己判斷，這裡只列做的人不放心的）：
+- **一般的段一個字都沒變**：每一道放寬是不是只認 `isExamNotMine()`（只認 `=== true`）、沒有任何一處從形狀推；`slotFromPicks()`／`validateVisit()`／`giftKindOf()`／`sheetReport.js` 對沒有標記的段答案一樣
+- **三個入口講同一件事**（lessons 一）：壓表 `schedule.js`、來訪編輯器 `visitEditor.js`、拍 Abovee `aboveeImport.js`＋`aboveeConfirm.js` —— 那一顆、第幾返、換回別的一顆時清標記、醫師 `preselect` 的時機
+- 拍 Abovee 的兩個時機（讀照片那一下 `resolveItem()`、她自己按 `pickOption()`）是同一支；`notMine`／`notMineHint` 三處清掉（`next`、`base`、`asRecorded()`）
+- 確認框與紅字講的是真的會發生的事（lessons 五）：`bookingConsequences()`、`aboveeConsequences()`、`chargeSwitchConsequences()`（編輯器有沒有傳 `customer`／`chain`）
+- 文件跟著畫面走（lessons 十）：操作手冊、常見問題、邊界測試清單照寫的點得到嗎
+- 「中途發現」裡還開著的那幾條（段一：三返那一句寫「二返 還沒選醫師」、`nthLabels()` 看整筆；段三：同一張照片上的健檢接不上 n返、有二返額度沒健檢的那一句不提這一顆）—— 審查判斷要不要在這一輪修
+- **她已經回了、不用再提**：讀取卡片／日曆不加「健檢不是我排的」小字
+
+審查只能讀；**一個字都不改**。結果寫進 `.scratch/exam-not-mine/REVIEW.md`（每一條：哪裡、什麼情境會錯、多嚴重、建議；先自己重現確定是真的 —— 全域規矩「提出問題之前先確定是真的」）。
+要她決定的一次一題、附建議（能照她說過的規則決定的收成一題「照建議」）；**還有題目沒回答就先不寫段五的開場**，她回了再寫進來。
+同時最多兩個 subagent（`/matt-code-review` 的兩個軸就是兩個）；本機不跑全量 E2E。
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。**
+
+做完要交：`REVIEW.md`、更新這份 HANDOFF（分段表、要使用者決定的、她的回答）、**段五的開場**寫進下面（照審查修哪幾條、手動驗收清單、CI 全量 `gh workflow run e2e-full.yml --ref claude/exam-not-mine`、
+開 PR 進 `develop`、CI 全綠就合）；commit 並 push；最後回覆簡短說找到什麼、要她決定什麼。
 
 ### 段五：PR（effort medium）
 
