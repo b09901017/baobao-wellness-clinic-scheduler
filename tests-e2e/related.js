@@ -644,6 +644,11 @@ export const COVERAGE = {
     'public/js/domain/naming.js', 'public/js/domain/taskRules.js', 'public/js/domain/consequences.js',
     'public/js/data/visits.js', 'public/js/ui/views/calendar.js',
   ],
+  // 健檢不是我排的：日曆新增與來訪編輯器（exam-not-mine 06）—— 收在「其他 ▸」、第幾返不預選、換回別的一顆清掉標記、既有一段改成帶標記的確認框
+  '83-exam-not-mine-editor': [
+    'public/js/ui/views/visitEditor.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
 };
 
 /**

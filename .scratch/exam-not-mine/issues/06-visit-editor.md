@@ -1,6 +1,6 @@
 # 06：日曆新增與來訪編輯器
 
-Status: todo
+Status: done
 Blocked by: 04, 05
 
 ## 動工前先讀
@@ -44,4 +44,23 @@ Blocked by: 04, 05
 
 ## 做完時留下的
 
-（做完的人寫）
+- 過目 M8 逐行確認屬實（三個出口都 `...slot`；帶標記的三返 `isNthSlot()` 是 true 會畫 n返 那幾排）
+- `visitEditor.js`：
+  - `slotCard()`：`notMine = isExamNotMine(slot)`、**`nth = isNthSlot(slot) && !notMine`**（帶標記的三返不走 n返 那幾排）；`ent`／`courseChoices`／`gift` 對它是空的；
+    抬頭：還沒選第幾返印「健檢不是我排的」，其餘照 `slotName()`（`二返(30)`、`三返(30)`）
+  - `entRow()`：值 `NOT_MINE_PICK`；那一排多 `notMineOption(all.courses, { keep })`（05 多了 `keep`：這一段就是它時二返那門課停用了照樣列）
+  - **`notMineNthField(slot, i)`**：「第幾返」二返～十返、欄位名 **`s${i}-nmnth`**（不是 `s${i}-nth`）、不預選、不是 quiet（抬頭要跟著換）、說明收在 `?`
+  - **`readNotMineSlot({ v, i, slot, ctx })`**：走 `slotFromPicks({ examNotMine: true, nth, … })`；第幾返＝那一排畫出來照按的、剛換過來是 null、原本就是的照原本（`nthOf(slot) ?? 2`）；
+    醫師 `preselect` 只在剛換過來時套；時長剛換過來回預設；狀態、`attended` 留原本的；二返**沒有 `followupNth` 這個鍵**（三返換二返時拿掉）。
+    還沒選第幾返 → 草稿帶 **`pendingNth: true`**（只在畫面上，`submit()` 最前面擋「先選第幾返（健檢不是我排的）」、從來不存 —— 不擋的話「帶標記、沒有返數」就是二返）
+  - **`plainSlot(slot)`**：拿掉 `examNotMine` 與 `pendingNth`；`readDraft()` 的三個出口（扣額度那一條、`readFreeSlot()`、`readNthSlot()`）都經過它；
+    `key()` 的退路先認 `isExamNotMine()`（排在 `isNthSlot()` 前面）
+  - `submit()`：`chargeSwitchConsequences()` 多傳 `customer`、`chain`（**只有真的換了標記才 `visitsData.chainInputs()`**，一般的改時間不多讀）
+- 既有的一段改成帶標記：同一門課不算改期（`rebookSlot()` 只看開始時間與課程）→ 原地改，第一道紅字（`confirmReview()`）、第二道 `chargeSwitchConsequences()`
+- E2E **`83-exam-not-mine-editor`**（新的，登記進 `related.js`）：
+  E1 日曆新增（沒額度沒健檢的客人：收合自己打開、「其他 ▸」點開才看得到、沒有「＋ n返」、第幾返不預選、沒選擋下來、一筆都沒存 → 三返 → 確認框講「三返的健檢不是你排的」、不講「加約的」→ 存進去的形狀 → 日曆印三返 → 長按客戶說可以 → 掛號那一族長出來）；
+  E2 選了它再換成功醫門診：標記與返數清掉；E3 既有扣著二返額度、接著健檢的二返 → 改成帶標記的二返：紅字兩句（二返額度、健檢接得上）＋確認框「改成…不扣「二返（8萬健檢）」」、原地改；
+  E4 打開既有的帶標記三返只換醫師：那一排按著它、「其他 ▸」開著、第幾返按著三返、存回去形狀不變
+- 相關 E2E 跑了 `13`、`25`、`29`、`49`、`67`、`72`、`82`：65 passed；`83`：4 passed
+- `public/sw.js` v213 → v214、`npm run shell:snapshot`
+

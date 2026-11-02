@@ -141,10 +141,12 @@ export function slotOptionsFor(
  * 二返那門課不是剛好一門（`examNotMineCourse()`）就不畫：回 `null`。
  *
  * @param {object[]} courses 主檔
+ * @param {{keep?: object|null}} [o] 這一段現在就是「健檢不是我排的」時那一段的課程（來訪編輯器）：
+ *   二返那門課後來停用了、或多設了一門，那一顆照樣列 —— 不然那一排一顆都沒按（同 `giftOptions()` 的 `keep`）
  * @returns {object|null}
  */
-export function notMineOption(courses = []) {
-  const course = examNotMineCourse(courses);
+export function notMineOption(courses = [], { keep = null } = {}) {
+  const course = examNotMineCourse(courses) ?? keep;
   if (!course) return null;
   return {
     entitlementId: NOT_MINE_PICK,

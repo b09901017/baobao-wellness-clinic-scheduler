@@ -66,6 +66,13 @@ describe('那一顆（notMineOption）', () => {
     const off = COURSES.map((c) => (c.id === 'course-followup' ? { ...c, active: false } : c));
     assert.equal(notMineOption(off), null);
   });
+
+  test('這一段現在就是它（keep）：二返那門課停用了照樣列，那一排才有一顆按著（來訪編輯器，06）', () => {
+    const off = COURSES.map((c) => (c.id === 'course-followup' ? { ...c, active: false } : c));
+    const kept = notMineOption(off, { keep: off.find((c) => c.id === 'course-followup') });
+    assert.equal(kept.entitlementId, NOT_MINE_PICK);
+    assert.equal(kept.course.id, 'course-followup');
+  });
 });
 
 describe('那一排（slotOptionsFor／arrangeSlotOptions）', () => {
