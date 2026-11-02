@@ -39,7 +39,7 @@ import {
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { giftKindOf, giftLabel, bookingMinutesOf } from './masterData.js';
+import { giftKindOf, giftLabel, bookingMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel, isValidTime, toMinutes } from './visitTime.js';
 import { slotName } from './naming.js';
@@ -263,6 +263,8 @@ export function bookingConsequences({
   for (const name of giftNames(visit, coursesById, added)) {
     lines.push(`${name} —— 客戶身上的數字一個都不會變`);
   }
+  // 健檢不是她排的（ADR-0169）：同一種擔心，再多一件「不接健檢」。**只講這一次新加的段**；帶標記的三返只講這一句
+  for (const name of notMineNames(visit, coursesById, added)) lines.push(notMineLine(name));
   // 剛好一場接得過來的二返：多一顆「順便接過來」（ADR-0146）。那一句跟著改講那一顆，去日曆改的路照樣講
   const relink = relinkChoice({ visit, added: fresh, entitlements, coursesById, customerVisits });
   lines.push(...strandedOnNewExamLines({ visit, added: fresh, entitlements, coursesById, customerVisits, offer: relink }));
@@ -521,16 +523,20 @@ export function aboveeConsequences({
   // 看起來像會偷扣一次。**只講這一次新加的段**：併進的那一天原本就有的三返不是這一次的事
   const nths = new Set();
   const free = new Set();
+  const notMine = new Set();
   for (const g of groups) {
     const added = addedIn(g);
     for (const i of added) {
-      const label = nthLabel(nthOf(g.visit?.slots?.[i]));
+      // 帶標記的三返只講「健檢不是你排的」那一句（兩句講的是同一件事）
+      const label = isExamNotMine(g.visit?.slots?.[i]) ? null : nthLabel(nthOf(g.visit?.slots?.[i]));
       if (label) nths.add(label);
     }
     for (const name of giftNames(g.visit, coursesById, added)) free.add(name);
+    for (const name of notMineNames(g.visit, coursesById, added)) notMine.add(name);
   }
   for (const nth of nths) lines.push(`${nth}是加約的 —— 這一場不扣任何次數，客戶身上的數字一個都不會變`);
   for (const name of free) lines.push(`${name} —— 客戶身上的數字一個都不會變`);
+  for (const name of notMine) lines.push(notMineLine(name));
   // 存一段新的健檢、這位還有一場二返接在取消的那一次上（ADR-0145）。同一位好幾天都有新的健檢時只講一次
   const stranded = new Set(groups.flatMap((g) => strandedOnNewExamLines({
     visit: g.visit, added: addedIn(g), entitlements: entitlementsBy[g.customerId] ?? chainBy[g.customerId]?.entitlements ?? [], coursesById,
@@ -615,11 +621,29 @@ function planOfGroups(groups = [], adopts = [], visitsBy = {}) {
 function nthLabels(visit) {
   const seen = new Set();
   for (const slot of visit?.slots ?? []) {
+    // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）
+    if (isExamNotMine(slot)) continue;
     const label = nthLabel(nthOf(slot));
     if (label) seen.add(label);
   }
   return [...seen];
 }
+
+/**
+ * 這次新加的段裡，**健檢不是她排的**那幾段叫什麼（去重）：`二返`、`三返`（ADR-0169）。寫法照 `giftNames()`
+ *（只看 `added`），名字走 `followupName()`（n返 講返數、二返講主檔上的名字）。
+ */
+function notMineNames(visit, coursesById = {}, added = null) {
+  const slots = visit?.slots ?? [];
+  const seen = new Set();
+  for (const i of added ?? slots.map((_, at) => at)) {
+    if (isExamNotMine(slots[i])) seen.add(followupName(slots[i], coursesById));
+  }
+  return [...seen];
+}
+
+/** 確認框那一句：壓表、日曆新增、拍 Abovee 同一句。 */
+const notMineLine = (name) => `${name}的健檢不是你排的 —— 這一場不扣任何次數、不接 app 裡的任何一次健檢`;
 
 /**
  * 這次新加的段裡，**送的／體驗**的那幾段叫什麼（去重）：`心臟科評估(體驗)`、`復能(送的)`。
@@ -1348,15 +1372,23 @@ export function rebookConsequences({
  * @param {object[]} [o.customerVisits] 這位客戶的全部來訪（試算次數用）
  * @param {{courses?: object[], equipment?: object[], ivProducts?: object[]}|null} [o.master] 名字（`slotName()`）
  * @param {boolean} [o.sheetSyncOn]
+ * @param {{id:string, name?:string}|null} [o.customer] 與 `chain`（`data/visits.js` 的 `chainInputs()`）：改了「健檢不是我排的」時
+ *   健檢那條鏈的「約二返」會怎麼動（`followupBookingLines()`）；沒給就不講那幾句
  * @returns {{title: string, lines: string[], confirmLabel: string}|null}
+ *
+ * **改成帶「健檢不是我排的」、或拿掉它**（ADR-0169，exam-not-mine 04、過目 M7）也走這一道：同一門課、同一個時間，
+ * 不是改期（`rebookSlot()` 只看那兩件），而以前一道都不跳 —— 扣著二返、接著某一次健檢的那一段改成帶標記，
+ * 額度還回去、那一次健檢的「約二返」重新長出來。次數照樣 `counts()` 試算、鏈拿 `syncFollowupTasks()` 試算。
  */
 export function chargeSwitchConsequences({
   before, after, coursesById = {}, entitlements = [], customerVisits = [], master = null, sheetSyncOn = false,
+  customer = null, chain = null,
 }) {
   const paid = (s) => Boolean(s?.entitlementId);
+  const flipped = (old, now) => isExamNotMine(old) !== isExamNotMine(now);
   const switched = (before?.slots ?? []).map((old, i) => ({ old, now: after?.slots?.[i] }))
-    .filter(({ old, now }) => now && isLiveSlot(now) && paid(old) !== paid(now)
-      && (Boolean(giftKindOf(old, coursesById)) || Boolean(giftKindOf(now, coursesById))));
+    .filter(({ old, now }) => now && isLiveSlot(now) && (flipped(old, now) || (paid(old) !== paid(now)
+      && (Boolean(giftKindOf(old, coursesById)) || Boolean(giftKindOf(now, coursesById))))));
   if (!switched.length) return null;
 
   const names = master ?? { courses: Object.values(coursesById) };
@@ -1368,9 +1400,24 @@ export function chargeSwitchConsequences({
     return c.done + c.booked;
   };
   const lines = [];
+  const examDay = (id, visits) => {
+    const date = (visits ?? []).find((v) => v?.id === id)?.date;
+    return isValidDate(date) ? `${shortDate(date)} 那一次健檢` : '另一次健檢';
+  };
+  const label = `「${EXAM_NOT_MINE_LABEL}」`;
   for (const { old, now } of switched) {
     const ent = (entitlements ?? []).find((e) => e.id === (old.entitlementId || now.entitlementId)) ?? null;
     const delta = ent ? used(ent, will) - used(ent, was) : 0;
+    if (flipped(old, now)) {
+      // Abovee 上那一格照舊是二返那門課，沒有要改的 —— 不講 Abovee 那一句
+      const what = isExamNotMine(now)
+        ? `改成${label}：${ent ? `不扣「${ent.label}」` : '不扣任何次數'}`
+          + (old.followupForVisitId ? `、不再接 ${examDay(old.followupForVisitId, was)}` : '')
+        : `拿掉${label}：${paid(now) ? `改成扣「${ent?.label ?? '額度'}」` : '照樣不扣次數'}`
+          + (now.followupForVisitId ? `、接 ${examDay(now.followupForVisitId, will)}` : '');
+      lines.push(`${slotName(now, names, 'short')} —— ${what}${timesSay(delta)}`);
+      continue;
+    }
     const kind = giftKindOf(now, coursesById);
     const what = paid(now) ? `改成扣「${ent?.label ?? '額度'}」` : `改成${giftLabel(kind)}、不扣${ent ? `「${ent.label}」` : '次數'}`;
     lines.push(`${slotName(now, names, 'short')} —— ${what}${timesSay(delta)}`);
@@ -1383,11 +1430,21 @@ export function chargeSwitchConsequences({
       ? `Abovee 上記得改成 ${spelled}${minutes}`
       : `Abovee 上記得把預約來源改成${paid(now) ? '正式課' : giftLabel(kind)}`);
   }
-  lines.push('只改扣法 —— 時間、狀態、待辦都不動');
+  const anyFlip = switched.some(({ old, now }) => flipped(old, now));
+  if (anyFlip) {
+    // 健檢那條鏈：拿寫入之後真的在跑的那一支試算（ADR-0070）。沒給 chain 不講 —— 但也不說「待辦都不動」
+    lines.push(...followupBookingLines({ customer: customer ?? { id: after?.customerId, name: after?.customerName }, visits: will, chain, coursesById }));
+    lines.push('只改扣法與接不接健檢 —— 時間、狀態不動');
+  } else {
+    lines.push('只改扣法 —— 時間、狀態、待辦都不動');
+  }
   if (sheetSyncOn) lines.push(SHEET_LINE);
-  const one = switched.length === 1 ? switched[0].now : null;
+  const one = switched.length === 1 ? switched[0] : null;
+  const oneTitle = () => (flipped(one.old, one.now)
+    ? `這一段${isExamNotMine(one.now) ? '改成' : '拿掉'}${label}？`
+    : `這一段改成${paid(one.now) ? '扣額度' : giftLabel(giftKindOf(one.now, coursesById))}？`);
   return {
-    title: one ? `這一段改成${paid(one) ? '扣額度' : giftLabel(giftKindOf(one, coursesById))}？` : `改 ${switched.length} 段的扣法？`,
+    title: one ? oneTitle() : `改 ${switched.length} 段的扣法？`,
     lines,
     confirmLabel: '照這樣存',
   };

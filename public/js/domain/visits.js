@@ -26,7 +26,7 @@ import {
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
-  followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
+  followupsOfExam, secondFollowupIds, examChoicesForNth, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
@@ -1956,6 +1956,7 @@ function visitWarnings(visit, ctx) {
  * | `nth` | 同一次健檢底下已經有同樣的返數 |
  * | `conflict` | 跟那一天別的來訪撞診間、治療師、同一位客戶（ADR-0094、0133）|
  * | `frequency` | 每季一次那種限制（講的是那門課的每一段）|
+ * | `examNotMine` | 按了「健檢不是我排的」，可是身上還有二返額度、或有一次接得上的健檢（ADR-0169）|
  *
  * @returns {{text: string, source: string, slots: number[]}[]}
  */
@@ -1969,18 +1970,20 @@ export function warningDetails(visit, ctx) {
     ...from('nth', nthWarnings(visit, ctx)),
     ...from('conflict', conflictWarnings(visit, ctx)),
     ...from('frequency', frequencyWarnings(visit, ctx)),
+    ...from('examNotMine', examNotMineWarnings(visit, ctx)),
   ];
 }
 
 /**
  * **會改變寫入結果的提醒** —— 收在要點開才看得到的地方就等於沒講（`CLAUDE.md`「畫面上一段常駐的說明」的紅線）：
- * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪。
+ * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪、
+ * 按了「健檢不是我排的」可是其實扣得到二返或接得上健檢（那一場就不扣、不接，ADR-0169）。
  *
  * 其餘照舊點開才看：「還沒選治療師／診間／醫師」那一類幾乎每一列都有（合併檔匯進來的、服務資源認不出來的），
  * 全部攤開等於把真的要看的淹掉（她 2026-09-10：「非常占版面…會視覺疲勞」）。
  * 哪幾種算只寫在這裡；畫面與確認框讀同一份。
  */
-const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict']);
+const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict', 'examNotMine']);
 export const mustSee = (warning) => MUST_SEE.has(warning?.source);
 
 /**
@@ -2024,6 +2027,48 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel 
     }
   });
 
+  return out;
+}
+
+/**
+ * 按了「健檢不是我排的」，可是這位客戶其實**扣得到二返**或**接得上健檢**（ADR-0169，exam-not-mine 04）。
+ * 她：「多一點提醒或是多一點確認等等，讓一般的時候不會不小心多送」。按了那一顆，那一場就不扣、不接 ——
+ * 二返額度留著剩、那一次健檢的「約二返」不收。所以兩種都講，而且進 `mustSee()`（不點開也要看得到）。
+ *
+ * - **二返**（帶標記、沒有返數）、身上還有活著的二返額度還有剩（`countsWithDraft()`：這一筆正在扣的也算進去）→ 講哪一筆、剩幾次
+ * - **任何一段**帶標記、有一次接得上的健檢 → 講哪一天。問 `examChoicesForNth()` 的 `pickable`，**不是 `examChoicesFor()`** ——
+ *   後者身上沒有二返額度時直接回空，而「app 裡有健檢、身上卻沒有二返額度」正是最該講的那一種（過目 S5）。
+ *   這一筆自己的健檢（還沒存的）也算（lessons 二）
+ *
+ * 她真的要用的那種客人（沒有二返額度、沒有健檢）一句都不跳。只講還算數的段；只提醒不擋（ADR-0074）。
+ */
+function examNotMineWarnings(visit, {
+  courses = [], entitlements = [], customerVisits = [], slotLabel = defaultSlotLabel,
+}) {
+  const marked = (visit.slots ?? []).map((s, i) => ({ s, i })).filter(({ s }) => isExamNotMine(s) && isLiveSlot(s));
+  if (!marked.length) return [];
+
+  const second = secondFollowupIds(entitlements);
+  const left = (entitlements ?? []).filter((e) => second.has(e.id))
+    .map((e) => ({ e, n: countsWithDraft(e, customerVisits, visit, e.id).remaining }))
+    .filter(({ n }) => n > 0);
+  const withMe = [...(customerVisits ?? []).filter((v) => v && (!visit.id || v.id !== visit.id)), visit];
+  const exams = examChoicesForNth({ entitlements, coursesById: byId(courses), visits: withMe }).filter((c) => c.pickable);
+  const label = `「${EXAM_NOT_MINE_LABEL}」`;
+
+  const out = [];
+  for (const { s, i } of marked) {
+    const at = slotLabel(i);
+    if (!isNthSlot(s) && left.length) {
+      const what = left.map(({ e, n }) => `「${e.label}」剩 ${n} 次`).join('、');
+      out.push({ text: `${at}：這位客戶身上還有${what} —— 按了${label}，這一場不扣它`, slots: [i] });
+    }
+    if (exams.length) {
+      // 同一次可能以兩個 id 出現（拍 Abovee 還沒存的那一組帶暫時的 id），所以照日子去重
+      const days = [...new Set(exams.map((c) => (isValidDate(c.date) ? shortDate(c.date) : '另一天')))].join('、');
+      out.push({ text: `${at}：這位客戶有 ${days} 的健檢接得上 —— 按了${label}，這一場不接它`, slots: [i] });
+    }
+  }
   return out;
 }
 
