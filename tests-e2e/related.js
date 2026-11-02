@@ -649,6 +649,11 @@ export const COVERAGE = {
     'public/js/ui/views/visitEditor.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
     'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
   ],
+  // 健檢不是我排的：壓表（exam-not-mine 07）—— 收在「其他 ▸」、第幾返不預選、不整頁重畫、按回額度之後組出來的段乾淨、紅字
+  '84-exam-not-mine-booking': [
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
 };
 
 /**

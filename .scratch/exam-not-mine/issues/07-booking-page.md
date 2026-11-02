@@ -1,6 +1,6 @@
 # 07：壓表
 
-Status: todo
+Status: done
 Blocked by: 04, 05
 
 ## 動工前先讀
@@ -33,4 +33,18 @@ Blocked by: 04, 05
 
 ## 做完時留下的
 
-（做完的人寫）
+- **view 怎麼表示**：`view.entitlementId === NOT_MINE_PICK`（沒有另加 view 欄位）；返數存在**既有的 `view.nth`**（2～10）——
+  兩排不會同時出現，`resetPicks()`／`resetCourseBoundPicks()` 本來就清它，所以按回額度那一顆之後乾淨（E2E `84` B2 量著）
+- `schedule.js`：
+  - **`notMineNthField()`**：「第幾返」二返～十返、屬性 **`data-nmnth`**（不是 `data-nth`）、不預選、說明收在標題旁邊那顆 `?`；`entFields()` 照 `picked.isNotMine` 畫它（不畫 `examField()`）
+  - `onDeckClick()`：`[data-nmnth]` 只改 `view.nth` 與那一排的 `aria-pressed`（ADR-0038），再按一次取消
+  - `pickCourse()`：`isNotMine` **兩邊都不走**（不 `pickDefaultNth()`、不 `pickExamIfObvious()`）；`pickIvIfBought()`／`pickDoctorIfOnly()` 照走（二返指定的那一科剛好一位就先選好，新的一段的規則）
+  - `addSlot()`：`slotFromPicks()` 多傳 `examNotMine: Boolean(picked?.isNotMine)`；返數照舊 `nth: view.nth`（沒選 → 「先選第幾返」畫在卡片的錯誤框）
+  - 副字「不扣次數」是 05 做的
+- 紅字與確認框：`slotFromPicks()` 之後的 `validateVisit()`／`bookingConsequences()` 本來就接著（04），沒有另外接
+- E2E **`84-exam-not-mine-booking`**（新的，登記進 `related.js`）：B1 有額度沒健檢的客人 → 其他 ▸ → 第幾返不預選、不替她選健檢、沒選擋下來 → 二返 → 確認框「二返的健檢不是你排的」→
+  存進去的形狀（沒有 `followupNth`）、三選一一次都沒扣、那一排沒有整塊重畫；B2 選了它、四返，再按回額度 → 存下去沒有標記、沒有返數；
+  B3 做完健檢、還有二返額度的客人按了它 → 存檔前那一道兩句紅字，按「先不要」一筆都沒存
+- 試算表那一段落在「二返（不算次數）」：03 的單元測試量過（`tests/sheet-rows-without-entitlement.test.js`），這裡沒另外量
+- `public/sw.js` v214 → v215、`npm run shell:snapshot`
+

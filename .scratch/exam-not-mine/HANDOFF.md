@@ -7,7 +7,7 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 一 | 01 決定紀錄、02 時段形狀與驗證、03 試算表與月底對帳、04 紅字與確認框 | xhigh | **done**：01～04（9c4351ca、97f3da7b、4c2f8b99、26c1080）＋ E2E `82`；相關 E2E 跑過（見「中途發現 → 段一」最後一條） |
-| 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | todo |
+| 二 | 05 那一顆與收合、06 日曆新增／來訪編輯器、07 壓表 | high | **done**：05～07（2e5c6df、76ea4e2、07 那一個）＋ E2E `83`、`84`；`npm run verify` 見「中途發現 → 段二」最後一條 |
 | 三 | 08 拍 Abovee domain、09 拍 Abovee 確認層、10 文件與收尾 | xhigh | todo |
 | 四 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
 | 五 | 照審查修、手動驗收清單（自己在模擬器走過）、CI 全量、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
@@ -83,6 +83,18 @@
   其中 `29-slot-first` S2 第一次逾時、retry 綠（那一頁這一輪沒動）—— 記著，段五 CI 全量再看一次。**在雲端 VM 起模擬器要給長的 timeout**（`run_in_background` 預設 30 分鐘會砍）
 
 ### 段二
+
+- **拍 Abovee 的確認層暫時濾掉那一顆**（05）：`aboveeConfirm.js` 的 `optionsFor()` 最後 `.filter((o) => !o.isNotMine)` ——
+  `pickOption()` 還認不得 `NOT_MINE_PICK`，按了會把那一列清空。**09 接上時拿掉那個 filter**
+- **來訪編輯器「還沒選第幾返」是草稿上的 `pendingNth: true`**（06）：只在畫面上、`submit()` 最前面擋、從來不存（`plainSlot()` 拿掉）。
+  理由：「帶標記、沒有返數」就是二返 —— 交給 `validateVisit()` 的話她沒按也存得下去。壓表不需要（`view.nth` 是 null → `slotFromPicks()` 擋「先選第幾返」）；
+  **拍 Abovee（08）要想同一件事**：照片不是回訪、或讀不出返數時不預選，那一列的 `nth` 是 null → `picksOf()` 交給 `slotFromPicks()` 會擋，但確認層畫列時要講出來（不是安安靜靜地組不出來）
+- **`notMineOption()` 多了 `{ keep }`**（06）：這一段就是它、二返那門課後來停用了（或多設了一門），那一顆照樣列 —— 不然那一排一顆都沒按著。拍 Abovee 不需要（新的列）
+- **讀取卡片、日曆、日／週那一列看不出一段二返是「健檢不是我排的」**：照 spec 它照二返那門課的名字（`二返(30)`、`三返(30)`），跟一般的二返長得一樣。
+  不是 bug（spec 沒要求標），記著給段四／她看：要不要在讀取卡片上多一個小字「健檢不是我排的」。沒做
+- **二返指定的那一科剛好一位醫師時會先選好**（`doctorChoicesFor()` 的 `preselect`，新的一段的規則）：壓表與編輯器都照走。E2E `84` 的 `ensureDoctor()` 因此先看按著沒
+- **相關 E2E**：05 跑了 `49`、`56`、`67`、`72`（27 passed）；06 跑了 `13`、`25`、`29`、`49`、`67`、`72`、`82`（65 passed）＋ `83`（4 passed）；07 跑了 `84`（3 passed）。
+  段末 `npm run verify`（`--related` 對 develop，雲端 VM、CI=1、一個 worker）：單元 5310 綠；對 develop 動了 41 個檔案 → **58 支、424 passed（38.1 分），一支 flaky 都沒有**
 
 ### 段三
 
@@ -166,7 +178,46 @@
 
 ### 段三（effort xhigh）
 
-（段二做完時寫）
+這一輪在做「健檢不是我排的」：時段上多一格 `examNotMine: true`，讓健檢不是她排的客人可以排二返、三返～十返，不扣額度、不接健檢，其餘（日曆、醫師、待辦、試算表）照二返那門課。
+分支 `claude/exam-not-mine`，在主資料夾（她家裡那台 `C:\Users\DELL\Desktop\baobao-wellness-clinic-scheduler`；雲端 VM 上是 `/home/baobao/acct1/baobao-wellness-clinic-scheduler`），不是 worktree。
+開工前 `git pull`、`git status` 乾淨、跟 origin 一致；本機 `develop` 對齊 `origin/develop`（lessons 十二）。
+
+**段一、段二做完了**：domain（01～04）、那一顆與收合（05）、日曆新增／來訪編輯器（06）、壓表（07）。**這一段做 08 → 09 → 10，照這個順序**（09 吃 08；10 是文件與收尾）。
+
+先讀：
+- `CLAUDE.md`（連動表「拍 Abovee 記很多段」那一列**全部讀**）、`docs/agents/lessons.md`（尤其一：同一個入口的兩個時機也算兩個入口；二：列出來的每一顆按下去存得下去嗎）
+- `.scratch/exam-not-mine/spec.md`（全部）
+- 這份 HANDOFF 的「每一段共同的規矩」「使用者已經決定的」「過目抓到的」（M6、S1、S4、S6、S9）「中途發現 → 段一、段二」
+- issue 02、04、05、06、07 的「做完時留下的」（名字都在那裡），再讀 08～10
+
+段一、段二做成、這一段要用的名字：
+- `masterData.js`：`isExamNotMine(slot)`（**全站只准問它**，`tests/exam-not-mine.test.js` 掃 `public/js`：除了 `masterData.js` 不准寫 `.examNotMine`；解構與物件字面量的鍵不算）、
+  `EXAM_NOT_MINE_LABEL`（'健檢不是我排的'）、`examNotMineCourse(courses)`（二返那門課，剛好一門才回）
+- `slotOptions.js`（05）：**`NOT_MINE_PICK = '__notmine__'`**（那一排上的值）、**`notMineOption(courses, { keep })`**（那一顆：`isNotMine: true`、`folded`、`extra`，
+  不帶 `isNth`／`isGift`、`entitlement: null`、`course` 是二返那門課）。`slotOptionsFor()` 已經在最後接它；`foldOpen()` 收到 `NOT_MINE_PICK` 回 true；`trialFromMinutes()` 不換它
+- `giftFold.js`（05）：第三塊「其他 ▸」＝分類那一套 —— 鈕 `data-giftfold-group="extra"`、那一層 `<div data-giftfold-in="extra">`；
+  **`value` 是 `NOT_MINE_PICK` 時那一層一打開就是開的**（重畫時照常傳 `value` 就對，09 不用另外開）；收著時開關寫「健檢不是我排的　送的／體驗／其他 ▸」
+- `slotDraft.js` 的 `slotFromPicks()`（02）：收 **`picks.examNotMine: true` ＋ `picks.nth`（2～10）**；標記贏（`entitlementId`／`isNth`／`giftCourseId`／`giftKind`／`followupForVisitId` 一律不看）；
+  `nth` 不是 2～10（含 null）→ `stop('先選第幾返')`，`course`／`assigns` 照樣交回去（確認層靠它畫醫師那一排）；二返沒有 `followupNth` 這個鍵、3～10 寫快照
+- 04 的紅字（`warningDetails()` 的 source `examNotMine`，進 `mustSee()`）與確認框那一句（`aboveeConsequences()` 已經接了 `notMineNames()`）—— 09 確認收著的列也看得到
+- 05 已經改了：拍 Abovee 那一顆的副字認 `o.isNotMine`（「不扣次數」）。**`aboveeConfirm.js` 的 `optionsFor()` 最後有一個 `.filter((o) => !o.isNotMine)` 暫時把它濾掉 —— 09 接上時拿掉**
+- 06、07 的寫法可以照抄的：編輯器 `readNotMineSlot()`（第幾返沒畫出來時的退路、醫師 `preselect` 只在剛換過來時）、`plainSlot()`（換成別的一顆時拿掉標記）；
+  壓表用 `view.entitlementId === NOT_MINE_PICK` ＋ 既有的 `view.nth`。「第幾返」那一排：編輯器 `s${i}-nmnth`、壓表 `data-nmnth`（**都不是** n返 那一排的名字）、二返～十返、不預選
+
+08 的重點（issue 有全文）：那一列 `isNth: false` ＋ 自己的旗標（例如 `notMine: true`）＋ `nth`；`optionValueOf()` 回 `NOT_MINE_PICK`、`picksOf()` 交 `examNotMine` 與 `nth`；
+`pickOption()` 認 `NOT_MINE_PICK`（返數照照片；照片不是回訪就不預選 —— **還沒選返數的那一列 `picksOf()` → `slotFromPicks()` 會擋，確認層要講出來**，06 用的是草稿旗標，這裡想清楚用哪一種）；
+讀照片那一下**不替她按、不替她勾**（`resolveItem()`）、講那一句（指「送的／體驗／其他…」裡的「其他」）；新旗標在 `resolveItem()` 的 `next`、`asRecorded()`、`pickOption()` 的 `base` 三處清掉。
+09：那一列按著它時的那幾排、`aboveeConfirm.js:588-590` 那一句換成 08 的、E2E 一支新的；10：文件（ADR-0169 已經在、SPEC、CLAUDE.md 連動表、操作手冊、常見問題、課程與待辦對照表）與收尾。
+
+照「每一段共同的規矩」做：改既有的函式之前照 `ripple-check`（雲端 VM 上 `codegraph` 1.6.2 已經裝好、索引建了：`codegraph sync` → `callers`／`impact`，再 grep 對一次；ast-grep 指令叫 `ast-grep`，不要用 `sg`）；
+先寫會紅的測試；動到 `public/` 的每一個 commit 升 `sw.js` 的 `VERSION`（**現在 v215**）、跑 `npm run shell:snapshot`（還沒 commit 又改了 `public/` 的話，先 `git show HEAD:tests/shell-version.snapshot.json > tests/shell-version.snapshot.json` 再重跑，不用多升一號）；
+09 一支新的 E2E（登記進 `tests-e2e/related.js`）；本機不跑全量 E2E（雲端 VM 起模擬器 `run_in_background` 要給 `timeout: 7200000`，跑完依 port 停掉）；
+中途發現記進「中途發現 → 段三」、不岔出去修；同時最多兩個 subagent；一個真名都不准進版控（commit 訊息也算）。
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。**
+
+做完要交：每支一個 commit、`Status: done`、issue 底下「做完時留下的」、`npm run verify` 綠、更新這份 HANDOFF（分段表、中途發現、要使用者決定的）、
+**段四的開場**寫進下面（`/matt-code-review` 審 `develop` 到這一輪最後一個 commit 的全部改動）；做完 commit 並 push；最後回覆簡短說做了什麼、卡在哪。
 
 ### 段四：審查（effort xhigh）
 
