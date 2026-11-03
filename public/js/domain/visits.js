@@ -17,14 +17,16 @@ import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, bookingMinutesOf, durationChoicesOf, equipmentForCourse, DOCTOR_ROLE,
-  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf,
+  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
-import { examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks } from './followups.js';
+import {
+  examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks, isFollowupCourse,
+} from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
-  followupsOfExam, secondFollowupIds, MIN_NTH, MAX_NTH,
+  followupsOfExam, secondFollowupIds, examChoicesForNth, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
 /** 沒有 draft：她是先在 Abovee 壓完表才回來記錄的，app 裡不存在還沒壓表的來訪。 */
@@ -1727,12 +1729,17 @@ function visitErrors(visit, {
     // 有額度的那一段照舊扣、照舊驗（不算次數的課也一樣：她之後會自己勾營養諮詢，而既有的每一段都帶著額度）。
     const nth = isNthSlot(slot);
     const gift = giftKindOf(slot, coursesById);
+    // **健檢不是她排的是第三種**（ADR-0169）：不扣、不接。它只放寬兩道（「要選一個額度」、n返「一定要指定是哪一次健檢的」），
+    // 而且只放過那一種形狀 —— 哪一格不對都在 `examNotMineErrors()` 講出來，底下額度與健檢那兩條都不再問它
+    const notMine = isExamNotMine(slot);
     // 兩種身分都有的壞資料 `giftKindOf()` 照額度／n返 讀（回 null），所以這兩句看那一格原本的值
     const marked = GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
-    if (slot.giftKind != null && !marked) {
+    if (slot.giftKind != null && !marked && !notMine) {
       errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
     }
-    if (marked && slot.entitlementId) {
+    if (notMine) {
+      errors.push(...examNotMineErrors(slot, courses).map((e) => `${at}：${e}`));
+    } else if (marked && slot.entitlementId) {
       errors.push(`${at}：${giftLabel(marked)}的段不扣任何次數，不可以同時指定額度`);
     } else if (marked && nth) {
       errors.push(`${at}：n返 不可以同時是${giftLabel(marked)}的`);
@@ -1746,7 +1753,7 @@ function visitErrors(visit, {
 
     // 返數本身。`isNthSlot()` 看的是「填過沒」，`nthOf()` 看的是「合不合法」——
     // 分開問才講得出真正錯的是什麼（填了 33 的時候不要抱怨「要選一個額度」）。
-    if (nth && nthOf(slot) == null) {
+    if (nth && nthOf(slot) == null && !notMine) {
       errors.push(
         `${at}：返數要是 ${MIN_NTH} 到 ${MAX_NTH} 之間的整數 —— 二返走額度那條路，不是這裡`,
       );
@@ -1821,7 +1828,7 @@ function visitErrors(visit, {
     // 「這一段二返接在哪一次健檢後面」。**沒選是 warning 不是 error**
     // （見 assignmentWarnings）—— 舊資料一筆都沒有這個欄位，擋下來等於
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
-    if (slot.followupForVisitId) {
+    if (slot.followupForVisitId && !notMine) {
       const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
       // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
       // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
@@ -1867,7 +1874,7 @@ function visitErrors(visit, {
             + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
         }
       }
-    } else if (nth) {
+    } else if (nth && !notMine) {
       // **n返 的這一格是必填，二返只是 warning。** 兩者的理由不一樣：
       // 二返有一整批舊資料身上沒有這個欄位（ADR-0011 的同一條原則），
       // 擋下來她連改一個時間都存不回去；n返 是全新的，一筆舊資料都沒有，
@@ -1876,6 +1883,34 @@ function visitErrors(visit, {
     }
   });
 
+  return errors;
+}
+
+/**
+ * 健檢不是她排的那一段（ADR-0169）存不存得下去：**只放過那一種形狀**（`docs/agents/lessons.md` 第四節：豁免寫成它想放過的形狀）。
+ *
+ * - 課程是二返那門課 —— 問 `isFollowupCourse()`（任何一門都算），不問 `examNotMineCourse()`（剛好一門）：
+ *   她之後替別的課也設二返時，既有帶標記的段照樣存得下去
+ * - 不扣額度、不接健檢、不是送的／體驗（那三格一定是空的）
+ * - 返數是空的（二返）或 3～10（三返～十返）—— 二返不寫成 2（`nthOf()` 的約定）
+ *
+ * 一格不對講一句、講出是哪一格；課程沒填或不存在由呼叫端那一句講（「要選一個課程」），這裡不重複。
+ *
+ * @returns {string[]} 不帶「第幾個時段」前綴
+ */
+function examNotMineErrors(slot, courses = []) {
+  const errors = [];
+  const say = `「${EXAM_NOT_MINE_LABEL}」`;
+  if (slot.entitlementId) errors.push(`${say}不扣任何次數，不可以同時指定額度`);
+  if (slot.followupForVisitId) errors.push(`${say}不接 app 裡的任何一次健檢，不可以同時指定是哪一次健檢的`);
+  if (slot.giftKind != null) errors.push(`${say}不是送的，也不是體驗`);
+  const course = (courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  if (course && !isFollowupCourse(course.id, courses)) {
+    errors.push(`${say}只能是二返或三返到十返 —— 課程要是二返那門課`);
+  }
+  if (isNthSlot(slot) && nthOf(slot) == null) {
+    errors.push(`${say}的返數要是 ${MIN_NTH} 到 ${MAX_NTH}（二返不寫返數）`);
+  }
   return errors;
 }
 
@@ -1915,17 +1950,23 @@ function visitWarnings(visit, ctx) {
  * |---|---|
  * | `notice` | 選到的那一台對這位客戶的警示要注意（ADR-0074）|
  * | `overlap` | 同一筆裡自己跟自己重疊 |
- * | `entitlement` | 排完會超過總次數、排在到期之後（講的是用到那一筆額度的每一段）|
+ * | `entitlement` | 排完會超過總次數（`kind: 'over'`）、排在到期之後（`kind: 'expired'`）（講的是用到那一筆額度的每一段）|
  * | `ivMismatch` | 品項跟買的不一樣 |
  * | `assign` | 還沒選／不需要醫師、診間、治療師；一般排在別間；二返還沒接到健檢 |
  * | `nth` | 同一次健檢底下已經有同樣的返數 |
  * | `conflict` | 跟那一天別的來訪撞診間、治療師、同一位客戶（ADR-0094、0133）|
  * | `frequency` | 每季一次那種限制（講的是那門課的每一段）|
+ * | `examNotMine` | 按了「健檢不是我排的」，可是身上還有二返額度、或有一次接得上的健檢（ADR-0169）|
  *
- * @returns {{text: string, source: string, slots: number[]}[]}
+ * 同一種來源要再分的那一圈多帶一格 `kind`（現在只有 `entitlement`：拍 Abovee 的短標記把超用寫「次數不夠」、到期寫「過期」，ADR-0170）。
+ * 沒有的那幾句連這一格都沒有。
+ *
+ * @returns {{text: string, source: string, slots: number[], kind?: string}[]}
  */
 export function warningDetails(visit, ctx) {
-  const from = (source, list) => list.map((w) => ({ text: w.text, source: w.source ?? source, slots: w.slots }));
+  const from = (source, list) => list.map((w) => ({
+    text: w.text, source: w.source ?? source, slots: w.slots, ...(w.kind ? { kind: w.kind } : {}),
+  }));
   return [
     ...from('notice', equipmentNoticeWarnings(visit, ctx)),
     ...from('overlap', overlapWarnings(visit, ctx)),
@@ -1934,18 +1975,20 @@ export function warningDetails(visit, ctx) {
     ...from('nth', nthWarnings(visit, ctx)),
     ...from('conflict', conflictWarnings(visit, ctx)),
     ...from('frequency', frequencyWarnings(visit, ctx)),
+    ...from('examNotMine', examNotMineWarnings(visit, ctx)),
   ];
 }
 
 /**
  * **會改變寫入結果的提醒** —— 收在要點開才看得到的地方就等於沒講（`CLAUDE.md`「畫面上一段常駐的說明」的紅線）：
- * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪。
+ * 器材對警示要注意、時間重疊、超過總次數（與排在到期之後）、品項跟買的不一樣、撞到那一天別的來訪、
+ * 按了「健檢不是我排的」可是其實扣得到二返或接得上健檢（那一場就不扣、不接，ADR-0169）。
  *
  * 其餘照舊點開才看：「還沒選治療師／診間／醫師」那一類幾乎每一列都有（合併檔匯進來的、服務資源認不出來的），
  * 全部攤開等於把真的要看的淹掉（她 2026-09-10：「非常占版面…會視覺疲勞」）。
  * 哪幾種算只寫在這裡；畫面與確認框讀同一份。
  */
-const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict']);
+const MUST_SEE = new Set(['notice', 'overlap', 'entitlement', 'ivMismatch', 'conflict', 'examNotMine']);
 export const mustSee = (warning) => MUST_SEE.has(warning?.source);
 
 /**
@@ -1992,6 +2035,48 @@ function nthWarnings(visit, { entitlements = [], customerVisits = [], slotLabel 
   return out;
 }
 
+/**
+ * 按了「健檢不是我排的」，可是這位客戶其實**扣得到二返**或**接得上健檢**（ADR-0169，exam-not-mine 04）。
+ * 她：「多一點提醒或是多一點確認等等，讓一般的時候不會不小心多送」。按了那一顆，那一場就不扣、不接 ——
+ * 二返額度留著剩、那一次健檢的「約二返」不收。所以兩種都講，而且進 `mustSee()`（不點開也要看得到）。
+ *
+ * - **二返**（帶標記、沒有返數）、身上還有活著的二返額度還有剩（`countsWithDraft()`：這一筆正在扣的也算進去）→ 講哪一筆、剩幾次
+ * - **任何一段**帶標記、有一次接得上的健檢 → 講哪一天。問 `examChoicesForNth()` 的 `pickable`，**不是 `examChoicesFor()`** ——
+ *   後者身上沒有二返額度時直接回空，而「app 裡有健檢、身上卻沒有二返額度」正是最該講的那一種（過目 S5）。
+ *   這一筆自己的健檢（還沒存的）也算（lessons 二）
+ *
+ * 她真的要用的那種客人（沒有二返額度、沒有健檢）一句都不跳。只講還算數的段；只提醒不擋（ADR-0074）。
+ */
+function examNotMineWarnings(visit, {
+  courses = [], entitlements = [], customerVisits = [], slotLabel = defaultSlotLabel,
+}) {
+  const marked = (visit.slots ?? []).map((s, i) => ({ s, i })).filter(({ s }) => isExamNotMine(s) && isLiveSlot(s));
+  if (!marked.length) return [];
+
+  const second = secondFollowupIds(entitlements);
+  const left = (entitlements ?? []).filter((e) => second.has(e.id))
+    .map((e) => ({ e, n: countsWithDraft(e, customerVisits, visit, e.id).remaining }))
+    .filter(({ n }) => n > 0);
+  const withMe = [...(customerVisits ?? []).filter((v) => v && (!visit.id || v.id !== visit.id)), visit];
+  const exams = examChoicesForNth({ entitlements, coursesById: byId(courses), visits: withMe }).filter((c) => c.pickable);
+  const label = `「${EXAM_NOT_MINE_LABEL}」`;
+
+  const out = [];
+  for (const { s, i } of marked) {
+    const at = slotLabel(i);
+    if (!isNthSlot(s) && left.length) {
+      const what = left.map(({ e, n }) => `「${e.label}」剩 ${n} 次`).join('、');
+      out.push({ text: `${at}：這位客戶身上還有${what} —— 按了${label}，這一場不扣它`, slots: [i] });
+    }
+    if (exams.length) {
+      // 同一次可能以兩個 id 出現（拍 Abovee 還沒存的那一組帶暫時的 id），所以照日子去重
+      const days = [...new Set(exams.map((c) => (isValidDate(c.date) ? shortDate(c.date) : '另一天')))].join('、');
+      out.push({ text: `${at}：這位客戶有 ${days} 的健檢接得上 —— 按了${label}，這一場不接它`, slots: [i] });
+    }
+  }
+  return out;
+}
+
 /** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
 function overlapWarnings(visit, { slotLabel = null } = {}) {
   const out = [];
@@ -2032,12 +2117,12 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
-      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots });
+      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots, kind: 'over' });
     }
 
     if (ent.expiresAt && isValidDate(ent.expiresAt) && isValidDate(visit.date)
         && daysBetween(ent.expiresAt, visit.date) > 0) {
-      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots });
+      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots, kind: 'expired' });
     }
   }
 
@@ -2058,6 +2143,8 @@ function assignmentWarnings(visit, {
     const course = coursesById[slot.courseId];
     if (!course || !isLiveSlot(slot)) return;
     const at = slotLabel(i);
+    // 三返借二返那門課：醫師、診間那幾句叫它「三返」，不叫「二返」（段四審查 二、2）
+    const name = nthLabel(nthOf(slot)) ?? course.name;
     // 這一圈每一句都是這一段的（`warningDetails()` 要知道是哪一段）；品項那一句自己另算一種來源
     const say = (text, source) => found.push({ text, slots: [i], ...(source ? { source } : {}) });
 
@@ -2070,7 +2157,7 @@ function assignmentWarnings(visit, {
     }
     // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
     const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
-    if (ahead) say(`${at}：${nthLabel(nthOf(slot)) ?? course.name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
+    if (ahead) say(`${at}：${name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
     // 沒選過的照舊 —— A 類一律選得到，其餘看旗標）。這裡不自己比對類別 —— 兩份判斷遲早會分岔，
@@ -2078,14 +2165,14 @@ function assignmentWarnings(visit, {
     //
     // 兩句都是 warning 不是 error：她說「不用強制要選」，而醫師常常是當天才定的。
     if (picksDoctor(course) && !slot.doctorId) {
-      say(`${at}：${course.name} 還沒選醫師`);
+      say(`${at}：${name} 還沒選醫師`);
     }
     if (!picksDoctor(course) && slot.doctorId) {
-      say(`${at}：${course.name} 不需要指定醫師`);
+      say(`${at}：${name} 不需要指定醫師`);
     }
 
     if (course.assigns === 'room') {
-      if (!slot.roomId) say(`${at}：${course.name} 還沒選診間`);
+      if (!slot.roomId) say(`${at}：${name} 還沒選診間`);
       else {
         const allowed = roomsForCourse(course, rooms);
         // **停用的那一間不是「別間」**（ADR-0127）：問的是它的類型排不排得進這門課（`roomFitsCourse()`），
@@ -2093,20 +2180,20 @@ function assignmentWarnings(visit, {
         const mine = (rooms ?? []).find((r) => r.id === slot.roomId && !r.deletedAt) ?? null;
         if (allowed.length && !allowed.some((r) => r.id === slot.roomId) && !roomFitsCourse(course, mine)) {
           say(
-            `${at}：${course.name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
+            `${at}：${name} 一般排在 ${allowed.map((r) => r.name).join('、')}，這次排在別間`,
           );
         }
       }
-      if (slot.therapistId) say(`${at}：${course.name} 不需要指派治療師`);
+      if (slot.therapistId) say(`${at}：${name} 不需要指派治療師`);
     }
 
     if (course.assigns === 'therapist') {
-      if (!slot.therapistId) say(`${at}：${course.name} 還沒選治療師`);
-      if (slot.roomId) say(`${at}：${course.name} 不佔診間`);
+      if (!slot.therapistId) say(`${at}：${name} 還沒選治療師`);
+      if (slot.roomId) say(`${at}：${name} 不佔診間`);
     }
 
     if (course.assigns === 'none' && (slot.roomId || slot.therapistId)) {
-      say(`${at}：${course.name} 不需要診間也不需要治療師`);
+      say(`${at}：${name} 不需要診間也不需要治療師`);
     }
 
     // 排的品項不是她買的那一款。2026-09-04 她問的：「我營養點滴如果一開始

@@ -169,7 +169,7 @@ async function openScheduleDay(app, page, customerId = 'cust-g') {
 const shownEnts = (page) => page.locator('[data-ent]').evaluateAll((els) => els
   .filter((el) => el.offsetParent !== null).map((el) => el.dataset.ent));
 
-test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…」；別的課當體驗 → 復能 → INDIBA → 30 分 → 一段 IN(30) 體驗、不扣，那一排沒有重畫', async ({ app, page }) => {
+test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…」；展開 → 復能 → INDIBA → 30 分 → 一段 IN(30) 體驗、不扣，那一排沒有重畫', async ({ app, page }) => {
   await app.seed([...masterDocs(), ...poolCustomer()]);
   await app.signIn('/');
   await openScheduleDay(app, page);
@@ -188,6 +188,8 @@ test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…�
   await expect(page.locator('[data-ent="__course__:course-hrv"]')).toBeVisible();
   await expect(page.locator('[data-ent="__course__:course-checkup"]'), '健檢不能當體驗').toHaveCount(0);
   await expect(page.locator('[data-ent="__course__:course-followup"]'), '二返也不能').toHaveCount(0);
+  // abovee-confirm-glance 01：分類那一排前面不畫「別的課當體驗」那一行小標（三個入口共用 giftFold.js，量一處）
+  await expect(fold, '沒有「別的課當體驗」那一行').not.toContainText('別的課當體驗');
   // 兩門以上的分類按了才露出那幾門
   await expect(page.locator('[data-ent="__course__:course-rehab"]')).toBeHidden();
   await page.locator('[data-giftfold-group]', { hasText: '醫師門診' }).click();
@@ -340,8 +342,11 @@ async function openTrialPhoto(app, page) {
 test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能、INDIBA、不扣；寫體驗的健檢照扣、收著也看得到那一句', async ({ app, page }) => {
   const row = await openTrialPhoto(app, page);
 
-  // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣的那一句不點開也看得到（mustSee）
+  // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣，不點開也有紅字短標記（mustSee，ADR-0170）；整句在「發現問題」
+  await expect(row('a1').locator('.abl-row__flag')).toHaveText('體驗');
+  await page.locator('[data-abl-view="problems"]').click();
   await expect(row('a1').locator('.abl-row__hint--warn')).toContainText('健檢、二返沒有體驗');
+  await page.locator('[data-abl-view="result"]').click();
 
   await row('a0').locator('[data-abl-open]').click();
   await expect(row('a0').locator('[data-abl-opt="__course__:course-recovery"]'), '身上有復能池也預選體驗').toHaveAttribute('aria-pressed', 'true');
@@ -391,7 +396,7 @@ test('G12 壓表：展開 → 選功醫門診 → 收回（開關寫著功醫門
   await expect(page.locator('[data-ent="__course__:course-fm"]'), '選擇沒有被收起來吃掉').toHaveAttribute('aria-pressed', 'true');
 
   await page.locator('[data-ent="ent-pool"]').click();
-  await expect(more(page), '換成額度：開關變回原本的字').toHaveText('送的／體驗…');
+  await expect(more(page), '換成額度：開關變回原本的字').toHaveText('送的／體驗／其他…');
   await expect(more(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(fold, '換一顆額度不動她收起來的').toHaveAttribute('data-giftfold', 'closed');
 });

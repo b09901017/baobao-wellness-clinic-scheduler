@@ -68,8 +68,9 @@ __pycache__/
 # 遠端容器會被回收，所以每次跑完要把 .local/ 裡的東西交還給使用者自己留著。
 /.local/
 
-# graphify 產出的圖（build artifact，不進版控）
+# graphify 產出的圖、CodeGraph 的索引（build artifact，不進版控；ripple-check skill）
 graphify-out/
+.codegraph/
 
 # === E2E 的產出（Playwright + 模擬器）===
 # 報告、截圖、錄影、trace 與模擬器日誌。一次全量跑完是 100MB 起跳，

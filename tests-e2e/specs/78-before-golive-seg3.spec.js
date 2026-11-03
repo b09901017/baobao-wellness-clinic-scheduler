@@ -35,6 +35,12 @@ async function photographAbovee(app, page, fixture) {
 
 const ablRow = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 test('W1 只買 1 次、照片上三天、拿掉第三列的勾 → 點開它看得到「勾起來的話」；收著不畫、確認框不算它', async ({ app, page }) => {
   await app.seed([
     ...masterDocs(),
@@ -50,9 +56,13 @@ test('W1 只買 1 次、照片上三天、拿掉第三列的勾 → 點開它看
 
   await ablRow(page, 'a2').locator('[data-abl-check]').click();
   await expect(ablRow(page, 'a2').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
-  // 收著：沒勾的那一列一行提醒都不畫；勾著的兩列照舊講已排 2 次
-  await expect(ablRow(page, 'a2').locator('.abl-row__hint--warn')).toHaveCount(0);
+  // 收著：沒勾的那一列沒有標記；勾著的兩列照舊次數不夠（ADR-0170：辨識結果上是短標記，整句在發現問題）
+  await expect(ablRow(page, 'a2').locator('.abl-row__flag')).toHaveCount(0);
+  await expect(ablRow(page, 'a0').locator('.abl-row__flag')).toHaveText('次數不夠');
+  await view(page, 'problems');
   await expect(ablRow(page, 'a0').locator('.abl-row__hint--warn')).toContainText('已排 2 次');
+  await expect(ablRow(page, 'a2'), '沒勾的那一列不會寫進去：不在這一頁').toHaveCount(0);
+  await view(page, 'result');
 
   // 點開：勾起來的話 → 三次
   await ablRow(page, 'a2').locator('[data-abl-open]').click();

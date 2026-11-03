@@ -66,12 +66,22 @@ async function photograph(app, page) {
 
 const gone = (page) => page.locator('.abl__group--gone');
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 test('G1 一個人一個月、只有一頁：9/24 那一段列出來（健檢、別人的不列）、抬頭算進要你看；按鈕先記勾起來的那一段再去日曆', async ({ app, page }) => {
   await app.seed(seed());
   await app.signIn('/');
   await photograph(app, page);
 
   await expect(page.locator('.abl__sum')).toHaveText('新的 1 段・已經記了 2 段・要你看 1 段');
+  // 那一塊在「發現問題」那一頁（ADR-0170）：辨識結果上看不到，切過去才有；沒拍到的那一段算一件
+  await expect(gone(page)).toHaveCount(0);
+  await expect(page.locator('[data-abl-view="problems"]')).toHaveText('發現問題 1');
+  await view(page, 'problems');
   await expect(gone(page).locator('.abl__day')).toHaveText('app 有、這次照片上沒有');
   await expect(gone(page).locator('.abl__absentsay')).toHaveText('對過 王小明 9/1–9/30 在 app 上的段：這 1 段這次照片上沒有。');
   await expect(gone(page).locator('.abl-row')).toHaveCount(1);
@@ -100,6 +110,7 @@ test('G2 確認框按取消 → 留在這一層、照片還在；沒有勾的時
   await app.signIn('/');
   await photograph(app, page);
 
+  await view(page, 'problems');
   const go = gone(page).locator('[data-abl-gone]');
   await go.click();
   await expect(app.dialog()).toBeVisible();
@@ -107,8 +118,11 @@ test('G2 確認框按取消 → 留在這一層、照片還在；沒有勾的時
   await expect(page.locator('.abl')).toBeVisible();
   await expect(page.locator('.abl__thumb')).toHaveCount(1);
 
-  // 把 9/17 那一列的勾拿掉 → 字跟著變
+  // 把 9/17 那一列的勾拿掉（那一列在辨識結果）→ 回到發現問題，字跟著變
+  await view(page, 'result');
   await page.locator('[data-abl-row="a2"] [data-abl-check]').click();
+  await expect(page.locator('[data-abl-row="a2"] [data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  await view(page, 'problems');
   await expect(go).toHaveText('去日曆 9/24(四)（照片不會留著）');
   await go.click();
   await expect(page).toHaveURL(/#\/calendar/);

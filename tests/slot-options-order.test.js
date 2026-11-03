@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   slotOptionsFor, arrangeSlotOptions, giftOptions, FOLLOWUP_GROUP, NTH_PICK,
+  notMineOption,
 } from '../public/js/domain/slotOptions.js';
 import { followupsLast } from '../public/js/domain/scheduling.js';
 import { coursesForEntitlement } from '../public/js/domain/visits.js';
@@ -89,7 +90,9 @@ describe('照分類排，一個小標都不畫', () => {
     assert.ok(tail.every((o) => o.folded));
     // 心臟科評估 2026-10-14 起也不算次數（gift-and-trial 05）；身上那一筆心臟科評估的額度照樣在上面。
     // EECP 2026-10-18 合成一門、有「體驗的時候排幾分」，也排第一排（ADR-0154）
-    assert.deepEqual(tail.filter((o) => !o.other).map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP']);
+    assert.deepEqual(tail.filter((o) => !o.other && !o.extra).map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP']);
+    // 最後一顆是「其他」那一層的「健檢不是我排的」（exam-not-mine 05）
+    assert.equal(tail.at(-1).isNotMine, true);
   });
 
   test('只買了復能的客戶：上面那一排只有復能', () => {
@@ -162,7 +165,7 @@ describe('兩個入口都有的那幾顆，相對順序一樣', () => {
       entitlementId: e.id, label: e.label, entitlement: e,
       course: coursesForEntitlement(e, SEED.courses, SEED.equipment)[0] ?? null,
     }));
-    const editor = arrangeSlotOptions([...editorInput, ...giftOptions(SEED.courses)], SEED.courses);
+    const editor = arrangeSlotOptions([...editorInput, ...giftOptions(SEED.courses), notMineOption(SEED.courses)], SEED.courses);
 
     // 照值比，不照字比：「別的課當體驗」裡也有一顆叫「復健科醫師門診」（gift-and-trial 04）
     const shared = (list) => list.filter((o) => board.some((b) => b.entitlementId === o.entitlementId))

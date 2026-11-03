@@ -266,18 +266,39 @@ describe('太多句的時候', () => {
 
 // ---------- 畫面真的畫在不用點開的地方（掃原始碼）----------
 
+// 2026-11-03（ADR-0170，推翻 ADR-0138 第 4 點）：收著的列不再畫那一兩行，改成一個紅字短標記；整句在「發現問題」那一頁與點開之後。
+// 紅線改釘的是：**收著的列一定畫得出標記**（列上那一行讀 `rowTag()`，不看在哪一頁、點開了沒），整句一個動作就到。
 describe('aboveeConfirm.js：收著的列與確認框', () => {
   const src = readFileSync(new URL('../public/js/ui/components/aboveeConfirm.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const rowHtml = src.slice(src.indexOf('function rowHtml('), src.indexOf('// ---------- 展開的那一列 ----------'));
+  const rowFn = rowHtml.slice(0, rowHtml.indexOf('function hintsHtml('));
+  const lineAt = rowFn.indexOf('<div class="abl-row__line">');
+  const line = rowFn.slice(lineAt, rowFn.indexOf('</div>', lineAt));
 
-  test('收著的那一行畫的是 mustSeeBy 那一份，而且不在「點開才有」的那一段裡', () => {
-    const at = rowHtml.indexOf('mustSeeBy[item.key]');
-    assert.ok(at > 0, 'rowHtml() 要讀 plan() 的 mustSeeBy');
-    assert.ok(rowHtml.includes('briefWarnings('), '太多句時收成前幾句');
-    const detailAt = rowHtml.indexOf('open ? detailHtml(');
-    assert.ok(detailAt > 0);
-    const hintAt = rowHtml.indexOf('abl-row__hint--warn');
-    assert.ok(hintAt > 0 && hintAt < detailAt, '那一行畫在展開那一塊之前（收著也在）');
+  test('收著的列一定畫得出短標記：列上那一行讀 rowTag()，不看在哪一頁、點開了沒', () => {
+    assert.ok(lineAt > 0, '找不到列上那一行（`.abl-row__line`）');
+    const at = line.indexOf('rowTag(item, p)');
+    assert.ok(at > 0, '列上那一行要讀 rowTag()');
+    assert.ok(line.includes('flagHtml('));
+    const what = line.slice(line.indexOf('abl-row__what'), line.indexOf('</span>', at));
+    assert.doesNotMatch(what, /\bview\b|\bopen\b|\bsay\b/, '標記不可以只在某一頁、或點開才畫');
+    assert.doesNotMatch(rowHtml, /\.source\b/, '畫面不比來源 —— 短字與先後只有 domain 一支（`warningTag()`）');
+  });
+
+  test('整句在「發現問題」那一頁與點開之後：hintsHtml() 讀 mustSeeBy 那一份，只在那兩種時候畫', () => {
+    assert.match(rowFn, /const say = view === 'problems' \|\| open;/);
+    assert.match(rowFn, /\$\{say \? hintsHtml\(/);
+    assert.ok(rowFn.includes('mustSeeBy[item.key]'), 'rowHtml() 要讀 plan() 的 mustSeeBy');
+    const hints = rowHtml.slice(rowHtml.indexOf('function hintsHtml('));
+    assert.ok(hints.includes('briefWarnings('), '太多句時收成前幾句');
+    assert.ok(hints.includes('abl-row__hint--warn'));
+  });
+
+  test('「發現問題」那一頁列哪幾件只問 problemsPage()：有標記的列一定在那一頁（有提醒的）', () => {
+    const page = src.slice(src.indexOf('function pageOf('), src.indexOf('function paintBody('));
+    assert.ok(page.includes('problemsPage('));
+    const body = src.slice(src.indexOf('function problemsHtml('), src.indexOf('function changesHtml('));
+    assert.ok(body.includes('page.flagged'), '有紅字短標記的列要列在「發現問題」那一頁');
   });
 
   test('句子不是在畫面裡另外寫的：plan() 走 photoDayPlan()，那一支走 warningDetails() 與 warningsByRow()', () => {

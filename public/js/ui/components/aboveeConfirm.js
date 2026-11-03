@@ -5,12 +5,16 @@
 // 要有沉浸感的不要有種分割感跳到另一個地方的感覺」。
 //
 // **從壓表那一頁往上長出來的一層**（`pushLayer()`，不換網址），返回鍵收起來。
-// 一列一段：第一眼只有時間、客戶、那天做什麼、一個小標；點一列**原地展開**成幾排丸子。
-// 要她看的那幾列排最前面；其餘照日期分組。
+// 照片底下一個切換（ADR-0170，她 11/3：「不要有說明文字」「切換之後才看到」）：
+// - **辨識結果**（預設）：照日期一天一塊、每一列都在，一行說明都沒有。一列一段：時間、客戶、課程＋人／診間、一個小標、
+//   會改變寫入結果的那幾種提醒只畫一個**紅字短標記**（`rowTag()`：最要緊的那一個＋「+N」）
+// - **發現問題 N**：要改的、要你看、有提醒的、日子過了還沒結案、app 有這次照片上沒有、照片層級的問題 —— 句子都在這一頁
+//   （哪幾件、N 是多少只問 `problemsPage()`）。**只畫目前那一頁**：兩頁同時在的話同一列會出現兩次
+// 點一列**原地展開**成幾排丸子，展開之後兩頁都看得到全部的句子。
 //
 // 規則全部在 `domain/aboveeImport.js`（翻譯、分四種、組來訪、標成壓完），這一支只畫與接線。
 // **這一層就是 ADR-0086 的第一道**（每一列展開看得到 warnings），存檔前只再問一次（ADR-0104）。
-// **會改變寫入結果的那幾種提醒不點開也看得到**（ADR-0138）：收著的那一行、存檔前那一道都講 ——
+// **會改變寫入結果的那幾種提醒不點開也看得到有事**（ADR-0138、0170）：收著的列一定畫得出短標記，存檔前那一道把句子列出來 ——
 // 每一列預設收著而且打著勾，只畫在點開的那一塊裡就等於沒講。
 // 照片與辨識出來的字都不存（ADR-0101）：收起來就 `release()`。
 //
@@ -25,9 +29,9 @@ import { chartNoWrites } from '../../domain/identify.js';
 import { examChoiceNote } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
-  aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
+  aboveeLoadRange, absentFromPhoto, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
-  photoRowSays,
+  photoRowSays, problemsPage, rowGlance, rowTag, seenAssigns,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
@@ -38,12 +42,12 @@ import {
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor, foldOpen } from '../../domain/slotOptions.js';
-import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
+import { MAX_NTH, MIN_NTH, SECOND, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
 import { searchCustomers } from '../../domain/customers.js';
 import {
   THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
-import { slotName, fullNameOf } from '../../domain/naming.js';
+import { fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
@@ -93,6 +97,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   let later = new Set();
   /** 收起來的那一組點開了沒（整片重畫時不收回去） */
   let laterOpen = false;
+  /**
+   * 照片底下那一個切換現在在哪一頁（ADR-0170）：`result` 辨識結果、`problems` 發現問題。**不進網址**（看法不是位置），
+   * 跨重畫留著（`paintBody()` 從好幾處被叫）；關掉這一層就忘了
+   */
+  let view = 'result';
+  /** 「發現問題」那一頁畫出來的那幾列（`rowsSig()`）—— 換了就整頁重畫：`repaintRow()` 只換得了畫面上已經有的列 */
+  let shownRows = '';
   /**
    * 「照片上寫的」打開過的那幾列（staging-polish 02）。預設收著：那是對照用的原字，她要的時候才看。
    * 按一顆「要做什麼」整列會重畫，所以記在這裡、重畫時照記的畫；關掉確認層就忘了。
@@ -248,52 +259,104 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     root.querySelector('[data-abl-sum]').textContent = bits.join('・') || '照片上沒有讀到預約';
   }
 
+  /** 「發現問題」那一頁列哪幾件、N 是多少（`problemsPage()`，ADR-0170）—— 那一顆上的數字與那一頁畫的讀同一份 */
+  function pageOf(p, gone) {
+    return problemsPage(items.filter((i) => !savedKeys.has(i.key)), p, {
+      attention, later, absent: gone, customers: ctx.customers, pairing, noStatusColumn,
+    });
+  }
+
+  /** 那一頁畫出來的那幾列（`look`／`flagged`／`later`）。要改的與 app 有照片沒有那兩塊每次都整塊換，不用算進來 */
+  const rowsSig = (page) => [page.look, page.flagged, page.later].map((keys) => keys.join(',')).join('|');
+
   function paintBody() {
     const body = root.querySelector('[data-abl-body]');
     const p = plan();
-    const look = items.filter((i) => attention.has(i.key) && !later.has(i.key));
-    const stale = items.filter((i) => later.has(i.key));
-    const rest = items.filter((i) => !attention.has(i.key))
-      .slice()
-      .sort((a, b) => `${a.date}|${a.startsAt}`.localeCompare(`${b.date}|${b.startsAt}`));
-    const days = [];
-    for (const item of rest) {
-      const last = days[days.length - 1];
-      if (last && last.date === item.date) last.items.push(item);
-      else days.push({ date: item.date, items: [item] });
-    }
     const gone = absentNow();
+    const page = pageOf(p, gone);
+    // 在「發現問題」那一頁、最後一件也處理了 → 回到辨識結果（那一顆灰掉了，留在一頁空白上沒有意思）
+    if (view === 'problems' && !page.count) view = 'result';
+    shownRows = view === 'problems' ? rowsSig(page) : '';
 
     body.innerHTML = `
       <div class="abl__photos">
         ${photos.map((ph, i) => `
           <button class="abl__thumb" type="button" data-seen-text="" data-seen-photo="${esc(ph.url)}"
                   aria-label="看第 ${i + 1} 張照片"><img src="${esc(ph.url)}" alt="" /></button>`).join('')}
-        ${pairingNote()}
       </div>
+      ${segHtml(page.count)}
       ${items.length ? '' : '<p class="abl__empty">照片上沒有讀到任何一列預約。拍含「姓名」那幾欄的那一半試試。</p>'}
-      <div data-abl-changes>${changesHtml(p)}</div>
-      ${look.length ? `
-        <section class="abl__group abl__group--look" aria-label="要你看">
-          <h3 class="abl__day">要你看</h3>
-          <ol class="abl__rows">${look.map((i) => rowHtml(i, p)).join('')}</ol>
-        </section>` : ''}
-      ${/* 中途發現 5：日子過了、Abovee 上還沒結案的那幾列收起來 —— 拍一張比較舊的頁面時一次好幾列，攤開會擠掉真的要決定的 */''}
-      ${stale.length ? `
-        <section class="abl__group abl__group--later" aria-label="日子過了、Abovee 上還沒結案">
-          <details class="abl__later" ${laterOpen ? 'open' : ''}>
-            <summary class="abl__day">日子過了、Abovee 上還沒結案的 ${stale.length} 段</summary>
-            <ol class="abl__rows">${stale.map((i) => rowHtml(i, p)).join('')}</ol>
-          </details>
-        </section>` : ''}
-      <div data-abl-absent>${absentHtml(gone, p)}</div>
-      ${days.map((d) => `
-        <section class="abl__group" aria-label="${esc(d.date ?? '讀不出日期')}">
-          <h3 class="abl__day">${d.date ? esc(shortDate(d.date)) : '讀不出日期'}</h3>
-          <ol class="abl__rows">${d.items.map((i) => rowHtml(i, p)).join('')}</ol>
-        </section>`).join('')}`;
+      ${view === 'problems' ? problemsHtml(p, page, gone) : resultHtml(p)}`;
     paintSummary(gone);
     paintBar(p);
+  }
+
+  /** 照片底下那一個切換（ADR-0170）。樣子照首頁的「總覽／依客戶」；0 件時「發現問題」灰掉 ＝ 檢查過了、沒事 */
+  function segHtml(n) {
+    return `
+      <div class="seg abl__seg" role="group" aria-label="看哪一頁">
+        <button class="seg__item" type="button" data-abl-view="result" aria-pressed="${view === 'result'}">辨識結果</button>
+        <button class="seg__item" type="button" data-abl-view="problems" aria-pressed="${view === 'problems'}"
+                ${n ? '' : 'disabled'}>${segLabel(n)}</button>
+      </div>`;
+  }
+
+  /** 那一顆的字是一整串（`.seg__item` 是 flex：字與數字拆成兩塊的話，中間那個空格會被吃掉） */
+  const segLabel = (n) => `發現問題 ${n}`;
+
+  /** 換了一列之後：只換「發現問題」那一顆的數字與按不按得下去（整頁不重畫） */
+  function paintSeg(n) {
+    const btn = root.querySelector('[data-abl-view="problems"]');
+    if (!btn) return;
+    btn.disabled = !n;
+    btn.textContent = segLabel(n);
+  }
+
+  /** 辨識結果（ADR-0170）：一天一塊、**每一列都在**（要你看的那幾列也回到它那一天），一行說明都沒有 */
+  function resultHtml(p) {
+    const days = [];
+    for (const item of items.slice().sort((a, b) => `${a.date}|${a.startsAt}`.localeCompare(`${b.date}|${b.startsAt}`))) {
+      const last = days[days.length - 1];
+      if (last && last.date === item.date) last.items.push(item);
+      else days.push({ date: item.date, items: [item] });
+    }
+    return days.map((d) => `
+      <section class="abl__group" aria-label="${esc(d.date ?? '讀不出日期')}">
+        <h3 class="abl__day">${d.date ? esc(shortDate(d.date)) : '讀不出日期'}</h3>
+        <ol class="abl__rows">${d.items.map((i) => rowHtml(i, p)).join('')}</ol>
+      </section>`).join('');
+  }
+
+  /**
+   * 發現問題（ADR-0170）：照片層級 → 要改的 → 要你看 → 有提醒的 → 日子過了還沒結案（收著）→ app 有、這次照片上沒有。
+   * 哪幾列在哪一塊只照 `problemsPage()`；每一列底下那幾行提示照畫（這一頁就是給她讀句子的）。
+   */
+  function problemsHtml(p, page, gone) {
+    const byKey = new Map(items.map((i) => [i.key, i]));
+    const rowsOf = (keys) => keys.map((k) => byKey.get(k)).filter(Boolean).map((i) => rowHtml(i, p)).join('');
+    return `
+      ${notesHtml(page.notes)}
+      <div data-abl-changes>${changesHtml(p)}</div>
+      ${page.look.length ? `
+        <section class="abl__group abl__group--look" aria-label="要你看">
+          <h3 class="abl__day">要你看</h3>
+          <ol class="abl__rows">${rowsOf(page.look)}</ol>
+        </section>` : ''}
+      ${/* 辨識結果上有紅字短標記的那幾列（連還差一步）—— 看到一個 ⚠ 切過來一定找得到整句 */''}
+      ${page.flagged.length ? `
+        <section class="abl__group abl__group--flag" aria-label="有提醒的">
+          <h3 class="abl__day">有提醒的</h3>
+          <ol class="abl__rows">${rowsOf(page.flagged)}</ol>
+        </section>` : ''}
+      ${/* 中途發現 5：日子過了、Abovee 上還沒結案的那幾列收起來 —— 拍一張比較舊的頁面時一次好幾列，攤開會擠掉真的要決定的 */''}
+      ${page.later.length ? `
+        <section class="abl__group abl__group--later" aria-label="日子過了、Abovee 上還沒結案">
+          <details class="abl__later" ${laterOpen ? 'open' : ''}>
+            <summary class="abl__day">日子過了、Abovee 上還沒結案的 ${page.later.length} 段</summary>
+            <ol class="abl__rows">${rowsOf(page.later)}</ol>
+          </details>
+        </section>` : ''}
+      <div data-abl-absent>${absentHtml(gone, p, page.absent)}</div>`;
   }
 
   /**
@@ -323,22 +386,25 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   }
 
   /**
-   * 「app 有、這次照片上沒有」那一塊（ADR-0129），接在「要你看」底下。**只講不改**（ADR-0056、0116）：
+   * 「app 有、這次照片上沒有」那一塊（ADR-0129），在「發現問題」那一頁最後。**只講不改**（ADR-0056、0116）：
    * 列上不放按鈕 —— 「去日曆」按了就離開這一層，而照片不留（ADR-0101），一列一顆的話她看完第一段就要整張重拍。
    * 整塊底下一顆，字講出後果：有勾起來的先走既有的存檔、存完才換頁；沒有就直接去。
-   * 沒有對不上的時候只留一行講對了誰、哪幾天 —— 少了它分不出沒列出來是「沒有」還是「沒檢查」。
+   * **都在照片上就不畫**（ADR-0170 推翻 ADR-0129 那一句：「發現問題」那一顆灰掉就是檢查過了、沒事）；講什麼、算幾件只問 `absentShown()`。
    */
-  function absentHtml(gone, p) {
-    const say = absentSay(gone, ctx.customers);
-    if (!say) return '';
-    if (!gone.slots.length) return `<p class="abl__absentsay">${esc(say)}</p>`;
+  function absentHtml(gone, p, shown) {
+    if (!shown.count) return '';
+    const head = `
+        <h3 class="abl__day">app 有、這次照片上沒有</h3>
+        <p class="abl__absentsay">${esc(shown.say)}</p>`;
+    if (!gone.slots.length) {
+      return `<section class="abl__group abl__group--gone" aria-label="app 有、這次照片上沒有">${head}</section>`;
+    }
     const first = gone.slots[0].date;
     const waiting = pendingCount();
     const stuck = pending().some((i) => p.problems[i.key]);
     return `
       <section class="abl__group abl__group--gone" aria-label="app 有、這次照片上沒有">
-        <h3 class="abl__day">app 有、這次照片上沒有</h3>
-        <p class="abl__absentsay">${esc(say)}</p>
+        ${head}
         <ol class="abl__rows">${gone.slots.map((s) => `
           <li class="abl-row abl-row--gone">
             <div class="abl-row__line">
@@ -346,7 +412,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
               <div class="abl-row__main">
                 <span class="abl-row__time"><small class="abl-row__date">${esc(shortDate(s.date))}</small>${esc(s.startsAt ?? '—')}</span>
                 <span class="abl-row__who">${esc(s.customerName)}</span>
-                <span class="abl-row__what">${esc(s.name)}</span>
+                <span class="abl-row__what"><span class="abl-row__glance">${esc(s.name)}</span></span>
                 <span class="abl-row__tag">${esc(shortStatus(s.status))}</span>
               </div>
             </div>
@@ -362,6 +428,14 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    */
   function repaintRow(key, { was = null } = {}) {
     const p = plan();
+    const gone = absentNow();
+    const page = pageOf(p, gone);
+    // 「發現問題」那一頁列的那幾列換了（拿掉一列的勾、還差一步補好了、最後一件也處理了）→ 整頁重畫：
+    // 只換畫面上已經有的列的話，N 會跟列出來的對不上
+    if (view === 'problems' && (!page.count || rowsSig(page) !== shownRows)) {
+      paintBody();
+      return;
+    }
     const li = [...root.querySelectorAll('[data-abl-row]')].find((el) => el.dataset.ablRow === key);
     const item = items.find((i) => i.key === key);
     if (li && item) {
@@ -383,36 +457,30 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       holder.innerHTML = rowHtml(other, p).trim();
       el.replaceWith(holder.content.firstElementChild);
     }
-    // 換了某一列是誰、勾了一列：「app 有、這次照片上沒有」與那一顆按鈕的字跟著變
+    // 換了某一列是誰、勾了一列：「app 有、這次照片上沒有」與那一顆按鈕的字跟著變（不在這一頁的那兩塊找不到就跳過）
     const changes = root.querySelector('[data-abl-changes]');
     if (changes) changes.innerHTML = changesHtml(p);
-    const gone = absentNow();
     const absent = root.querySelector('[data-abl-absent]');
-    if (absent) absent.innerHTML = absentHtml(gone, p);
+    if (absent) absent.innerHTML = absentHtml(gone, p, page.absent);
+    paintSeg(page.count);
     paintSummary(gone);
     paintBar(p);
   }
 
-  /** 左右兩張怎麼對上的 —— **常駐**，不收進 ?（會改變寫進去的東西）。 */
-  function pairingNote() {
-    // 沒拍到「預約狀態」那一欄：看不出完成或取消，照舊記成待確認（01）—— 會改變寫進去的東西，常駐
-    const status = statusColumnSay({ noStatusColumn });
-    const say = status ? `<p class="abl__pairing abl__pairing--warn">${esc(status)}</p>` : '';
-    return say + pairingKind();
-  }
-
-  function pairingKind() {
-    if (pairing === 'halves') {
-      return '<p class="abl__pairing">右半邊的診間、服務資源是<b>照列的順序</b>對上的，點開一列對照看看。</p>';
-    }
-    if (pairing === 'mismatch') {
-      return `<p class="abl__pairing abl__pairing--warn">左右兩張的列數不一樣（左 ${sizes.left} 列、右 ${sizes.right} 列），
-        <b>沒有對上</b> —— 診間與治療師那幾格空著，點開一列選。</p>`;
-    }
-    if (pairing === 'noNames') {
-      return '<p class="abl__pairing abl__pairing--warn">這一張沒有「姓名」那一欄，認不出是誰。拍含姓名的那一半（最左邊那幾欄）。</p>';
-    }
-    return '';
+  /**
+   * 照片層級的問題（`problemsPage()` 的 `notes`，「發現問題」那一頁最上面；會改變寫進去的東西，不收進 ?）。
+   * 左右兩半正常配上不是問題，不畫（ADR-0170）。
+   */
+  function notesHtml(codes) {
+    const say = {
+      // 沒拍到「預約狀態」那一欄：看不出完成或取消，照舊記成待確認（01）
+      statusColumn: () => esc(statusColumnSay({ noStatusColumn })),
+      mismatch: () => `左右兩張的列數不一樣（左 ${sizes.left} 列、右 ${sizes.right} 列），
+        <b>沒有對上</b> —— 診間與治療師那幾格空著，點開一列選。`,
+      noNames: () => '這一張沒有「姓名」那一欄，認不出是誰。拍含姓名的那一半（最左邊那幾欄）。',
+    };
+    if (!codes.length) return '';
+    return `<div class="abl__notes">${codes.map((c) => `<p class="abl__pairing abl__pairing--warn">${say[c]()}</p>`).join('')}</div>`;
   }
 
   function slotOf(item) {
@@ -437,9 +505,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   function rowHtml(item, p) {
     const tag = tagOf(item);
     const open = openKey === item.key;
+    // ADR-0170：「辨識結果」那一頁收著的列一行說明都不畫，只有課程那一行右邊一個紅字短標記；
+    // 列底下那幾行在「發現問題」那一頁、或點開之後
+    const say = view === 'problems' || open;
     const customer = ctx.customers.find((c) => c.id === item.customerId);
     const built = slotOf(item);
-    const what = built?.slot ? slotName(built.slot, ctx.master, 'short') : (item.row.course || '？');
+    // 課程＋人／診間，印的是存完之後那一段（`rowGlance()`，abovee-confirm-glance 02）
+    const glance = rowGlance(item, p, ctx);
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
     const problems = wantsWrite(item) ? (p.problems[item.key] ?? []) : [];
     const near = nearSay(item);
@@ -453,37 +525,67 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
                   aria-checked="${Boolean(item.checked)}" ${canCheck ? '' : 'disabled'}
                   aria-label="記這一段">${icon('check', { size: 15, width: 2.6 })}</button>
           <button class="abl-row__main" type="button" data-abl-open aria-expanded="${open}">
-            <span class="abl-row__time">${attention.has(item.key) && item.date
+            <span class="abl-row__time">${view === 'problems' && item.date
               ? `<small class="abl-row__date">${esc(shortDate(item.date))}</small>` : ''}${esc(item.startsAt ?? '—')}</span>
             <span class="abl-row__who">${esc(customer?.name ?? (item.row.name || '？'))}</span>
-            <span class="abl-row__what">${esc(what)}</span>
+            <span class="abl-row__what">${glanceHtml(glance)}${flagHtml(rowTag(item, p))}</span>
             <span class="abl-row__tag">${esc(tag === 'unknown' && item.who.how === 'none' ? 'app 裡沒有' : TAGS[tag])}</span>
           </button>
         </div>
         ${item.merged ? `
           <p class="abl-row__merged"><b>合併扣課</b>${esc(mergedLine(item))}
             ${savedKeys.has(item.key) || item.kind !== 'new' ? '' : '<button class="btn btn--sm btn--ghost" type="button" data-abl-split>拆開成兩段</button>'}</p>` : ''}
+        ${say ? hintsHtml(item, problems, must, open, near) : ''}
+        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? [], whatIfOf(item)) : ''}
+      </li>`;
+  }
+
+  /**
+   * 列底下那幾行（「發現問題」那一頁、或點開之後才畫，ADR-0170）。每一行講一件事、句子都在 domain。
+   */
+  function hintsHtml(item, problems, must, open, near) {
+    return `
         ${problems.length && !open ? `<p class="abl-row__hint">還差一步：${esc(problems[0])}</p>` : ''}
-        ${/* 會改變寫入結果的提醒：收著也畫（點開之後在底下那一份完整的裡面，不畫兩次） */''}
+        ${/* 會改變寫入結果的提醒：收著的列在這一頁畫整句（點開之後在底下那一份完整的裡面，不畫兩次） */''}
         ${open ? '' : briefWarnings(must).map((w) => `<p class="abl-row__hint abl-row__hint--warn">${esc(w)}</p>`).join('')}
-        ${/* 為什麼這一列沒有先勾好（ADR-0116）—— 收起來也看得到 */''}
+        ${/* 為什麼這一列沒有先勾好（ADR-0116） */''}
         ${!problems.length && newRowSay(item) ? `<p class="abl-row__hint">${esc(newRowSay(item))}</p>` : ''}
         ${/* 照片上的狀態為什麼沒先勾（03：還沒到就寫完成、日子過了還沒結案、讀不出來、二返簽不成）—— 勾著的在上面那幾行（mustSee） */''}
         ${wantsWrite(item) || savedKeys.has(item.key) ? '' : photoRowSays(item).map((w) => `<p class="abl-row__hint">${esc(w)}</p>`).join('')}
-        ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 —— 收起來也看得到 */''}
+        ${/* 這一位的全部來訪讀不到（09）：次數可能不準，所以沒有先勾好 */''}
         ${partialSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(partialSay(item))}</p>` : ''}
-        ${/* 跟另一張照片上的那一列看起來是同一段（10）：所以沒有先勾好 —— 收起來也看得到 */''}
+        ${/* 跟另一張照片上的那一列看起來是同一段（10）：所以沒有先勾好 */''}
         ${repeatSay(item) && !savedKeys.has(item.key) ? `<p class="abl-row__hint">${esc(repeatSay(item))}</p>` : ''}
-        ${/* 認得、但不是一字不差（ADR-0128）—— 收起來也看得到 */''}
+        ${/* 認得、但不是一字不差（ADR-0128） */''}
         ${near && !savedKeys.has(item.key) ? `<p class="abl-row__hint abl-row__hint--near">${esc(near)}</p>` : ''}
         ${/* 中途發現 12：狀態對不上（只提醒）、治療師／診間照 Abovee 改的那一段 —— 留在要你看，這一行講治療師那一件在哪裡勾 */''}
         ${item.kind === 'mismatch' && offersChange(item) && !open && !savedKeys.has(item.key)
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))} —— ${item.adopt
-            ? '照 Abovee 改（勾在最上面「要改的」那一塊）' : '最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
+            ? '照 Abovee 改（勾在「發現問題」那一頁最上面「要改的」那一塊）' : '「發現問題」那一頁最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
-          ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
-        ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? [], whatIfOf(item)) : ''}
-      </li>`;
+          ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}`;
+  }
+
+  /**
+   * 紅字短標記（ADR-0170）：最要緊的那一個＋「+N」，接在課程＋人那一格後面、自己不被截（`.abl-row__flag` 是 `flex: none`）。
+   * 字與先後都是 domain 給的（`rowTag()`）—— 這裡不比來源。滑過去（`title`）看得到全部是哪幾種。
+   */
+  function flagHtml(tag) {
+    if (!tag) return '';
+    return `<span class="abl-row__flag" title="${esc(tag.all.join('、'))}">${icon('alert', { size: 13, width: 2.2 })}${
+      esc(tag.text)}${tag.more ? ` +${tag.more}` : ''}</span>`;
+  }
+
+  /**
+   * 列上那一行的課程＋人／診間（abovee-confirm-glance 02），樣子照日曆那一列：`IN(60) 姿璇`、`三返 夏`；
+   * 還沒有的那一格灰色「醫師？」。一整串一格、太長就截（`.abl-row__glance`）——
+   * 右邊接紅字短標記（`flagHtml()`；`.abl-row__what` 是 flex，標記不被截）。
+   */
+  function glanceHtml(g) {
+    const cells = g.cells.map((c) => (c.name
+      ? `<span class="abl-row__person">${esc(c.name)}</span>`
+      : `<span class="abl-row__person abl-row__person--none">${esc(c.label)}？</span>`)).join('');
+    return `<span class="abl-row__glance"><span class="abl-row__course">${esc(g.what)}</span>${cells}</span>`;
   }
 
   /**
@@ -536,7 +638,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // 是哪一種已經記了（同一個時間、合併扣課的後一半、沒有時間的舊段）那一句在 domain（`recordedSay()`，11）
       // 上面那一句講的是照片要它改成什麼；這一次會不會改看「要改的」那一塊的勾
       const where = !offersChange(item) ? ''
-        : `<p class="abl-row__say">${wantsWrite(item) ? '要不要改，勾在最上面「要改的」那一塊。' : '最上面「要改的」那一塊沒勾 —— 這一次不改。'}</p>`;
+        : `<p class="abl-row__say">${wantsWrite(item) ? '要不要改，勾在「發現問題」那一頁最上面「要改的」那一塊。' : '「發現問題」那一頁最上面「要改的」那一塊沒勾 —— 這一次不改。'}</p>`;
       return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${where}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
@@ -580,14 +682,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
-              sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
+              sub: o.isNth || o.isGift || o.isNotMine ? '不扣次數' : `剩 ${o.remaining}`,
               on: o.entitlementId === value, attr: 'data-abl-opt',
             }),
           })}
         </div>`);
-      if (item.isNth && !options.some((o) => o.isNth)) {
-        rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。</p>');
-      }
+      // 照片上是 n返／二返、這一位走不了一般那一條：那一句在 domain（`newRowSay()` 的 `notMineHint`，exam-not-mine 08），
+      // 上面那一行講了（列底下那幾行，`hintsHtml()`）—— 這裡不再講一次
     }
 
     const ent = item.isNth ? null
@@ -613,7 +714,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         value: x.id, label: x.name, on: item.ivProductId === x.id, attr: 'data-abl-iv',
       }))));
     }
-    if (item.isNth && course) {
+    if (item.notMine) {
+      // 健檢不是她排的（ADR-0169）：只有「第幾返」—— **沒有「接哪一次健檢」**（它不接任何一次）
+      rows.push(notMineNthRow(item));
+    } else if (item.isNth && course) {
       rows.push(...nthRows(item));
     } else {
       // 連同這一張照片上勾著的健檢一起列（ADR-0145：健檢和二返都是新的，當下就接得上）
@@ -641,12 +745,17 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       }))));
     }
 
-    const assigns = course ? assignsFor(ent, course, item.equipmentId) : null;
+    // 還沒按任何一顆（照片上三返、還沒按「健檢不是我排的」）組不出時段：治療師／診間／醫師那幾排照照片認出的課程畫
+    //（abovee-confirm-glance 02）—— 按了只改這一列的那一格，存檔照舊走 `slotFromPicks()`，組不出來就照舊擋
+    const seenCourse = course ? null
+      : (ctx.master.courses.find((c) => c.id === item.course?.courseId) ?? null);
+    const assigns = course ? assignsFor(ent, course, item.equipmentId) : (seenCourse ? seenAssigns(null, seenCourse, item.equipmentId) : null);
+    const peopleCourse = course ?? seenCourse;
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');
     } else if (assigns === 'room') {
       // 認到的是停用的那一間（她主檔上停用的診間，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
-      const slots = orderedRoomSlots(course, ctx.master.rooms, { keep: item.roomId });
+      const slots = orderedRoomSlots(peopleCourse, ctx.master.rooms, { keep: item.roomId });
       const usual = slots.filter((s) => s.usual || s.retired);
       const shown = showAllRooms.has(item.key) || !usual.length ? slots : usual;
       rows.push(chipRow('診間', shown.map((s) => ({
@@ -657,10 +766,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         value: s.id, label: s.name, on: item.therapistId === s.id, attr: 'data-abl-therapist',
       }))));
     }
-    if (course && picksDoctor(course)) {
+    if (peopleCourse && picksDoctor(peopleCourse)) {
       // 誰排前面只寫在 `doctorChoicesFor()`（ADR-0120）。**這裡不套 `preselect`** ——
       // 照片上已經寫著是哪一位，認不出來時替她挑一位等於把照片上的字蓋掉
-      const { first, others } = doctorChoicesFor(course, ctx.master.staff);
+      const { first, others } = doctorChoicesFor(peopleCourse, ctx.master.staff);
       rows.push(chipRow('醫師', [...first, ...others].map((s) => ({
         value: s.id, label: s.name, on: item.doctorId === s.id, attr: 'data-abl-doctor',
       }))));
@@ -755,7 +864,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     return pool.map((c) => chipHtml({ value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who' })).join('');
   }
 
-  /** 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。 */
+  /**
+   * 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。最後收在「其他 ▸」裡的是「健檢不是我排的」
+   * （exam-not-mine 05、09）：按了走 `pickOption()` 的 `NOT_MINE_PICK`。
+   */
   function optionsFor(item) {
     if (!item.customerId) return [];
     return slotOptionsFor({
@@ -766,6 +878,19 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // n返 借的課程跟著她選的那一次健檢走
       followupForVisitId: item.isNth ? item.followupForVisitId : null,
     }, { includeUsedUp: true });
+  }
+
+  /**
+   * 「健檢不是我排的」那一列的第幾返（ADR-0169）：二返～十返，照片上的字已經按好（`pickOption()`）；照片上不是回訪就沒按，
+   * 勾了由 `slotFromPicks()` 擋「先選第幾返」（「還差一步」那一行）。屬性是 `data-abl-nmnth` —— **不是 n返 那一排的 `data-abl-nth`**
+   * （來訪編輯器 `s${i}-nmnth`、壓表 `data-nmnth` 同一個分法）。
+   */
+  function notMineNthRow(item) {
+    const numbers = [];
+    for (let n = SECOND; n <= MAX_NTH; n += 1) numbers.push(n);
+    return chipRow('第幾返', numbers.map((n) => ({
+      value: String(n), label: nthLabel(n), on: item.nth === n, attr: 'data-abl-nmnth',
+    })), tip('健檢不是你排的：這一場不扣任何次數、不接 app 裡的任何一次健檢。'));
   }
 
   /**
@@ -831,6 +956,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (!t || t.disabled || !root.contains(t)) return;
     if (t.matches('[data-abl-close]')) { requestClose(); return; }
     if (t.matches('[data-abl-save]')) { save(); return; }
+    // 照片底下那一個切換（ADR-0170）：換一頁＝整頁重畫（只畫目前那一頁），焦點放回那一顆
+    if (t.dataset.ablView) {
+      if (t.dataset.ablView !== view) {
+        view = t.dataset.ablView;
+        paintBody();
+        root.querySelector(`[data-abl-view="${view}"]`)?.focus({ preventScroll: true });
+      }
+      return;
+    }
     if (t.dataset.ablDay) { leaveTo(t.dataset.ablDay); return; }
     if (t.dataset.ablGone) { goSee(t.dataset.ablGone); return; }
     // 「要改的」那一塊（07）：勾了只改那一件；補上治療師／診間那一行一次換那幾列
@@ -887,6 +1021,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
+    // 「健檢不是我排的」那一列的第幾返（ADR-0169）：只換返數，標記、醫師、時長照舊
+    if (t.dataset.ablNmnth) { set({ ...item, nth: Number(t.dataset.ablNmnth) }); return; }
     // 按到那門課的「體驗的時候排幾分」→ 換成體驗（ADR-0154，壓表、來訪編輯器同一支 `trialFromMinutes()`）
     if (t.dataset.ablMin) { set(pickMinutes(item, Number(t.dataset.ablMin), ctx, items)); return; }
     if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }

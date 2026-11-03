@@ -21,7 +21,7 @@ import { spawn } from 'node:child_process';
 import { pick } from '../tests-e2e/related.js';
 import {
   changedFiles, combine, filesBetween, greenSide, mergeBase, readStamp, recordsGreen, repoRoot, snapshotTree,
-  stampTime, withViewsNarrowed, writeStamp,
+  stampTime, withNarrowed, writeStamp,
 } from './e2e-changes.mjs';
 
 const argv = process.argv.slice(2);
@@ -63,14 +63,17 @@ if (SMOKE) {
 } else if (RELATED) {
   const { ref, files } = changedFiles(BASE, ROOT);
   if (ref !== BASE) console.log(`⚠  找不到 ${BASE}，改跟 ${ref} 比。`);
-  // `views.js` 只多了一頁的登記 → 換成那一頁（`e2e-changes.mjs` 的 `narrowViews()`）
+  // `views.js` 只多了一頁的登記 → 換成那一頁（`narrowViews()`）；`app.css` 只動到某一個元件的
+  // 那幾組 class → 換成 `app.css#那一組`（`narrowCss()`）。兩支都在 `e2e-changes.mjs`
   const from = mergeBase(ref, ROOT);
-  const base = pick(from ? withViewsNarrowed(files, ROOT, from) : files);
+  const baseFiles = from ? withNarrowed(files, ROOT, from) : files;
+  const base = pick(baseFiles);
 
   const stamp = EXPLICIT_BASE ? null : readStamp(ROOT);
   const sinceGreen = stamp && tree ? filesBetween(ROOT, stamp.tree, tree) : null;
   const side = greenSide({ explicitBase: EXPLICIT_BASE, stamp, sinceGreen });
-  const green = side.files ? pick(withViewsNarrowed(side.files, ROOT, stamp.tree, tree)) : null;
+  const greenFiles = side.files ? withNarrowed(side.files, ROOT, stamp.tree, tree) : null;
+  const green = greenFiles ? pick(greenFiles) : null;
   const { specs, all, why } = combine(base, green);
   const { rules } = base;
 
@@ -83,6 +86,10 @@ if (SMOKE) {
     console.log(`（${side.note}）`);
   }
   for (const line of why) console.log(`   ${line}`);
+  // 縮過的那幾組講出來：看到挑得比預期少時知道為什麼
+  const cssScopes = (list) => (list ?? []).filter((f) => f.includes('#')).map((f) => `.${f.split('#')[1]}`);
+  const narrowedCss = [...new Set([...cssScopes(baseFiles), ...cssScopes(greenFiles)])];
+  if (narrowedCss.length) console.log(`   app.css 只動到 ${narrowedCss.join('、')} 那幾組 → 只挑看 CSS 而且畫得出它們的`);
 
   if (all) {
     console.log('→ 全跑（共用底座或沒登記的檔案）。\n');

@@ -1390,7 +1390,8 @@ test('沒有一個畫面自己去比 course.assigns', () => {
       if (statSync(new URL(next, dir)).isDirectory()) walk(`${next}/`);
       else if (name.endsWith('.js')) {
         const src = readFileSync(new URL(next, dir), 'utf8');
-        if (/\bcourse\??\.assigns\s*===/.test(src)) offenders.push(next);
+        // 不只比：讀課程物件上那一格當成答案也算（審查 R8，拍 Abovee 點開那一塊的 `seenCourse?.assigns`）
+        if (/[cC]ourse\??\.assigns\b/.test(src)) offenders.push(next);
       }
     }
   };

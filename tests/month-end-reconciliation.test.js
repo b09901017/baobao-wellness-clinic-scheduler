@@ -170,3 +170,57 @@ describe('月底對帳', () => {
     }
   });
 });
+
+describe('健檢不是她排的（ADR-0169，exam-not-mine 03）：不另開桶', () => {
+  // app 那一側一段帶標記的二返（10/02）、一段帶標記的三返（10/09）；Abovee 那一側照片上就是二返、三返。
+  // 照片那一列讀照片時不會被按上標記（拍 Abovee 不替她按），所以要靠「同一個桶」對上：
+  // 二返沒有額度 → `course:<二返>`、三返 → `nth:3`，兩邊一樣（`bucketOfSlot()`／`bucketOfItem()`）
+  const flagged = (date, nth) => ({
+    id: `v-wang-${date}`, customerId: 'c-wang', customerName: '王小明', date, status: 'done',
+    slots: [{
+      entitlementId: null, courseId: 'course-followup', courseName: nth === 3 ? '三返' : '二返',
+      ...(nth === 3 ? { followupNth: 3 } : {}), followupForVisitId: null, giftKind: null, doctorId: null,
+      startsAt: '10:00', endsAt: '10:30', minutes: 30, status: 'done', attended: true, examNotMine: true,
+    }],
+  });
+  const withFlagged = () => {
+    const snap = snapshot({});
+    snap.visits.push(flagged('2026-10-02', 2), flagged('2026-10-09', 3));
+    return snap;
+  };
+  const ROWS = [
+    ['10-02', '王小明', '課程完成', { course: '二返', time: '10:00 - 10:30' }],
+    ['10-09', '王小明', '課程完成', { course: '三返', time: '10:00 - 10:30' }],
+  ];
+
+  function run(snap, rows) {
+    const dir = mkdtempSync(join(tmpdir(), 'mer-'));
+    try {
+      writeFileSync(join(dir, 's.json'), JSON.stringify(snap));
+      writeFileSync(join(dir, 'a.json'), JSON.stringify(abovee(rows)));
+      execFileSync(process.execPath, [SCRIPT, '--abovee', join(dir, 'a.json'), '--snapshot', join(dir, 's.json'),
+        '--month', '2026-10', '--today', '2026-11-02', '--out', join(dir, 'r.json')], { stdio: 'pipe' });
+      return JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('Abovee 有一列二返、一列三返；app 有帶標記的那兩段 → 對得上，0 件', () => {
+    const r = run(withFlagged(), ROWS);
+    assert.deepEqual(types(r), []);
+    const wang = r.people.find((p) => p.customerId === 'c-wang');
+    const byKey = Object.fromEntries(wang.buckets.map((b) => [b.key, [b.abovee, b.app, b.ok]]));
+    assert.deepEqual(byKey['course:course-followup'], [1, 1, true]);
+    assert.deepEqual(byKey['nth:3'], [1, 1, true]);
+    assert.ok(wang.ok);
+    // 那一桶的名字對帶標記的與舊資料裡沒有額度的二返都講得通，不為標記另寫一句
+    assert.equal(wang.buckets.find((b) => b.key === 'course:course-followup').label, '二返（沒有扣額度）');
+  });
+
+  test('app 沒有那一段二返 → 照舊講 app 沒有（桶對得上才算數，不是被吞掉）', () => {
+    const snap = snapshot({});
+    snap.visits.push(flagged('2026-10-09', 3));
+    assert.deepEqual(types(run(snap, ROWS)), ['10-02 missing']);
+  });
+});

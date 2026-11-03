@@ -61,6 +61,8 @@ export const IGNORED = [
   '.firebaserc', '.gitignore',
   // 換行符（checkout 出來的樣子）與 skill 的版本鎖，app 一個字都不讀
   '.gitattributes', 'skills-lock.json',
+  // 查牽連的工具（CodeGraph、graphify）要掃哪些檔，app 一個字都不讀
+  'codegraph.json', '.graphifyignore', '.codegraph/',
 ];
 
 /**
@@ -636,6 +638,38 @@ export const COVERAGE = {
     'public/sw.js', 'public/js/ui/swUpdate.js', 'public/js/ui/views/home.js', 'public/js/ui/views/settings.js',
     'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/data/visits.js', 'public/js/data/config.js',
   ],
+  // 健檢不是我排的（exam-not-mine，ADR-0169）：帶標記的段存進去、讀回來、日曆上的名字、長按確認之後形狀不變、待辦照二返那門課
+  '82-exam-not-mine': [
+    'public/js/domain/masterData.js', 'public/js/domain/visits.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/naming.js', 'public/js/domain/taskRules.js', 'public/js/domain/consequences.js',
+    'public/js/data/visits.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 健檢不是我排的：日曆新增與來訪編輯器（exam-not-mine 06）—— 收在「其他 ▸」、第幾返不預選、換回別的一顆清掉標記、既有一段改成帶標記的確認框
+  '83-exam-not-mine-editor': [
+    'public/js/ui/views/visitEditor.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
+  // 健檢不是我排的：壓表（exam-not-mine 07）—— 收在「其他 ▸」、第幾返不預選、不整頁重畫、按回額度之後組出來的段乾淨、紅字
+  '84-exam-not-mine-booking': [
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
+  // 健檢不是我排的：拍 Abovee（exam-not-mine 08、09）—— 讀照片不替她按、不勾、講一句；按了之後第幾返照照片、沒有接健檢；存進去不扣；再拍一次已經記了
+  '85-exam-not-mine-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js',
+    'public/js/domain/masterData.js', 'tests-e2e/fixtures/ai/',
+  ],
+  // 拍 Abovee 每一列收著就看得到治療師／醫師／診間（abovee-confirm-glance 02）
+  '86-abovee-row-glance': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/naming.js',
+    'public/css/app.css', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
+  ],
+  // 拍 Abovee 照片底下切換「辨識結果／發現問題 N」、紅字短標記（abovee-confirm-glance 04，ADR-0170）
+  '87-abovee-result-and-problems': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
+    'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
+  ],
 };
 
 /**
@@ -664,6 +698,34 @@ export const FOLLOWS = {
   // 圖示只在兩個地方被讀：`manifest.webmanifest`（裝到主畫面）與 `index.html` 的 `<link rel="icon">`。
   // 後者是共用底座，但它載不到圖示的症狀是一句 console error —— `00-smoke`（CORE）本來就在抓那個
   'public/icons/': ['public/manifest.webmanifest'],
+};
+
+/**
+ * **`app.css` 裡只屬於一個元件的那幾組 class**（2026-11-03）。
+ *
+ * `app.css` 一萬多行、二十幾支 spec 看它，改一個字就是那二十幾支。但一輪裡常常只改某一層的樣子
+ * （拍 Abovee 那一輪只動 `.abl-*`、`.giftfold*`，verify 照樣挑到整份 CSS 那 21 支）。
+ * `scripts/e2e-changes.mjs` 的 `narrowCss()` 比新舊兩份，**每一條動到的規則**都只指著這裡的某一組
+ * class 時，把 `app.css` 換成 `public/css/app.css#那一組` 交給 `pick()`；挑到的是**整份 app.css
+ * 那一份名單裡、而且摸得到 owners 的那幾支**（交集）—— 本來就不看 CSS 的 spec 照舊不看，
+ * 看 CSS 而畫不出那個元件的不跑。
+ *
+ * - `classes`：那一組 class 的開頭。`abl` 認 `.abl`、`.abl-row`、`.abl__seg`，不認 `.ablation`。
+ * - `owners`：畫得出那一組 class 的檔案。**用到那幾個字的檔案都要在這裡**，
+ *   `tests/e2e-css-scopes.test.js` 掃 `public/` 盯著 —— 漏一個就是那個畫面的 spec 被安靜地少跑。
+ *
+ * 新增一組前先 `grep -rn` 看那個開頭是不是只有一個元件在用。
+ */
+export const CSS_SCOPES = {
+  // 拍 Abovee 與療程單的確認層（療程單那一層借 `.abl` 的殼，`root.className = 'abl tsl'`）；
+  // `has-abl` 是那一層開著時掛在 body 上的
+  abl: {
+    classes: ['abl', 'has-abl'],
+    owners: ['public/js/ui/components/aboveeConfirm.js', 'public/js/ui/components/sheetConfirm.js'],
+  },
+  tsl: { classes: ['tsl'], owners: ['public/js/ui/components/sheetConfirm.js'] },
+  // 「送的／體驗…」收起來的那一段（壓表、來訪編輯器、拍 Abovee 共用）
+  giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
@@ -712,6 +774,20 @@ export function pick(files = []) {
     // （`project-id.mjs` 只有 start-emulators.sh 讀；它算錯的話每一支都紅在 `sameNamespace()`，很大聲）
     if (file.startsWith('tests-e2e/rules/') || file.startsWith('tests-e2e/start-emulators')
       || file === 'tests-e2e/project-id.mjs' || file === 'tests-e2e/related.js') continue;
+
+    // `app.css#abl`：只動到那一組 class（見 `CSS_SCOPES`）→ 整份的名單 ∩ 摸得到 owners 的
+    const [cssFile, scope] = file.split('#');
+    if (scope !== undefined) {
+      const owners = CSS_SCOPES[scope]?.owners;
+      if (!owners) {
+        all = true;
+        why.push(`${file} 那一組沒有登記在 related.js 的 CSS_SCOPES → 全跑`);
+        continue;
+      }
+      const touching = new Set(owners.flatMap(coveredBy));
+      for (const s of coveredBy(cssFile)) if (touching.has(s)) specs.add(s);
+      continue;
+    }
 
     const follows = Object.entries(FOLLOWS).find(([src]) => hits(file, [src]))?.[1] ?? [];
     const matched = [...new Set([file, ...follows].flatMap(coveredBy))];

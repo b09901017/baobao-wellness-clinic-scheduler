@@ -30,17 +30,19 @@ import {
   slotMinutesField, slotSay, slotStatus, validateVisit, warningDetails, withExtraSlot, withSlotStatuses,
 } from './visits.js';
 import { chargesEntitlement, counts, isProduct } from './entitlements.js';
-import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, pairsOf, PICKABLE_EXAM } from './followups.js';
+import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, isFollowupCourse, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { changeChargeSay, closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
-  giftKindOf, isTrialMinutes, trialMinutesOf,
+  giftKindOf, isTrialMinutes, trialMinutesOf, EXAM_NOT_MINE_LABEL, picksDoctor,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { endOf, isValidTime, toMinutes } from './visitTime.js';
 import { markInQueue, monthRange } from './scheduling.js';
-import { NTH_PICK, giftCourseIdOf, giftPick, trialFromMinutes } from './slotOptions.js';
-import { MIN_NTH, nthOf } from './nthFollowup.js';
-import { fullNameOf, slotName } from './naming.js';
+import {
+  NTH_PICK, NOT_MINE_PICK, EXTRA_GROUP, giftCourseIdOf, giftPick, notMineOption, slotOptionsFor, trialFromMinutes,
+} from './slotOptions.js';
+import { MIN_NTH, nthLabel, nthOf } from './nthFollowup.js';
+import { fullNameOf, nameOf, slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
 import { bookingSystemOf } from './taskRules.js';
 
@@ -693,11 +695,68 @@ export function newRowSay(item) {
   }
   // ADR-0145：系統裡沒有、照片上也沒有（勾著的）健檢 —— 她 10/9：「先預設不壓，也提醒要先去約健檢 ? 但還是可以先存然後去日曆接」
   if (item.noExam) return '還沒有接得上的健檢 —— 先去約健檢；要先記的話勾起來，約好健檢之後去日曆接。';
+  // ADR-0169：照片上是回訪、這位走不了一般那一條 —— 沒替她按、沒替她勾（`notMineHintFor()`）
+  if (item.notMineHint) return notMineSay(item.notMineHint);
   if (!item.appCancelledHere) return '';
   // 同一門課：取消之後又約了同一格（ADR-0144，她 2026-10-09：「預設不勾並提醒已取消過」），或她還沒回 Abovee 放掉
   return item.appCancelledSame
     ? 'app 上這一段取消過 —— 是重新約的再勾；沒有重約的話回 Abovee 放掉那個時段。'
     : 'app 上這個時間有一段取消了，課程跟這一列不一樣 —— 確定是新的一段再勾。';
+}
+
+/**
+ * 照片上是二返或三返～十返，而這位客戶**走不了一般那一條**（exam-not-mine 08，ADR-0169）：
+ *
+ * - 三返～十返：「要做什麼」那一排上沒有「＋ n返」（沒有接得上的健檢）—— 跟那一排畫不畫它問同一支 `slotOptionsFor()`
+ * - 二返：身上**一筆**二返額度都沒有（`entitlementChoices()` 是空的；有一筆用完的照舊預選那一筆＋超用的提醒，過目 S9）
+ *
+ * 讀照片那一下**不替她按、不替她勾**（她 11/2：「多一點步驟…讓一般的時候不會不小心多送」）—— 那一列講一句（`notMineSay()`），
+ * 她自己點開「其他」按「健檢不是我排的」（`pickOption()` 的 `NOT_MINE_PICK`）。照片上已取消的那一列不講（不會去記它）。
+ *
+ * @returns {{nth: number, offered: boolean}|null} `nth`：照片上第幾返（二返是 2）；`offered`：那一排上有沒有那一顆
+ *   （二返那門課不是剛好一門時沒有 —— 那一句就不叫她去按）。不是這種情況回 `null`
+ */
+function notMineHintFor(item, ctx) {
+  const course = item?.course;
+  if (!course?.courseId || !item.customerId) return null;
+  const courses = ctx.master?.courses ?? [];
+  let nth = null;
+  if (course.nth) {
+    if (nthOffered(item.customerId, ctx)) return null;
+    nth = course.nth;
+  } else if (isFollowupCourse(course.courseId, courses)) {
+    if (entitlementChoices(item.customerId, course, ctx).length) return null;
+    nth = 2;
+  } else {
+    return null;
+  }
+  return { nth, offered: Boolean(notMineOption(courses)) };
+}
+
+/** 這位客戶「要做什麼」那一排上有沒有「＋ n返」（確認層畫的那一排，`aboveeConfirm.js` 的 `optionsFor()` 同一份）。 */
+function nthOffered(customerId, ctx) {
+  return slotOptionsFor({
+    entitlements: ctx.entitlementsBy?.[customerId] ?? [],
+    visits: ctx.visitsBy?.[customerId] ?? [],
+    courses: ctx.master?.courses ?? [],
+    equipment: ctx.master?.equipment ?? [],
+  }, { includeUsedUp: true }).some((o) => o.isNth);
+}
+
+/**
+ * `notMineHintFor()` 那一列的那一句（`newRowSay()` 講）。指的是畫面上真的有的那兩個字：收合「送的／體驗／其他…」
+ * 裡的「其他」（`EXTRA_GROUP`）、那一顆「健檢不是我排的」（`EXAM_NOT_MINE_LABEL`）。那一顆不畫的時候講原本那一句（選別的）。
+ */
+function notMineSay({ nth, offered }) {
+  const label = nthLabel(nth) ?? '回訪';
+  const nthBack = nth >= MIN_NTH;
+  const why = nthBack ? '這位客戶沒有接得上的健檢' : '這位客戶身上沒有二返額度';
+  if (!offered) {
+    return nthBack
+      ? `照片上是${label}，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。`
+      : `照片上是${label}，${why} —— 選別的，或先去加購。`;
+  }
+  return `照片上是${label}，${why} —— 健檢不是你排的話，在「送的／體驗／其他…」裡點「${EXTRA_GROUP}」、按「${EXAM_NOT_MINE_LABEL}」。`;
 }
 
 /**
@@ -760,6 +819,8 @@ export function resolveItem(item, customerId, ctx, items = null) {
     entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null, existing: null,
     // 送的／體驗也是上一位的（gift-and-trial 02）：換一個人重算，留著的話她剛換的那一位會被記成送的
     isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
+    // 「健檢不是我排的」（ADR-0169）是她替上一位按的；那一句也是上一位的（下面照這一位重算）
+    notMine: false, notMineHint: null,
     // 照片上別列的時間要整張一起看才算得出來（`flagMoved()`）；換一個人就不是那一位的段了
     movedFrom: null, diffs: null, adopt: false, locked: false,
     // 換一個人重算時，上一位的比對結果不可以留著 —— 「照片要把這一段改成什麼」（04）也是：留著的話換成的那一位被改狀態
@@ -843,7 +904,11 @@ export function resolveItem(item, customerId, ctx, items = null) {
   // 課程是二返那一門，照常去挑額度的話會預選二返那一筆、扣到健檢配的那一次（ADR-0063：n返 不是額度）
   let value = null;
   const courses = ctx.master?.courses ?? [];
-  if (course?.nth) value = NTH_PICK;
+  // 照片上是回訪、而這位走不了一般那一條（ADR-0169）：一顆都不替她按（以前預選 n返，那一排上卻沒有 n返 ——
+  // 一顆都沒按著、組不出來、還先勾了），也不勾，那一列講一句（`newRowSay()`）
+  const notMineHint = notMineHintFor(next, ctx);
+  if (notMineHint) value = null;
+  else if (course?.nth) value = NTH_PICK;
   // Abovee 寫體驗（06）、或課程那一格寫 EECP20（分鐘＝體驗的時候排幾分，ADR-0154；預約來源寫正式課也一樣 ——
   // 她 10/5：「EECP20 就是 EECP 體驗」）：那門課的體驗，**不看身上有沒有額度**（她選的：「就算他身上有買那門課也不扣」）。
   // 健檢、二返沒有體驗 → 照下面挑額度，那一列多一句（`trialSay()`）
@@ -857,13 +922,15 @@ export function resolveItem(item, customerId, ctx, items = null) {
   }
   // 按好之後那幾排（器材、品項、接哪一次健檢）跟她自己按那一顆走同一支
   Object.assign(next, pickOption(next, value, ctx, items));
+  // `pickOption()` 清掉那一句（她按了任何一顆就不講了）—— 讀照片那一下的放在它之後。已取消的那一列不講（不會去記它）
+  next.notMineHint = notMineHint && !next.cancelled ? notMineHint : null;
 
   // 照照片上的狀態決定（03，`photoWantsChecked()`：過去的完成與失約勾、過去的待確認不勾、未來的完成與失約不勾、
   // 已取消不勾；那一張沒拍到那一欄照舊 ADR-0030 的「還沒到的勾」）；她自己選的人不自動勾（上面的 `recognized`）
   // 09：這一位的全部來訪讀不到 → 上面的預選是拿不完整的那一份算的，不替她勾（`partialSay()` 講出來）
   const partialHistory = historyPartial(ctx, next.customerId);
   const checked = recognized && !next.cancelled && photoWantsChecked(next, ctx.today)
-    && !next.appCancelledHere && !partialHistory;
+    && !next.appCancelledHere && !partialHistory && !notMineHint;
   return { ...next, kind: 'new', checked, partialHistory };
 }
 
@@ -876,6 +943,8 @@ export const unverified = (item) => item?.who?.how === 'nameNoChart' && Boolean(
 
 /** 這一列在「要做什麼」那一排按著哪一顆（`slotOptionsFor()` 那一排上的值）。 */
 export function optionValueOf(item) {
+  // 「健檢不是我排的」排在 n返 前面：帶標記的三返也有返數，但它不是 n返 那一顆（ADR-0169）
+  if (item?.notMine) return NOT_MINE_PICK;
   if (item?.isNth) return NTH_PICK;
   if (item?.giftCourseId) return giftPick(item.giftCourseId);
   return item?.entitlementId ?? null;
@@ -893,6 +962,9 @@ export function optionValueOf(item) {
  *   讀照片那一下的預選（`linkBatchExams()`）看整批，她自己再按一次只看資料庫的話，同一列按一次就換一個答案（10/9 審查）
  * - n返：返數照照片（`三返` → 3），照片上不是 n返 就預選三返（她 10/5）；
  *   接哪一次健檢**不替她選**（壓表同一條：n返 是她特地要加的一場，替她決定會讓她漏看）
+ * - 「健檢不是我排的」（`NOT_MINE_PICK`，ADR-0169）：返數照照片（`三返` → 3、`二返` → 2）；**照片上不是回訪就不預選**
+ *   （日曆、壓表同一條：她自己按）—— 勾了交給 `slotFromPicks()` 擋「先選第幾返」，確認層照「還差一步」講出來。
+ *   不扣、不接健檢：那幾格在 `base` 已經清掉。**讀照片那一下從來不按它**（`resolveItem()`）
  *
  * 時長（`minutes`）、診間、治療師、醫師是照片上的，不跟著這一排動。
  */
@@ -901,8 +973,11 @@ export function pickOption(item, value, ctx, items = null) {
     ...item,
     entitlementId: null, isNth: false, nth: null, giftCourseId: null, giftKind: null,
     equipmentId: null, followupForVisitId: null, noExam: false,
+    // 換一顆就不是「健檢不是我排的」了；讀照片那一下那一句（`notMineHintFor()`）她按了任何一顆就不講
+    notMine: false, notMineHint: null,
     ivProductId: item.course?.ivProductId ?? null,
   };
+  if (value === NOT_MINE_PICK) return { ...base, notMine: true, nth: photoNthOf(item, ctx) };
   if (value === NTH_PICK) return { ...base, isNth: true, nth: item.course?.nth ?? MIN_NTH };
   const courseId = giftCourseIdOf(value);
   if (courseId) return { ...base, ...giftRow(item, courseId, ctx) };
@@ -920,6 +995,13 @@ export function pickOption(item, value, ctx, items = null) {
   // 這一列換成剛選的樣子再問：它原本接著的那一次不可以把自己擋住
   const batch = items ? items.map((i) => (i.key === row.key ? row : i)) : null;
   return { ...row, followupForVisitId: onlyOpen(examChoices(row.customerId, ent, ctx, batch, row)) };
+}
+
+/** 照片上這一列是第幾返：`三返`～`十返` 照字、二返那門課是 2、別的課 `null`（不預選）。 */
+function photoNthOf(item, ctx) {
+  const course = item?.course;
+  if (course?.nth) return course.nth;
+  return course?.courseId && isFollowupCourse(course.courseId, ctx.master?.courses ?? []) ? 2 : null;
 }
 
 /**
@@ -1130,7 +1212,7 @@ export function refreshNoExam(items, ctx) {
 const asRecorded = (item, existing, extra = {}) => ({
   ...item,
   entitlementId: null, equipmentId: null, ivProductId: null, followupForVisitId: null,
-  isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null,
+  isNth: false, nth: null, giftCourseId: null, giftKind: null, minutes: null, notMine: false, notMineHint: null,
   mergeOrphan: false, movedFrom: null, appCancelledHere: false, appCancelledSame: false, partialHistory: false, noExam: false,
   closeBlock: null, statusChange: null, adoptStatus: false, halfTexts: null, move: null, adoptMove: false, moveWarnings: null,
   chargeChange: null, adoptCharge: false, chargeLocked: false,
@@ -2089,7 +2171,9 @@ export const needsAttention = (item) => item?.kind === 'mismatch'
   // 扣法跟 Abovee 不一樣、那一段已完成鎖著（ADR-0154）：改不了，只能提醒
   || (item?.kind === 'recorded' && Boolean(item?.chargeChange) && Boolean(item?.chargeLocked))
   // app 上取消過的同一段（ADR-0144）：以前是「對不上」，現在是新的一段 —— 照舊排在最前面要她看
-  || (!item?.cancelled && item?.kind === 'new' && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam))
+  // 照片上是回訪、這位走不了一般那一條（ADR-0169）：沒先按、沒先勾，要她決定是不是「健檢不是我排的」
+  || (!item?.cancelled && item?.kind === 'new'
+    && Boolean(item?.mergeOrphan || item?.movedFrom || item?.appCancelledSame || item?.noExam || item?.notMineHint))
   // 照片上的預約狀態不合理或拿不準（03）：還沒到就寫完成／失約、日子過了還沒結案、讀不出來、兩張不一樣、
   // 合併扣課兩列不一樣、二返簽不成已完成 —— 這幾種都沒先勾好，要她決定（`photoRowSays()` 講為什麼）
   || (!item?.cancelled && item?.kind === 'new' && photoRowSays(item).length > 0)
@@ -2431,6 +2515,8 @@ export function absentFromPhoto(transcripts, items, ctx, { everyone = false } = 
 
 const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const pointSay = (p) => (p.time ? `${md(p.date)} ${p.time}` : md(p.date));
+/** 照片上那幾位還沒認出是誰（ADR-0153，名字照照片上的原字）—— `absentSay()` 與 `absentShown()` 同一句 */
+const notYetOf = (unknown) => `照片上的 ${unknown.join('、')} 還沒認出是誰`;
 
 /**
  * 那一塊上面那一句：對了誰（一位、兩位、每一位，ADR-0153）、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
@@ -2447,7 +2533,7 @@ export function absentSay(result, customers = []) {
   if (result?.why === 'noDates') return '照片上讀不到日期 —— 沒有對「app 有、這次照片上沒有」。';
   if (!result?.checked) return '';
   const { customerIds, unknown = [], ranges } = result.checked;
-  const notYet = unknown.length ? `照片上的 ${unknown.join('、')} 還沒認出是誰` : '';
+  const notYet = unknown.length ? notYetOf(unknown) : '';
   if (customerIds && !customerIds.length) return `${notYet} —— 沒有對「app 有、這次照片上沒有」。`;
   const when = ranges.map(({ lo, hi }) => `${pointSay(lo)}–${pointSay(hi)}`).join('、');
   const names = (customerIds ?? []).map((id) => (customers ?? []).find((c) => c.id === id)?.name ?? '').filter(Boolean).join('、');
@@ -2455,6 +2541,86 @@ export function absentSay(result, customers = []) {
   const n = result.slots.length;
   const said = n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
   return notYet ? `${said}${notYet}，先沒對。` : said;
+}
+
+/**
+ * 「app 有、這次照片上沒有」那一塊在「發現問題」那一頁講什麼、算幾件（ADR-0170）。
+ *
+ * - 都在照片上 → **不畫、0 件**（ADR-0129 那一句「都在這次的照片上」她劃掉了：「發現問題」那一顆灰掉就是檢查過了、沒事）
+ * - 沒拍到的段 → 照段數；照片上有一位還沒認出是誰（ADR-0153）再加一件。句子照舊是 `absentSay()`
+ * - 只有「還沒認出是誰」→ 只講那一句、算一件（不接「都在這次的照片上」）
+ * - 沒有對（列不是照時間排、讀不到日期、照片上的人一個都沒認出）→ 照講、算一件：那時候 0 件不等於沒事
+ *
+ * @param {ReturnType<typeof absentFromPhoto>} result
+ * @param {{id: string, name: string}[]} customers
+ * @returns {{say: string, count: number}}
+ */
+export function absentShown(result, customers = []) {
+  if (result?.why) return { say: absentSay(result, customers), count: 1 };
+  if (!result?.checked) return { say: '', count: 0 };
+  const { customerIds, unknown = [] } = result.checked;
+  const n = result.slots?.length ?? 0;
+  if (customerIds && !customerIds.length) return { say: absentSay(result, customers), count: 1 };
+  if (n) return { say: absentSay(result, customers), count: n + (unknown.length ? 1 : 0) };
+  if (unknown.length) return { say: `${notYetOf(unknown)}，先沒對。`, count: 1 };
+  return { say: '', count: 0 };
+}
+
+/**
+ * 「發現問題」那一頁列哪幾件、N 是多少（ADR-0170）。**畫面照它回的畫，那一顆上的 N 就是它的 `count`** ——
+ * 各算一份的話 N 會跟列出來的對不上。
+ *
+ * - `notes`：照片層級的問題，一種一件（`statusColumn`：沒拍到「預約狀態」那一欄、`mismatch`：左右兩張列數不一樣、
+ *   `noNames`：沒有姓名那一欄）。左右兩半正常配上（`halves`）不是問題，不列
+ * - `changes`：「要改的」那一塊管的列（`offersChange()`；照列數，同抬頭的「要改 N 段」）
+ * - `look`／`later`：「要你看」與收起來的「日子過了還沒結案」—— 打開這一層時定的那幾列排前面（呼叫端記著，之後不跟著跳），
+ *   之後才變成要看的（`needsAttention()`）接在後面
+ * - `flagged`：「有提醒的」—— 辨識結果上有紅字短標記（`rowTag()`，連還差一步）、或列底下有一句（`hasRowNote()`），
+ *   又不在 `look`／`later` 裡的列。標記與整句一對一：她在辨識結果看到一個 ⚠，切過來一定找得到那一列
+ * - `absent`：`absentShown()`
+ * - `count`：不重複的列（同一列在兩塊只算一件）＋沒拍到的段與那幾句＋照片層級
+ *
+ * @param {object[]} items **還沒記的**列（記好了的不算也不列）
+ * @param {ReturnType<typeof photoDayPlan>|null} plan
+ * @param {{attention?: Set<string>, later?: Set<string>, absent?: object, customers?: object[], pairing?: string,
+ *          noStatusColumn?: string|null}} [o]
+ * @returns {{notes: string[], changes: string[], look: string[], later: string[], flagged: string[],
+ *            absent: {say: string, count: number}, count: number}}
+ */
+export function problemsPage(items = [], plan = null, {
+  attention = new Set(), later = new Set(), absent = null, customers = [], pairing = 'single', noStatusColumn = null,
+} = {}) {
+  const list = items ?? [];
+  const notes = [
+    ...(statusColumnSay({ noStatusColumn }) ? ['statusColumn'] : []),
+    ...(pairing === 'mismatch' ? ['mismatch'] : []),
+    ...(pairing === 'noNames' ? ['noNames'] : []),
+  ];
+  const keys = (fn) => list.filter(fn).map((i) => i.key);
+  const changes = keys(offersChange);
+  // 打開之後才變成要看的（她換了一位、那一段跟照片對不上，審查 R1）接在後面：`attention` 是「位置不跳」，不是「名單不變」
+  const lateLook = (i) => !attention.has(i.key) && needsAttention(i);
+  const isLater = (i) => later.has(i.key) || (lateLook(i) && pastStillOpen(i));
+  const look = [...keys((i) => attention.has(i.key) && !isLater(i)), ...keys((i) => lateLook(i) && !isLater(i))];
+  const stale = keys(isLater);
+  const flagged = keys((i) => !attention.has(i.key) && !isLater(i) && !lateLook(i) && (Boolean(rowTag(i, plan)) || hasRowNote(i)));
+  const gone = absentShown(absent, customers);
+  const rows = new Set([...changes, ...look, ...stale, ...flagged]);
+  return { notes, changes, look, later: stale, flagged, absent: gone, count: notes.length + rows.size + gone.count };
+}
+
+/**
+ * 這一列底下有沒有一句話要講（「發現問題」那一頁畫的那幾行，`aboveeConfirm.js` 的 `hintsHtml()`）：
+ * 為什麼沒先勾（`newRowSay()`、`partialSay()`、`repeatSay()`、不會寫進去的那幾列的 `photoRowSays()`）、
+ * 認得但不是一字不差（`nearSay()`）、已完成鎖著的那一段跟照片不一樣（`locked` 的 `diffs`）。
+ * 這幾句以前收著也畫（ADR-0116、0128）；只有一句、不在要你看、也沒有紅字的列不收進那一頁的話，
+ * 那一句只剩點開才看得到，「發現問題 0」灰掉講的「沒事」也不是真的（段二（續）中途發現）
+ */
+export function hasRowNote(item) {
+  if (!item) return false;
+  return Boolean(newRowSay(item) || partialSay(item) || repeatSay(item) || nearSay(item)
+    || (!wantsWrite(item) && photoRowSays(item).length)
+    || (item.kind === 'recorded' && item.diffs?.length && item.locked));
 }
 
 /**
@@ -2485,8 +2651,10 @@ export function aboveeLoadRange(transcripts = []) {
 /** 一列交給 `slotFromPicks()` 的那一份。 */
 export function picksOf(item) {
   return {
-    entitlementId: item.isNth ? null : item.entitlementId,
+    entitlementId: item.isNth || item.notMine ? null : item.entitlementId,
     isNth: Boolean(item.isNth),
+    // 「健檢不是我排的」（ADR-0169）：標記＋返數交給 `slotFromPicks()` 那一條（它贏）。只認 `true`
+    examNotMine: item.notMine === true,
     giftCourseId: item.giftCourseId ?? null,
     // 沒有 giftCourseId 的列這一格不算數（`slotFromPicks()` 只在走送的／體驗那一條時讀它）
     giftKind: item.giftCourseId ? (item.giftKind ?? 'trial') : null,
@@ -2497,7 +2665,8 @@ export function picksOf(item) {
     bed: null,
     therapistId: item.therapistId,
     doctorId: item.doctorId,
-    nth: item.isNth ? (item.nth ?? null) : null,
+    // 返數只有 n返 與「健檢不是我排的」交出去（後者二返是 2；`null` ＝ 還沒選，`slotFromPicks()` 擋「先選第幾返」）
+    nth: item.isNth || item.notMine ? (item.nth ?? null) : null,
     followupForVisitId: item.followupForVisitId,
     minutes: item.minutes ?? null,
     // 合併扣課那一段身上那一句（她 10/5）。記一句是她的欄位，之後改掉也可以
@@ -2686,7 +2855,7 @@ export function recordBar(wanted = [], plan = {}) {
 /** 那一顆上面那一句（還差一步、這一次改不成、還沒勾）。 */
 export function recordBarSay({ fresh = 0, changed = 0, stuck = 0, cannot = 0 } = {}) {
   if (stuck) return `勾起來的有 ${stuck} 段還差一步，點開補上`;
-  if (cannot) return `勾起來的有 ${cannot} 段這一次改不成（「要改的」那一塊寫著為什麼）`;
+  if (cannot) return `勾起來的有 ${cannot} 段這一次改不成（「發現問題」那一頁「要改的」那一塊寫著為什麼）`;
   return fresh + changed ? '' : '勾起要記的那幾段';
 }
 
@@ -2706,6 +2875,7 @@ const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots
  * @param {{at?: string}} [o]
  * @returns {{
  *   groups: object[], problems: Record<string, string[]>, warningsBy: Record<string, string[]>, mustSeeBy: Record<string, string[]>,
+ *   tagBy: Record<string, {source: string, kind?: string}[]>,
  *   writes: {id: string, customerId: string, customerName: string, date: string, visit: object, before: object|null,
  *            freed: number[], keys: string[], adds: object|null, touch: object|null, pressed: boolean}[],
  *   missed: object[], rows: {key: string, customerId: string, date: string, kind: 'new'|'status'|'move'|'adopt', to?: string,
@@ -2716,6 +2886,9 @@ const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots
  *   `freed` 給 `save()`（「取消 Abovee」一出生就勾好，02）、`keys` 是這一筆寫進去的那幾列、`pressed` 是那一天有沒有一段活著的新段（標壓完）。
  *   `rows`：每一列做了什麼、那一筆額度因此差幾次（`charge`：扣 +1、還 −1；跟 `counts()` 一段一段加起來同一個數）。
  *   `deltas`：每一位每一筆額度前後的差（`countDeltas()`）—— `rows` 的 `charge` 加起來就是它的 `remaining` 的負數
+ *   `slotAfter`：這一次會寫進去的每一列（列的 key）→ 寫進去的那一筆與那一段（`{ visit, slot }`）—— 「要改的」勾著的那幾件已經套好
+ *   `tagBy`：`mustSeeBy` 每一句從哪裡來（同一列、同樣多、同一個順序）—— 收著的列那個紅字短標記讀它（`rowTag()`，ADR-0170）。
+ *   `mustSeeBy` 照舊只有字串（確認框與好幾支測試讀它）
  */
 export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {}) {
   const list = items ?? [];
@@ -2766,6 +2939,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
   for (const i of already) problems[i.key] = [ALREADY_IN_APP];
   const warningsBy = {};
   const mustSeeBy = {};
+  const tagBy = {};
   const { courses = [], equipment = [] } = ctx.master ?? {};
   // 改過的那一筆裡，改了的那幾段身上的提醒；改期那一段有錯誤就擋那一列
   const onTouched = (t, details, errors) => {
@@ -2773,6 +2947,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       const mine = details.filter((w) => (w.slots ?? []).includes(t.at[key]));
       warningsBy[key] = mine.map((w) => w.text);
       mustSeeBy[key] = mine.filter(mustSee).map((w) => w.text);
+      tagBy[key] = mine.filter(mustSee).map(tagSource);
       if (errors.length && t.done[key].includes('move')) problems[key] = [...(problems[key] ?? []), ...errors];
     }
   };
@@ -2786,6 +2961,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
       warningsBy[item.key] = byRow[item.key].all;
       mustSeeBy[item.key] = byRow[item.key].mustSee;
+      tagBy[item.key] = byRow[item.key].tags;
     }
     if (g.visit.id && touched.has(g.visit.id)) onTouched(touched.get(g.visit.id), details, errors);
   }
@@ -2872,7 +3048,13 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     afterAll[customerId] = [...stored.filter((v) => !replaced.has(v?.id)), ...mine.map((w) => ({ ...w.visit, id: w.id }))];
     deltas[customerId] = countDeltas(ctx.entitlementsBy?.[customerId] ?? [], stored, afterAll[customerId]);
   }
-  return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
+  // 每一列存完之後那一段（`rowGlance()`，abovee-confirm-glance 02）：列上那一行印的就是會寫進去的那一份
+  const slotAfter = {};
+  for (const w of writes) {
+    for (const key of Object.keys(w.touch?.done ?? {})) slotAfter[key] = { visit: w.visit, slot: w.visit.slots?.[w.touch.at[key]] ?? null };
+    for (const item of w.adds?.items ?? []) slotAfter[item.key] = { visit: w.visit, slot: w.visit.slots?.[w.adds.at[item.key]] ?? null };
+  }
+  return { groups, problems, warningsBy, mustSeeBy, tagBy, writes, missed, rows, before, after: afterAll, deltas, slotAfter };
 }
 
 /**
@@ -2901,6 +3083,115 @@ export function whatIfChecked(items, key, ctx, o = {}) {
 
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
 export const pressedDays = (plan) => (plan?.writes ?? []).filter((w) => w.pressed).map((w) => ({ customerId: w.customerId, date: w.date }));
+
+// ---------- 列上那一行 ----------
+
+/** 列上那一行的人／診間那幾格，缺的時候畫面印「醫師？」。 */
+const GLANCE_LABELS = { therapistId: '治療師', roomId: '診間', doctorId: '醫師' };
+
+/**
+ * 一列收著時那一行要印的課程名＋人／診間（abovee-confirm-glance 02）。她 11/3：「能不能也看到診間和醫師
+ * 不要我每個都要點開 像日曆那邊一樣」。印法照日曆那一列（`agendaFor()`）：簡寫（`nameOf(row, 'short')`）。
+ *
+ * **印的是按「記錄」之後的那一段**，照這個順序找：
+ * 1. 這一次會寫進去的列：計畫裡寫進去的那一段（`photoDayPlan()` 的 `slotAfter`）—— 「要改的」那一塊勾著的治療師／診間、
+ *    扣法、狀態、改期都已經套好了。**不在這裡再套一次**（以前的 `afterPhoto()` 沒套治療師／診間）
+ * 2. 已經記了、對不上：app 上那一段（`recordedSlotOf()`）。`existing` 不一定有位置，每一種形狀各找一次
+ * 3. 新的、組得出時段：交給存檔的同一份（`slotFromPicks(picksOf(item))`）—— 另組一份的話列上印的會跟存進去的不一樣
+ * 4. 其餘（認不得人、對不上而 app 上找不到那一段、組不出來 —— 例：照片上三返、還沒按任何一顆）：照片上認出來的課程與人
+ *
+ * 要印哪幾格只看那門課：`assignsFor()` 是治療師或診間（擇一池還沒選器材退回課程上那一格，同 `staffRoleFor()`）、
+ * `picksDoctor()` 是醫師。日曆那一列不印醫師，這裡印（她指名「診間和醫師」）。
+ *
+ * @param {object} item 一列
+ * @param {{slotAfter?: object}|null} plan `photoDayPlan()` 的結果（記好的列不在裡面，傳 `null` 也可以）
+ * @param {{entitlementsBy, visitsBy, master}} ctx
+ * @returns {{what: string, cells: {field: 'therapistId'|'roomId'|'doctorId', label: string, name: string|null}[]}}
+ *   `name` 是 `null` ＝ 還沒有那一格。認不出課程：只有原字、`cells` 是空的
+ */
+export function rowGlance(item, plan, ctx) {
+  const master = ctx?.master ?? {};
+  const found = glanceSlot(item, plan, ctx);
+  if (found?.slot) return glanceOf(found.slot, master, ctx.entitlementsBy?.[item.customerId] ?? []);
+  const seen = item?.course;
+  const course = seen ? ((master.courses ?? []).find((c) => c.id === seen.courseId) ?? null) : null;
+  if (!course) return { what: clean(item?.row?.course) || '？', cells: [] };
+  // 照片上認出來的那一段（n返 的名字只在快照上：`slotName()` 讀 `followupNth` 那一條）
+  return glanceOf({
+    courseId: course.id, equipmentId: item.equipmentId ?? seen.equipmentId ?? null, ivProductId: item.ivProductId ?? seen.ivProductId ?? null,
+    giftKind: null, ...(seen.nth ? { followupNth: seen.nth, courseName: nthLabel(seen.nth) } : {}),
+    therapistId: item.therapistId ?? null, roomId: item.roomId ?? null, doctorId: item.doctorId ?? null,
+    // 名字帶分鐘（`三返(30)`、`SIS(60)`）同日曆那一列：照片上的起訖
+    startsAt: item.startsAt ?? null, endsAt: aboveeEnd(item.row?.time) ?? null,
+  }, master, []);
+}
+
+function glanceSlot(item, plan, ctx) {
+  const after = plan?.slotAfter?.[item?.key];
+  if (after?.slot) return after;
+  if (!item?.customerId) return null;
+  // 對不上的列也印 app 上那一段（她 11/3 選的，審查 R2）：「要改的」勾著的已經在 `slotAfter`，拿掉勾就是 app 上原本的 ——
+  // 同一列不因為那一格勾不勾換一種來源。app 上那一段找不到（課程不一樣、取消了）才退回照片上的
+  if (item.kind === 'recorded' || item.kind === 'mismatch') return recordedSlotOf(item, ctx);
+  if (item.kind !== 'new') return null;
+  const { courses = [], equipment = [], ivProducts = [] } = ctx.master ?? {};
+  const { slot } = slotFromPicks(picksOf(item), {
+    courses, equipment, ivProducts,
+    entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: ctx.visitsBy?.[item.customerId] ?? [],
+  });
+  return slot ? { slot } : null;
+}
+
+/**
+ * 已經記了的那一列對到 app 上哪一段。`existing` 的形狀不只一種：
+ * - 有 `slotIndex`：那一段。**改期存好之後**舊的那一段取消了，新的在照片那個時間（同一筆、剛好一段活著的）
+ * - 合併扣課的後一半（`halfOf`）：前一半那個時間的那一段
+ * - 沒有時間的舊段（`timeless`）：那一天同一門課、沒有時間、活著的，剛好一段才算
+ * 都找不到 → `null`（退回照片上的）
+ */
+function recordedSlotOf(item, ctx) {
+  const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing?.visitId) ?? null;
+  if (!visit) return null;
+  const slots = visit.slots ?? [];
+  const only = (fn) => {
+    const hits = slots.filter((s) => isLiveSlot(s) && fn(s));
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const at = item.existing?.slotIndex;
+  const old = Number.isInteger(at) ? (slots[at] ?? null) : null;
+  const slot = (item.move && old && slotStatus(visit, old) === 'cancelled' ? only((s) => s.startsAt === item.startsAt) : null)
+    ?? old
+    ?? (item.halfOf ? only((s) => s.startsAt === item.halfOf) : null)
+    ?? (item.timeless ? only((s) => !s.startsAt && s.courseId === item.course?.courseId) : null);
+  return slot ? { visit, slot } : null;
+}
+
+/**
+ * 拍 Abovee 照片上認出來的課程要畫治療師還是診間那一排（列上那一行與點開之後那幾排丸子共用，審查 R8）：
+ * `assignsFor()`；擇一池還沒選器材時它沒有答案，退回課程上那一格（同 `staffRoleFor()`）—— 只拿來畫，不寫入。
+ */
+export function seenAssigns(entitlement, course, equipmentId) {
+  return assignsFor(entitlement, course, equipmentId) ?? course?.assigns ?? 'none';
+}
+
+function glanceOf(slot, master, entitlements) {
+  const course = (master.courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  const what = slotName(slot, master, 'short') || '？';
+  if (!course) return { what, cells: [] };
+  const ent = slot.entitlementId ? ((entitlements ?? []).find((e) => e.id === slot.entitlementId) ?? null) : null;
+  const assigns = seenAssigns(ent, course, slot.equipmentId);
+  const fields = [
+    assigns === 'therapist' ? 'therapistId' : assigns === 'room' ? 'roomId' : null,
+    picksDoctor(course) ? 'doctorId' : null,
+  ].filter(Boolean);
+  return { what, cells: fields.map((field) => ({ field, label: GLANCE_LABELS[field], name: glanceName(field, slot[field], master) })) };
+}
+
+function glanceName(field, id, { rooms = [], staff = [] } = {}) {
+  if (!id) return null;
+  const row = (field === 'roomId' ? rooms : staff).find((x) => x.id === id) ?? null;
+  return row ? (nameOf(row, 'short') || null) : null;
+}
 
 /**
  * 存的那一下要寫的那一份（`record()`：一位重讀之後叫它，再交給 `writePhotoPlan()`）。
@@ -3038,26 +3329,32 @@ export function checkCtxFor(groups, group, ctx) {
  *   是 `all` 的子集、同一句。合併扣課另一台的提醒（`mergedNotices()`）也算 —— 那是同一種「器材對警示要注意」；
  *   Abovee 寫體驗卻照扣的那一句（`trialSay()`）也算；照片上的預約狀態記成別的那幾句（`photoRowSays()`，03）也算 ——
  *   她勾了一列「還沒到就寫完成了」，存進去的是待確認，沒點開就不知道
+ * - `tags`：`mustSee` 每一句從哪裡來（`{ source, kind? }`，同樣多、同一個順序）—— 短標記照它挑字（`warningTag()`，ADR-0170）。
+ *   拍 Abovee 自己那三種的來源是 `mergedNotice`、`trial`、`photoStatus`（`kind` 是 `photoRowReason()` 的那一種）
  *
  * @param {{items: object[], at: Record<string, number>}} group `planAbovee()` 的一組
  * @param {{text: string, source: string, slots: number[]}[]} details `warningDetails(group.visit, …)`
  * @param {{customer?: object, equipment?: object[], courses?: object[]}} [o] 合併扣課第二台要問的：這位客戶的警示、器材主檔；
  *   體驗那一句要問的：課程主檔
- * @returns {Record<string, {all: string[], mustSee: string[]}>}
+ * @returns {Record<string, {all: string[], mustSee: string[], tags: {source: string, kind?: string}[]}>}
  */
 export function warningsByRow(group, details = [], { customer = null, equipment = [], courses = [] } = {}) {
   const out = {};
   for (const item of group?.items ?? []) {
     const at = group.at?.[item.key];
     const mine = (details ?? []).filter((w) => (w.slots ?? []).includes(at));
+    // 勾著的列簽不簽得成已完成看這一組的（整批組過的），不看讀照片那一下記的（`photoRowSays()` 同一支）
+    const reason = photoRowReason(item, group.blocked?.[item.key] ?? null);
     const second = [
-      ...mergedNotices(item, customer, equipment), ...trialSay(item, courses),
-      // 勾著的列簽不簽得成已完成看這一組的（整批組過的），不看讀照片那一下記的
-      ...photoRowSays(item, group.blocked?.[item.key] ?? null),
+      ...mergedNotices(item, customer, equipment).map((text) => ({ text, source: 'mergedNotice' })),
+      ...trialSay(item, courses).map((text) => ({ text, source: 'trial' })),
+      ...(reason ? [{ text: reason.text, source: 'photoStatus', kind: reason.code }] : []),
     ];
+    const shown = [...mine.filter(mustSee), ...second];
     out[item.key] = {
-      all: [...mine.map((w) => w.text), ...second],
-      mustSee: [...mine.filter(mustSee).map((w) => w.text), ...second],
+      all: [...mine.map((w) => w.text), ...second.map((w) => w.text)],
+      mustSee: shown.map((w) => w.text),
+      tags: shown.map(tagSource),
     };
   }
   return out;
@@ -3080,10 +3377,69 @@ function trialSay(item, courses = []) {
     : 'Abovee 上寫體驗，這裡選了扣額度 —— 照扣一次'];
 }
 
-/** 收著的那一行最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句）。 */
+/** 「發現問題」那一頁每一列底下最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句；辨識結果只畫短標記，ADR-0170）。 */
 export function briefWarnings(texts = [], max = 2) {
   const list = texts ?? [];
   return list.length > max ? [...list.slice(0, max), `還有 ${list.length - max} 句 —— 點開這一列看`] : [...list];
+}
+
+// ---------- 紅字短標記（ADR-0170）----------
+//
+// 她 11/3：「簡短的，像是⚠ 撞期 ⚠ 次數不夠⚠ 禁忌 +1⚠ 過期⚠ 品項⚠ 重疊⚠ 健檢等等，一列有好幾個提醒時，
+// 只寫最要緊的那一個，後面接「+1」字是紅的、短的，掃過去一眼就看得到」。
+
+/** 一句提醒的來源，只留短標記要的那兩格（`warningDetails()` 那一份還帶著句子與段落）。 */
+function tagSource(w) {
+  return w.kind ? { source: w.source, kind: w.kind } : { source: w.source };
+}
+
+/**
+ * 短字與先後：**由上到下就是要緊的順序**（她接受的：禁忌 → 次數不夠 → 撞期 → 重疊 → 過期 → 品項 → 健檢，其餘排後面）。
+ * 來源是 `warningDetails()` 的 `source`（ADR-0138 那幾種）＋拍 Abovee 自己的三種（`warningsByRow()`）。
+ * **畫面不比來源** —— 只讀 `warningTag()` 回的字。
+ */
+const TAG_WORDS = [
+  ['禁忌', (t) => t.source === 'notice' || t.source === 'mergedNotice'],
+  ['次數不夠', (t) => t.source === 'entitlement' && t.kind === 'over'],
+  ['撞期', (t) => t.source === 'conflict'],
+  ['重疊', (t) => t.source === 'overlap'],
+  ['過期', (t) => t.source === 'entitlement' && t.kind === 'expired'],
+  ['品項', (t) => t.source === 'ivMismatch'],
+  // 健檢不是我排的、其實扣得到或接得上（ADR-0169）；照片寫課程完成、二返接的健檢還沒做完（`closeBlock`）
+  ['健檢', (t) => t.source === 'examNotMine' || (t.source === 'photoStatus' && t.kind === 'closeBlock')],
+  ['體驗', (t) => t.source === 'trial'],
+  ['狀態', (t) => t.source === 'photoStatus'],
+];
+/** 對照表沒有的：**不是不畫** —— `mustSee()` 多一種而這裡忘了給字時，她照樣看得到這一列有事 */
+const TAG_OTHER = '提醒';
+/** 勾著、存不下去（`problems`）：排在所有紅字後面 —— 列底下那一行「還差一步：…」只在「發現問題」那一頁畫 */
+const TAG_STUCK = '還差一步';
+
+/**
+ * 收著的列那一個紅字短標記（ADR-0170）：最要緊的那一個＋「+N」。**N 算種不算句**：兩句撞期是一種、禁忌的兩個來源是一種。
+ *
+ * @param {{source: string, kind?: string}[]} tags 這一列的 `tagBy`（只有 `mustSee()` 那幾種 —— 不是的一個都不在裡面）
+ * @param {{stuck?: boolean}} [o] 這一列勾著、存不下去
+ * @returns {{text: string, more: number, all: string[]}|null} 什麼都沒有 → `null`（一個像素都不佔）
+ */
+export function warningTag(tags = [], { stuck = false } = {}) {
+  const words = new Set();
+  for (const t of tags ?? []) words.add(TAG_WORDS.find(([, is]) => is(t))?.[0] ?? TAG_OTHER);
+  const all = [...TAG_WORDS.map(([w]) => w), TAG_OTHER].filter((w) => words.has(w));
+  if (stuck) all.push(TAG_STUCK);
+  return all.length ? { text: all[0], more: all.length - 1, all } : null;
+}
+
+/**
+ * 這一列在「辨識結果」那一頁的短標記：**只有會寫進去的列**（`wantsWrite()`，同 ADR-0138 —— 沒勾的不會寫進去）。
+ * 記好了的列不在計畫裡（`photoDayPlan()` 只收還沒記的），自然是 `null`。
+ *
+ * @param {object} item
+ * @param {ReturnType<typeof photoDayPlan>|null} plan
+ */
+export function rowTag(item, plan) {
+  if (!item || !wantsWrite(item)) return null;
+  return warningTag(plan?.tagBy?.[item.key] ?? [], { stuck: (plan?.problems?.[item.key] ?? []).length > 0 });
 }
 
 // ---------- 直接標成壓完 ----------
