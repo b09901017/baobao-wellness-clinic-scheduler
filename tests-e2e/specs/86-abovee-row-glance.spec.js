@@ -73,7 +73,7 @@ test('W1 拍 Abovee：列上印治療師／醫師（三返還沒按也印）、�
   await photograph(app, page, 'aboveeList-glance');
 
   // 三返、還沒按任何一顆：列上就有醫師（她第三件）
-  await expect(row(page, 'a0').locator('.abl-row__course')).toHaveText('三返');
+  await expect(row(page, 'a0').locator('.abl-row__course')).toHaveText('三返(30)');
   await expect(people(page, 'a0')).toHaveText(['夏']);
   // 治療師的課：印治療師、不印診間
   await expect(people(page, 'a1')).toHaveText(['騰崴']);

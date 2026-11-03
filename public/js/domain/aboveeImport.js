@@ -3121,6 +3121,8 @@ export function rowGlance(item, plan, ctx) {
     courseId: course.id, equipmentId: item.equipmentId ?? seen.equipmentId ?? null, ivProductId: item.ivProductId ?? seen.ivProductId ?? null,
     giftKind: null, ...(seen.nth ? { followupNth: seen.nth, courseName: nthLabel(seen.nth) } : {}),
     therapistId: item.therapistId ?? null, roomId: item.roomId ?? null, doctorId: item.doctorId ?? null,
+    // 名字帶分鐘（`三返(30)`、`SIS(60)`）同日曆那一列：照片上的起訖
+    startsAt: item.startsAt ?? null, endsAt: aboveeEnd(item.row?.time) ?? null,
   }, master, []);
 }
 

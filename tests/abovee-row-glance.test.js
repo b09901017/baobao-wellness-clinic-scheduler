@@ -107,7 +107,7 @@ describe('新的與照片上的', () => {
     assert.equal(item.kind, 'new');
     assert.equal(item.doctorId, 'staff-dr-xia');
     const g = rowGlance(item, photoDayPlan([item], c), c);
-    assert.equal(g.what, '三返');
+    assert.equal(g.what, '三返(30)', '組不出時段也帶分鐘，同日曆那一列（審查順手）');
     assert.equal(cellsOf(g).doctorId, '夏');
   });
 

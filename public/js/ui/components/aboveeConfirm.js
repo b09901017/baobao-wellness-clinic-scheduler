@@ -391,7 +391,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    * 整塊底下一顆，字講出後果：有勾起來的先走既有的存檔、存完才換頁；沒有就直接去。
    * **都在照片上就不畫**（ADR-0170 推翻 ADR-0129 那一句：「發現問題」那一顆灰掉就是檢查過了、沒事）；講什麼、算幾件只問 `absentShown()`。
    */
-  function absentHtml(gone, p, shown = pageOf(p, gone).absent) {
+  function absentHtml(gone, p, shown) {
     if (!shown.count) return '';
     const head = `
         <h3 class="abl__day">app 有、這次照片上沒有</h3>
