@@ -660,6 +660,16 @@ export const COVERAGE = {
     'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js',
     'public/js/domain/masterData.js', 'tests-e2e/fixtures/ai/',
   ],
+  // 拍 Abovee 每一列收著就看得到治療師／醫師／診間（abovee-confirm-glance 02）
+  '86-abovee-row-glance': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/naming.js',
+    'public/css/app.css', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
+  ],
+  // 拍 Abovee 照片底下切換「辨識結果／發現問題 N」、紅字短標記（abovee-confirm-glance 04，ADR-0170）
+  '87-abovee-result-and-problems': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
+    'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
+  ],
 };
 
 /**

@@ -71,6 +71,12 @@ async function photograph(app, page, name) {
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 const remainingOf = (ent, visits) => counts(ent, visits, ent.id).remaining;
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊預設勾、拿掉一個就不改；次數照實', async ({ app, page }) => {
   await app.seed(seed());
   await app.signIn('/');
@@ -87,11 +93,15 @@ test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊�
   await expect(page.locator('.abl__sum')).toContainText('要改 5 段');
   await expect(page.locator('.abl__sum')).toContainText('要你看 1 段');
   await expect(page.locator('.abl__sum')).toContainText('過了還沒結案 1 段');
+  // 要你看、過了還沒結案、要改的都在「發現問題」那一頁（ADR-0170）
+  await view(page, 'problems');
   await expect(page.locator('.abl__group--look [data-abl-row="a8"]')).toHaveCount(1);
   await expect(page.locator('.abl__later')).not.toHaveAttribute('open', '');
   await expect(page.locator('.abl__later [data-abl-row="a1"]')).toBeHidden();
   await page.locator('.abl__later > summary').click();
   await expect(page.locator('.abl__later [data-abl-row="a1"]')).toBeVisible();
+  await expect(row(page, 'a1')).toContainText('日子過了還沒結案');
+  await expect(row(page, 'a8')).toContainText('還沒到就寫完成了');
 
   // 「要改的」那一塊：一行一件事、預設勾、括號是次數
   const block = page.locator('.abl__group--change');
@@ -110,7 +120,8 @@ test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊�
     await expect(page.locator(`.abl__group--look [data-abl-row="${key}"]`)).toHaveCount(0);
   }
 
-  // 新的列：過去的失約、今天的聯繫中、未來的確認前往先勾；過去的待確認、未來的完成、已取消不勾（講為什麼）
+  // 新的列：過去的失約、今天的聯繫中、未來的確認前往先勾；過去的待確認、未來的完成、已取消不勾（為什麼在上面那兩列）
+  await view(page, 'result');
   const checked = (key) => row(page, key).locator('[data-abl-check]');
   for (const key of ['a0', 'a3', 'a9']) {
     // eslint-disable-next-line no-await-in-loop
@@ -120,20 +131,21 @@ test('S1 六種狀態：新的照狀態記、既有的「要改的」那一塊�
     // eslint-disable-next-line no-await-in-loop
     await expect(checked(key)).toHaveAttribute('aria-checked', 'false');
   }
-  await expect(row(page, 'a1')).toContainText('日子過了還沒結案');
-  await expect(row(page, 'a8')).toContainText('還沒到就寫完成了');
 
   // 記錄那一顆：記新的與改既有的分開數；拿掉改期那一個勾少 1
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄 3 段、改 5 段');
+  await view(page, 'problems');
   await page.locator('[data-abl-change="adoptMove"][data-abl-for="a4"]').click();
   await expect(page.locator('[data-abl-change="adoptMove"][data-abl-for="a4"]')).toHaveAttribute('aria-checked', 'false');
   await expect(block).toContainText('14:00 → 15:00（不改）');
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄 3 段、改 4 段');
-  // 那一列點開：講的是照片要它改成什麼，但這一次不改
+  // 那一列（在辨識結果）點開：講的是照片要它改成什麼，但這一次不改
+  await view(page, 'result');
   await row(page, 'a4').locator('[data-abl-open]').click();
   await expect(row(page, 'a4')).toContainText('「要改的」那一塊沒勾 —— 這一次不改');
   await row(page, 'a4').locator('[data-abl-open]').click();
   // 拿掉「補上」那一行少 2，再勾回來
+  await view(page, 'problems');
   await page.locator('[data-abl-fill]').click();
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄 3 段、改 2 段');
   await page.locator('[data-abl-fill]').click();
@@ -195,6 +207,7 @@ test('S2 手機寬度：「要改的」那一塊不橫捲、底下的記錄點�
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-status');
 
+  await view(page, 'problems');
   const block = page.locator('.abl__group--change');
   await expect(block).toBeVisible();
   const overflow = await page.locator('.abl__body').evaluate((el) => el.scrollWidth - el.clientWidth);
@@ -219,6 +232,7 @@ test('S3 照片上一段要改的都沒有 →「要改的」那一塊不畫', a
   await app.seed(seed().filter((d) => !['v-w25', 'v-w29', 'v-w02', 'v-a03', 'v-a04'].includes(d.id)));
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-status');
+  await view(page, 'problems');
   await expect(page.locator('[data-abl-changes]')).toBeEmpty();
   await expect(page.locator('.abl__sum')).not.toContainText('要改');
 });
@@ -234,8 +248,10 @@ test('S4 照片上的人認不出來、她自己選了那一位：要改的那�
   await row(page, 'a0').locator('[data-abl-open]').click();
   await row(page, 'a0').locator('[data-abl-query]').fill('王小');
   await row(page, 'a0').locator('[data-abl-who="cust-wang"]').click();
+  await expect(row(page, 'a0').locator('.abl-row__tag')).not.toHaveText('已取消');
 
-  // 9/2 10:00 那一段在 app 上是已確認：照片要它改成已取消 ——「要改的」那一行在，但沒勾、講為什麼；那一顆按不下去
+  // 9/2 10:00 那一段在 app 上是已確認：照片要它改成已取消 ——「要改的」那一行在（發現問題那一頁），但沒勾、講為什麼；那一顆按不下去
+  await view(page, 'problems');
   const change = page.locator('[data-abl-change="adoptStatus"][data-abl-for="a0"]');
   await expect(change).toHaveAttribute('aria-checked', 'false');
   await expect(page.locator('.abl__group--change')).toContainText('人是你選的，確定再勾');
@@ -279,6 +295,7 @@ test('S5 健檢與接著它的二返，照片都寫課程完成：存完沒有�
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-exam-done-pair');
 
+  await view(page, 'problems');
   for (const key of ['a0', 'a1']) {
     await expect(page.locator(`[data-abl-change="adoptStatus"][data-abl-for="${key}"]`)).toHaveAttribute('aria-checked', 'true');
   }
@@ -314,7 +331,9 @@ test('S6 同一張照片把今天結掉、又有一段新的：記成同一次�
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-same-day');
 
+  await view(page, 'problems');
   await expect(page.locator('[data-abl-change="adoptStatus"][data-abl-for="a0"]')).toHaveAttribute('aria-checked', 'true');
+  await view(page, 'result');
   await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄 1 段、改 1 段');
   await page.locator('[data-abl-save]').click();

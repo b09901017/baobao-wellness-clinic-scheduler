@@ -165,10 +165,20 @@ describe('畫法（ui/components/giftFold.js）', () => {
     assert.match(out, /data-giftfold-more[^>]*>送的／體驗／其他…/);
   });
 
-  test('展開：帶 open；第一排不算次數的課、底下「別的課當體驗」', () => {
+  test('展開：帶 open；第一排不算次數的課、底下照分類那一排', () => {
     const out = html(options([]), null);
     assert.match(out, /data-giftfold="open"/);
-    assert.ok(out.indexOf('功醫門診') < out.indexOf('別的課當體驗'));
+    assert.ok(out.indexOf('功醫門診') < out.indexOf('__course__:course-recovery'));
+  });
+
+  // abovee-confirm-glance 01（她 11/3：「沒必要再區分一個別的課當體驗，能不能把那行字拿掉，很礙眼」）：
+  // 三個入口都經過這一支，所以這一條釘著全部
+  test('展開之後沒有「別的課當體驗」那一行小標', () => {
+    for (const value of [null, giftPick('course-rehab'), giftPick('course-fm')]) {
+      const out = html(options(THREE), value, true);
+      assert.doesNotMatch(out, /別的課當體驗/);
+      assert.doesNotMatch(out, /giftfold__lead/);
+    }
   });
 
   test('「別的課當體驗」：一類只有一門的直接是那一門；兩門以上是一顆分類，按了才露出那幾門', () => {

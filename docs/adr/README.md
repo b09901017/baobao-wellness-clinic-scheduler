@@ -46,8 +46,11 @@
 | [0123](./0123-abovee-confirm-picks-like-the-board.md) 拍 Abovee 的確認層跟壓表一樣選得了 | 第 10 段（改了時間不替她做）與第 11 段（治療師／診間她按了才改） | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
 | [0124](./0124-treatment-room-7-is-back.md) 治7 回來了 | 「治6、休息室1 等她第一次用到再自己加」 | [0127](./0127-bed-rooms-are-rooms.md) |
 | [0127](./0127-bed-rooms-are-rooms.md) 點滴8A／8B、VIP7A／7B 是四間各自的診間；點滴8、VIP7 是「沒選床位」 | 點滴8、VIP7 留著停用 —— 拿掉了 | [0155](./0155-bedless-rooms-go-and-the-merge-file-is-born-current.md) |
+| [0129](./0129-abovee-photo-checks-what-is-missing.md) 拍 Abovee 也講「app 有、這次照片上沒有」 | 「沒有多出來的段時只留那一行『對過 …』」—— 沒有就不畫 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
+| [0138](./0138-abovee-warnings-show-on-collapsed-rows.md) 拍 Abovee —— 會改變寫入結果的提醒，收著的列與存檔前那一道都要看得到 | 第 4 點（收著的那一行畫前兩句）—— 改成一個短標記，整句在「發現問題」 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) 「追蹤健檢報告」長不長，不等二返約了沒 | 「還沒有答案的」那一段 —— 名額先給報告勾過的那一次 | [0142](./0142-the-booking-slot-goes-to-the-exam-whose-report-is-in.md) |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) 「追蹤健檢報告」長不長，不等二返約了沒 | 「名額」的上限 —— 健檢超用也追報告 | [0159](./0159-an-extra-exam-still-gets-its-report.md) |
+| [0141](./0141-staff-show-full-names-with-a-short-name.md) 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 第二節那張表「拍 Abovee」那一格 —— 收著的那一行（課程＋人／診間）印簡寫 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
 | [0143](./0143-cutover-day-deletes-production-with-firebase-tools.md) 切換那天正式站連主檔一起刪掉，用 firebase-tools 一類一類刪 | 不是推翻：切換做完了，實際做法跟它寫的步驟不一樣（記在 0165 與 STAGING.md） | [0165](./0165-after-cutover-production-is-the-only-copy.md) |
 | [0148](./0148-a-slot-can-be-a-trial-or-a-gift.md) 一段可以是體驗或送的 —— 存在段上，課程的那一格變成「預設體驗」 | 第一排順序的「EECP體驗」與「沒做的」第二條（扣法不一樣） | [0154](./0154-eecp-is-one-course.md) |
 | [0152](./0152-today-counts-close-and-dated-notes.md) 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 決定 1 的「明天」那一格 —— 明天要來的也算 | [0162](./0162-tomorrow-counts-tomorrows-visits.md) |
@@ -57,7 +60,7 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 
-## 全部（167 支）
+## 全部（168 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -189,7 +192,7 @@
 | [0126](./0126-a-course-can-be-booked-nowhere.md) | 一門課可以哪個系統都不用壓 | 2026-10-06 | 現行 |
 | [0127](./0127-bed-rooms-are-rooms.md) | 點滴8A／8B、VIP7A／7B 是四間各自的診間；點滴8、VIP7 是「沒選床位」 | 2026-10-06 | 部分被推翻 → ADR-0155 |
 | [0128](./0128-a-matching-chart-number-forgives-one-character.md) | 病歷號對上、名字只差一個字，算認得 | 2026-10-06 | 現行 |
-| [0129](./0129-abovee-photo-checks-what-is-missing.md) | 拍 Abovee 也講「app 有、這次照片上沒有」 | 2026-10-06 | 現行 |
+| [0129](./0129-abovee-photo-checks-what-is-missing.md) | 拍 Abovee 也講「app 有、這次照片上沒有」 | 2026-10-06 | 部分被推翻 → ADR-0170 |
 | [0130](./0130-the-course-form-picks-one-of-four.md) | 設定頁的「排班時要指派」是四選一（資料上兩格照舊） | 2026-10-06 | 現行 |
 | [0131](./0131-an-nth-followup-gets-its-own-row-on-the-sheet.md) | 三返、四返在試算表的矩陣裡各自一列 | 2026-10-07 | 現行 |
 | [0132](./0132-the-sheet-reads-every-past-visit.md) | 試算表讀全部過去的來訪 | 2026-10-07 | 現行 |
@@ -198,10 +201,10 @@
 | [0135](./0135-numbers-about-visits-count-slots.md) | 講來訪的數字數的是段，不是筆 | 2026-10-07 | 現行 |
 | [0136](./0136-data-health-says-whether-and-what.md) | 資料健檢那一頁只回答「有沒有事、要做什麼」 | 2026-10-07 | 現行 |
 | [0137](./0137-pools-in-use-come-first.md) | 「剩幾次」那幾行，有在用的排前面 | 2026-10-08 | 現行 |
-| [0138](./0138-abovee-warnings-show-on-collapsed-rows.md) | 拍 Abovee —— 會改變寫入結果的提醒，收著的列與存檔前那一道都要看得到 | 2026-10-08 | 現行 |
+| [0138](./0138-abovee-warnings-show-on-collapsed-rows.md) | 拍 Abovee —— 會改變寫入結果的提醒，收著的列與存檔前那一道都要看得到 | 2026-10-08 | 部分被推翻 → ADR-0170 |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) | 「追蹤健檢報告」長不長，不等二返約了沒 | 2026-10-08 | 部分被推翻 → ADR-0142、ADR-0159 |
 | [0140](./0140-changing-a-course-recomputes-the-tasks-of-agreed-visits.md) | 改了課程「壓哪幾個系統／寫紀錄」，已經談定的來訪回頭重算待辦 | 2026-10-08 | 現行 |
-| [0141](./0141-staff-show-full-names-with-a-short-name.md) | 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 2026-10-09 | 現行 |
+| [0141](./0141-staff-show-full-names-with-a-short-name.md) | 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 2026-10-09 | 部分被推翻 → ADR-0170 |
 | [0142](./0142-the-booking-slot-goes-to-the-exam-whose-report-is-in.md) | 「約二返」的名額先給報告勾過的那一次 | 2026-10-09 | 現行 |
 | [0143](./0143-cutover-day-deletes-production-with-firebase-tools.md) | 切換那天正式站連主檔一起刪掉，用 firebase-tools 一類一類刪 | 2026-10-09 | 做完了 → ADR-0165 |
 | [0144](./0144-a-slot-cancelled-in-the-app-and-still-on-abovee-is-a-new-row.md) | app 上取消過、Abovee 上還掛著的那一格，拍 Abovee 時算新的一段（不預設打勾） | 2026-10-09 | 現行 |
@@ -230,3 +233,4 @@
 | [0167](./0167-open-the-app-from-the-device-first.md) | 打開 app 先用手機裡的：程式檔（點「有新版本」才換）、先畫殼、首頁先用快取畫 | 2026-10-21 | 現行 |
 | [0168](./0168-sign-in-through-the-apps-own-address.md) | Google 登入走 app 自己的網址（iPad 主畫面那一顆才登得進去） | 2026-10-21 | 現行 |
 | [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
+| [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |

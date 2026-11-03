@@ -179,6 +179,9 @@ test('C8 拍 Abovee：app 上的王小明沒有病歷號、照片上有 → 沒�
   await expect(r.locator('.abl-row__tag')).toHaveText('新的');
   const check = r.locator('[data-abl-check]');
   await expect(check).toHaveAttribute('aria-checked', 'false');
+  // 為什麼沒先勾那一句在「發現問題」那一頁的「要你看」（ADR-0170）
+  await page.locator('[data-abl-view="problems"]').click();
+  await expect(page.locator('.abl__group--look [data-abl-row="a0"]')).toHaveCount(1);
   await expect(r.locator('.abl-row__hint--near')).toContainText('app 上這一位還沒有病歷號，照片上是 1234');
 
   await check.click();

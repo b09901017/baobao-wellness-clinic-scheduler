@@ -86,6 +86,12 @@ async function photograph(page, fixtures) {
 
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 const DOCS = `http://127.0.0.1:8080/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const OWNER = { Authorization: 'Bearer owner' };
 
@@ -108,7 +114,8 @@ test('A1 左右兩張：新的 5 段勾好、已經記了 3 段、已取消 2 �
   await photograph(page, ['aboveeList-left', 'aboveeList-right']);
 
   await expect(page.locator('.abl__sum')).toHaveText('新的 5 段・已經記了 3 段');
-  await expect(page.locator('.abl__pairing')).toContainText('照列的順序');
+  // 兩半照列的順序對上是說明、不是問題 —— 不畫（ADR-0170；她 11/3：「不要有說明文字」）
+  await expect(page.locator('.abl__pairing')).toHaveCount(0);
   for (const key of ['a0', 'a1', 'a3', 'a8', 'a9']) {
     await expect(row(page, key).locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
   }
@@ -177,7 +184,11 @@ test('A2 右半邊只有 9 列 → 不配對、最上面講出來、診間空著
   await openBatch(app, page);
   await photograph(page, ['aboveeList-left', 'aboveeList-right9']);
 
+  // 照片層級的問題在「發現問題」那一頁最上面（ADR-0170）
+  await expect(page.locator('.abl__pairing')).toHaveCount(0);
+  await view(page, 'problems');
   await expect(page.locator('.abl__pairing--warn')).toContainText('左 10 列、右 9 列');
+  await view(page, 'result');
   await row(page, 'a1').locator('[data-abl-open]').click();
   await expect(row(page, 'a1').locator('[data-abl-room]').first()).toBeVisible();
   await expect(row(page, 'a1').locator('[data-abl-room][aria-pressed="true"]')).toHaveCount(0);
@@ -198,12 +209,13 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   await photograph(page, ['aboveeList-check']);
 
   // 「app 有、這次照片上沒有」（ADR-0129、0153）：照片上只有兩位（客戶A、病歷號 1234 的王曉名）→ 只對那兩位，
-  // 陳大文 9/12 11:00、9/15 那兩段在範圍中間也不列；王曉名還沒認出是誰 → 先沒對、講一句
+  // 陳大文 9/12 11:00、9/15 那兩段在範圍中間也不列；王曉名還沒認出是誰 → 先沒對、講一句。
+  // ADR-0170：辨識結果上一句說明都沒有；那一句在「發現問題」，「都在這次的照片上」不講
   await expect(page.locator('.abl__sum')).toHaveText('要你看 2 段');
-  await expect(page.locator('.abl__group--gone')).toHaveCount(0);
-  await expect(page.locator('.abl__absentsay')).toHaveText(
-    '對過 客戶A 9/12 09:00–9/22 09:00 在 app 上的段：都在這次的照片上。照片上的 王曉名 還沒認出是誰，先沒對。',
-  );
+  await expect(page.locator('.abl__absentsay')).toHaveCount(0);
+  await view(page, 'problems');
+  await expect(page.locator('.abl__group--gone .abl-row')).toHaveCount(0);
+  await expect(page.locator('.abl__absentsay')).toHaveText('照片上的 王曉名 還沒認出是誰，先沒對。');
   await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('對不上');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toBeDisabled();
   await row(page, 'a0').locator('[data-abl-open]').click();
@@ -215,8 +227,9 @@ test('A3 對不上的那一列勾不了、連得到日曆；認不得的人選�
   await expect(row(page, 'a1')).toContainText('病歷號對上了，名字不一樣');
   await row(page, 'a1').locator('[data-abl-who="cust-wang"]').click();
   await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('新的');
-  // 選了人之後那一句跟著重算：對的是認出來的那兩位
-  await expect(page.locator('.abl__absentsay')).toHaveText('對過 客戶A、王小明 9/12 09:00–9/22 09:00 在 app 上的段：都在這次的照片上。');
+  // 選了人之後跟著重算：對的是認出來的那兩位、都在照片上 → 那一塊整個不見（不講「都在這次的照片上」）
+  await expect(page.locator('.abl__group--gone')).toHaveCount(0);
+  await expect(page.locator('.abl__absentsay')).toHaveCount(0);
   const check = row(page, 'a1').locator('[data-abl-check]');
   await expect(check).toHaveAttribute('aria-checked', 'false');
   await check.click();
@@ -324,6 +337,9 @@ test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新�
   // 以前這一列是「對不上」、勾不起來 —— 取消之後在同一格重約的那一段這一層記不了
   await expect(row(page, 'a0').locator('.abl-row__tag')).toHaveText('新的');
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
+  // 為什麼沒先勾那一句在「發現問題」那一頁（ADR-0170）
+  await expect(row(page, 'a0').locator('.abl-row__hint')).toHaveCount(0);
+  await view(page, 'problems');
   await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上這一段取消過');
   await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('回 Abovee 放掉');
   // 她勾得起來（勾是她勾）
@@ -335,8 +351,10 @@ test('A6 預約狀態對一次（ADR-0116、0144）：app 上取消過的算新�
   const change = page.locator('.abl__group--change .abl-chg').filter({ hasText: '客戶A' }).filter({ hasText: '已確認 → 已取消' });
   await expect(change).toContainText('（還 1 次）');
   await expect(change.locator('[data-abl-change="adoptStatus"]')).toHaveAttribute('aria-checked', 'true');
+  // 「要改的」那一塊一行一件、不是列；那一列在辨識結果
+  await view(page, 'result');
   await expect(row(page, 'a7').locator('.abl-row__tag')).toHaveText('要改');
   await row(page, 'a7').locator('[data-abl-open]').click();
   await expect(row(page, 'a7').locator('.abl-row__say').first()).toContainText('照 Abovee 改成「已取消」');
-  await expect(row(page, 'a7')).toContainText('勾在最上面「要改的」那一塊');
+  await expect(row(page, 'a7')).toContainText('勾在「發現問題」那一頁最上面「要改的」那一塊');
 });

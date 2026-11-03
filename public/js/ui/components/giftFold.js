@@ -6,7 +6,8 @@
 //
 // **哪幾顆收起來、什麼順序、要不要一打開就展開只在 `domain/slotOptions.js`**（`folded`、`arrangeSlotOptions()`、
 // `foldOpen()`）—— 這一支只畫：沒收起來的那幾顆＋最後一顆「送的／體驗／其他…」，按了露出底下三塊：
-// 不算次數的課一排、「別的課當體驗」分類 → 課程兩步（同加購那一排：一類只有一門的那一顆直接就是那一門）、
+// 不算次數的課一排、「別的課當體驗」分類 → 課程兩步（同加購那一排：一類只有一門的那一顆直接就是那一門；
+// 那一排前面**沒有小標**，2026-11-03 abovee-confirm-glance 01，她：「很礙眼」）、
 // 「其他 ▸」再收一層（`extra` 那幾顆：「健檢不是我排的」，exam-not-mine 05）。
 //
 // 每一顆選項長什麼樣由呼叫端給（`chip(o)`）：三個入口各自的屬性（`data-ent`、`data-chip`、`data-abl-opt`）照舊，
@@ -66,7 +67,6 @@ export function html({ options = [], value = null, open, chip, cls = 'chips', sm
       <div class="giftfold">
         ${first.length ? row(first.map(named).join('')) : ''}
         ${groups.length ? `
-          <span class="giftfold__lead">別的課當體驗</span>
           ${row(groups.map((g, i) => (g.items.length === 1 ? named(g.items[0]) : `
             <button class="chip${size}" type="button" data-giftfold-group="${i}" aria-pressed="${i === at}">
               ${esc(g.group)}<span class="chip__note">▾</span></button>`)).join(''))}

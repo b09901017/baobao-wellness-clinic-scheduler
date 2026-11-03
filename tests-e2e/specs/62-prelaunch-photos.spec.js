@@ -81,6 +81,12 @@ async function photograph(page, fixtures) {
 
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 // ---------- 09 算「還剩幾次」拿的是這位客戶的全部來訪 ----------
 
 test('P1 拍 Abovee：半年前打完的那一筆不會被預選 —— 預選的是還沒用的那一筆，品項不一樣那一句點開就在', async ({ app, page }) => {
@@ -102,28 +108,44 @@ test('P1 拍 Abovee：半年前打完的那一筆不會被預選 —— 預選�
 
 // ---------- 12 會改變寫入結果的提醒，不點開那一列也看得到 ----------
 
-test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句收著也在；一路不點開，存檔前那一道也講', async ({ app, page }) => {
+// 2026-11-03（ADR-0170，推翻 ADR-0138 第 4 點）：辨識結果上收著的列是一個紅字短標記（最要緊的那一個＋「+N」），
+// 整句在「發現問題」那一頁的「有提醒的」與點開之後
+test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣 —— 收著的列有紅字短標記、整句在發現問題；一路不點開，存檔前那一道也講', async ({ app, page }) => {
   await app.seed(seedHistory());
   await app.signIn('/');
   await openBatch(app, page);
   await photograph(page, ['aboveeList-history']);
 
-  // 李小華：身上有體內金屬、復能那一筆兩次都在半年前做完了。那一列預設打勾、收著
+  // 李小華：身上有體內金屬、復能那一筆兩次都在半年前做完了。那一列預設打勾、收著 → 「禁忌 +1」（禁忌排在次數不夠前面）
   await expect(row(page, 'a1').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
   await expect(row(page, 'a1').locator('[data-abl-open]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(row(page, 'a1').locator('.abl-row__flag')).toHaveText('禁忌 +1');
+  await expect(row(page, 'a1').locator('.abl-row__flag')).toBeVisible();
+  // 王小明那一列：品項跟買的不一樣。客戶A 什麼事都沒有：沒有標記
+  await expect(row(page, 'a0').locator('.abl-row__flag')).toHaveText('品項');
+  await expect(row(page, 'a2').locator('.abl-row__flag')).toHaveCount(0);
+  // 辨識結果上一行說明都沒有
+  await expect(page.locator('.abl-row__hint')).toHaveCount(0);
+
+  // 切到「發現問題」：有標記的那兩列在「有提醒的」底下，整句在列底下
+  await view(page, 'problems');
+  const flagged = page.locator('.abl__group--flag');
+  await expect(flagged.locator('[data-abl-row="a1"]')).toHaveCount(1);
+  await expect(flagged.locator('[data-abl-row="a0"]')).toHaveCount(1);
   const shut = row(page, 'a1').locator('.abl-row__hint--warn');
   await expect(shut).toHaveCount(2);
   await expect(shut.nth(0)).toContainText('SIS 對「體內金屬」要注意');
   await expect(shut.nth(1)).toContainText('排完這次會超過總次數');
   // 「還沒選治療師」那一種幾乎每一列都有，照舊點開才看
   await expect(row(page, 'a1')).not.toContainText('還沒選治療師');
-  // 王小明那一列：品項跟買的不一樣。客戶A 什麼事都沒有：一個字都不多
   await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toContainText('品項跟買的不一樣');
-  await expect(row(page, 'a2').locator('.abl-row__hint')).toHaveCount(0);
+  await expect(row(page, 'a2'), '沒有事的那一列不在這一頁').toHaveCount(0);
 
-  // 取消勾選的那一列不會寫進去：那一行跟著收掉，確認框也不算它
+  // 取消勾選的那一列不會寫進去：離開這一頁，確認框也不算它
   await row(page, 'a0').locator('[data-abl-check]').click();
-  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(row(page, 'a0')).toHaveCount(0);
+  await view(page, 'result');
+  await expect(row(page, 'a0').locator('.abl-row__flag')).toHaveCount(0);
 
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 2 段');
   await page.locator('[data-abl-save]').click();
@@ -134,16 +156,17 @@ test('P2 拍 Abovee：體內金屬、超過總次數、品項不一樣那幾句�
   expect(await app.dialogText()).not.toMatch(/品項跟買的不一樣|還沒選治療師/);
   await app.cancelDialog();
 
-  // 點開那一列：完整的那一份在底下（連「還沒選治療師」），收著的那一行不畫兩次
+  // 點開那一列（在辨識結果上點）：完整的那一份在底下（連「還沒選治療師」），那兩行不畫兩次；短標記照舊在
   await row(page, 'a1').locator('[data-abl-open]').click();
   await expect(row(page, 'a1').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(row(page, 'a1').locator('.abl-row__flag')).toHaveText('禁忌 +1');
   await expect(row(page, 'a1').locator('.abl-row__warnings li')).toHaveCount(3);
   await expect(row(page, 'a1').locator('.abl-row__warnings')).toContainText('還沒選治療師');
 });
 
 // ---------- 審查（2026-10-09）：同一位客人跨好幾天的列，超用要把這一次別天要記的算進去 ----------
 
-test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收著都看得到「會超過總次數」，確認框講 3 段', async ({ app, page }) => {
+test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收著都有「次數不夠」、發現問題那一頁是整句，確認框講 3 段', async ({ app, page }) => {
   await app.seed([
     ...seedHistory().filter((d) => d.path !== 'batches'),
     customer({ id: 'cust-b', name: '客戶B' }),
@@ -157,6 +180,10 @@ test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收�
   // 每一組（一位一天）以前各自驗、只看資料庫裡的：三列都先按好同一筆、都打勾，一句都不講
   for (const key of ['a0', 'a1', 'a2']) {
     await expect(row(page, key).locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'true');
+    await expect(row(page, key).locator('.abl-row__flag')).toHaveText('次數不夠');
+  }
+  await view(page, 'problems');
+  for (const key of ['a0', 'a1', 'a2']) {
     await expect(row(page, key).locator('.abl-row__hint--warn')).toContainText('排完這次會超過總次數（共 1 次，已排 3 次）');
   }
   await expect(page.locator('[data-abl-save]')).toHaveText('記錄這 3 段');
@@ -164,10 +191,12 @@ test('P4 拍 Abovee：只買 1 次、照片上連三天各一段 → 三列收�
   await expect(app.dialog()).toContainText('其中 3 段有提醒');
   await app.cancelDialog();
 
-  // 她把後兩列的勾拿掉：剩下那一列剛好 1 次，不超用 —— 那一行跟著收掉
+  // 她把後兩列的勾拿掉（在辨識結果上）：剩下那一列剛好 1 次，不超用 —— 那一個標記跟著收掉
+  await view(page, 'result');
   await row(page, 'a1').locator('[data-abl-check]').click();
+  await expect(row(page, 'a0').locator('.abl-row__flag')).toHaveText('次數不夠');
   await row(page, 'a2').locator('[data-abl-check]').click();
-  await expect(row(page, 'a0').locator('.abl-row__hint--warn')).toHaveCount(0);
+  await expect(row(page, 'a0').locator('.abl-row__flag')).toHaveCount(0);
 });
 
 // ---------- 14 同一張訂購單拍了兩次 ----------
