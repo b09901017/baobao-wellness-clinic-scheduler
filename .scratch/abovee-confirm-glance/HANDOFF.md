@@ -7,7 +7,7 @@
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 一 | 01 拿掉「別的課當體驗」、02 列上印人與診間 | high | done（caaca04c、66e610dc；`sw.js` 現在 **v221**） |
-| 二 | 03 ADR-0170＋紅字短標記、04 「辨識結果／發現問題 N」切換、05 文件 | xhigh | todo |
+| 二 | 03 ADR-0170＋紅字短標記、04 「辨識結果／發現問題 N」切換、05 文件 | xhigh | **03 done（adc3e59d，`sw.js` 現在 v222）；04、05 todo** —— 額度用完停在這裡，接手看「段二（續）」的開場 |
 | 三 | `/matt-code-review` 審這一輪全部 | xhigh | todo |
 | 四 | 照審查修、手動驗收（模擬器）、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | todo |
 
@@ -68,6 +68,15 @@ subagent 11/3 唯讀過目；主控自己對過 E1、E4、M9（版面）、真�
 
 ### 段二
 
+- **「有提醒的」那一塊是我加的**（ADR-0170 已寫進去）：spec 列的「發現問題」只有要改的、要你看、還沒結案、app 有照片沒有、配對那幾句 ——
+  照那樣做的話，**只有紅字標記、又不在要你看裡的列**（例：勾著的新的一列撞期）整句只在點開那一列才看得到，「整句在發現問題」不成立。
+  所以「發現問題」多一塊「有提醒的」＝辨識結果上有短標記、不在要你看裡的列（連「還差一步」），標記與整句一對一。段四驗收時跟她講一句
+- **「要你看」的列在辨識結果上沒有任何標記**（例：照片上三返而沒有健檢、沒先勾）：照 spec（她要「切換之後才看到」），只靠「發現問題 N」那一顆。
+  沒改；段四驗收時看她覺得夠不夠
+- **記好了的列離開「發現問題」那一頁**（以前在「要你看」裡會留著、標「記好了」）：那一頁是還沒處理的；寫進 ADR-0170
+- 03 的 verify：單元測試全綠（5368 條）；E2E 那一半挑了 259 支（`visits.js` 算核心），跑到第 75 支都綠時額度快用完、我停掉的（76 之後那幾支是停掉模擬器造成的假紅）。
+  **04 做完跑 verify 時會一起重跑**（`e2e-changes.mjs` 從上一次全綠比）
+
 ### 段三
 
 ### 段四
@@ -122,6 +131,29 @@ subagent 同時最多兩個；真名一個字都不進版控。
 
 做完要交：03、04、05 各一個 commit、issue `Status: done`、底下寫「做完時留下的」；HANDOFF 分段表的狀態、中途發現、要使用者決定的（有才寫）；commit HANDOFF。
 最後回覆簡短說做了什麼、卡在哪。
+
+### 段二（續）：04、05（effort xhigh）
+
+這一輪在做「拍 Abovee 辨識完一眼看得完」（`spec.md`）。分支 `claude/abovee-confirm-glance`（checkout 在上面）。
+**段二做了一半**：03 做完（adc3e59d：ADR-0170、`warningTag()`／`rowTag()`／`photoDayPlan()` 的 `tagBy`、`visits.js` 超用／到期帶 `kind`、`sw.js` v222）。
+**這一段做 04 → 05**，規矩、先讀的同上面「段二」的開場；另外先讀 issue 03 的「做完時留下的」、ADR-0170 全文、上面「中途發現 → 段二」。
+
+**04 的草稿已經寫好、還沒套**（在這一組 session 的筆記資料夾，repo 外面：`C:/Users/DELL/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/side-session-notes/local_28103527-e922-42c0-ab6f-15abed420369/abovee-confirm-glance-04-drafts/`）：
+- `edit04domain.py`：`absentShown()`（都在照片上不畫、0 件；還沒認出是誰、沒有對各算一件）、`problemsPage()`（notes／changes／look／later／flagged／absent／count，同一列只算一件）、`notYetOf()`；從 repo 根目錄 `python <路徑>` 跑
+- `edit04ui.py`：`aboveeConfirm.js` —— 閉包 `view`／`shownRows`、`pageOf()`、`rowsSig()`、`paintBody()` 只畫目前那一頁、`segHtml()`／`paintSeg()`、`resultHtml()`、`problemsHtml()`（照片層級 → 要改的 → 要你看 → 有提醒的 → 還沒結案 → app 有照片沒有）、
+  `notesHtml()`（取代 `pairingNote()`；正常配上那一句拿掉）、`absentHtml(gone, p, shown)`、`repaintRow()` 在發現問題那一頁列的那幾列換了就整頁重畫、`rowHtml()` 的 `say = view === 'problems' || open` ＋ `hintsHtml()` ＋ `flagHtml(rowTag(item, p))`、切換的 click
+- `edit04css.py`：`.abl-row__flag`、`.abl__seg`（0 件灰掉）、`.abl__notes`、`.abl__group--flag`、幾段註解
+- `abovee-problems-page.test.js`（放回 `tests/`）、`redline-tests.diff`（`tests/tip-red-lines.test.js`、`tests/abovee-warnings-in-sight.test.js` 改成釘新保證；`git apply`）
+- 三支腳本都是「字串剛好出現一次才換」，對不上會 assert 失敗、不會寫一半。**套之前先跑紅燈**：放回那支測試與 diff → `node --test` 那三支確認紅 → 套三支腳本 → 綠
+
+套完還要做的：`node --check`；E2E 照 issue 04 那張清單改（`41`、`51`、`57`、`62`、`67`、`68`、`77`、`78`、`85`；找 `.abl-row__hint`、`.abl__group--look`／`--change`／`--gone`、`.abl__absentsay`、`.abl__pairing`、`.abl__later`、`[data-abl-change]` 的，先點 `[data-abl-view="problems"]`；
+要點的列不在那一頁時切回 `[data-abl-view="result"]`）—— 我讀過但還沒改：`62` P2／P4 是紅線那一支（改成：辨識結果上 `.abl-row__flag` 寫「禁忌 +1」、沒有 `.abl-row__hint`；切到發現問題「有提醒的」底下兩句；拿掉勾那一列離開那一頁）、
+`57` G2 要在兩頁之間切（勾在辨識結果、按鈕在發現問題）、`41` A1 的「照列的順序」那一句已經拿掉（改成斷言沒有 `.abl__pairing`）、A3 的 absentsay 改成只有「照片上的 王曉名 還沒認出是誰，先沒對。」、選了人之後那一塊整個不見、`51` N5 的 a1 不在發現問題那一頁（「已經記了」那一列只在辨識結果）；
+新的一支 E2E（剛打開沒有任何說明句、切換、0 件灰掉、短標記收著看得到、375 寬不橫向捲 —— 照 `86` 的 W1 量）登記 `related.js`；`sw.js` v222 → v223、`shell:snapshot`；`npm run emulators` 起好再 `npm run verify`（會連 03 一起重跑，約 259 支、半小時以上，先講）。
+05 照 issue 05（操作手冊約 1139–1185 行、常見問題約 1481、1498 行與 495 行那一條、SPEC 約 1997 行、根目錄 CLAUDE.md 兩列、邊界測試清單 N5–N7 與新的兩條）。
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。不要推、不要開 PR。**
+做完要交：04、05 各一個 commit、`Status: done`、「做完時留下的」；HANDOFF 分段表、中途發現；commit HANDOFF。
 
 ### 段三：審查（effort xhigh）
 
