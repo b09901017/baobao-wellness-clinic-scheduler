@@ -32,10 +32,11 @@
 - 三返認醫師不另外改（讀照片時認得到，第一件做完列上就看得到）
 - 拆法：段一＝01、02；段二＝03、04、05
 - （`REVIEW.md` R2）「對不上」的那一列收著時印 **app 上存完之後那一段**（勾著「要改的」＝改完的人、拿掉勾＝app 上原本的人），跟已經記了的列同一個規則：她 11/3 主控那邊回「照你的建議」
+- 照片上「認不得」的列（名字跟病歷號對到不同人、同名好幾位：`needsAttention()` 的 `unknown`）**照舊算進「發現問題 N」**（「app 裡沒有這個名字」那一種照舊不算）：她 11/3「照建議，照舊算」
 
 ## 要使用者決定的
 
-- （她 11/3 審查後問的）**照片上「認不得」的那一列要不要算進「發現問題 N」**：她覺得那不是問題，留在辨識結果點開選人就好。現況：每一列本來就都在辨識結果、可以直接點開選人；發現問題「要你看」只**多列一次**。其中「app 裡沒有這個名字」那一種本來就不算；算的是「名字跟病歷號指到不同人」「同名好幾位」那幾種（`needsAttention()` 的 `unknown`）——那幾列沒先勾，沒注意到就不會記進去。我建議照舊算；她說不要算的話，改 `needsAttention()` 那一行會連抬頭的「要你看 N 段」一起變，段四一起改。**等她回**
+（沒有）
 
 ## 過目抓到的
 
@@ -201,4 +202,31 @@ subagent 同時最多兩個；真名一個字都不進版控。
 
 ### 段四：照審查修、驗收、PR（effort medium）
 
-（段三做完時主控補）
+這一輪在做「拍 Abovee 辨識完一眼看得完」（`spec.md`）。分支 `claude/abovee-confirm-glance`（checkout 在上面）。**01～05 做完、段三審查做完**（`REVIEW.md`，ca0e4365）；她回答了審查的兩題（見「使用者已經決定的」最後兩條）。
+
+先讀：`CLAUDE.md`、`docs/agents/lessons.md`、`spec.md`、`REVIEW.md` 全文、這份 HANDOFF 的「使用者已經決定的」「中途發現」（段一～段三）、ADR-0170。
+
+**1. 照 `REVIEW.md` 修**（順序 R1 → R8，再看「順手」）：
+- R1～R3、R7、R8 每一條先寫紅燈（`REVIEW.md` 每一條都寫了建議的測試）→ 修到綠；R4～R6 是文件
+- **R2 照她選的**：「對不上」的列收著時印 app 上存完之後那一段（拿掉「要改的」的勾＝app 上原本的人），勾不勾課程名都不換寫法
+- **R1**：認不得的列（名字跟病歷號對到不同人、同名好幾位）照舊算進 N（她選的）；換一位之後才變成要你看的列也要算進去
+- 沒改的寫理由進 `REVIEW.md`「不修」；改之前照 `ripple-check`；一條一個 commit（文件三條可以併一個）
+- 動到 `public/` 升 `sw.js` 的 `VERSION`（現在 **v223**）＋ `npm run shell:snapshot`
+- 本機 E2E **只跑拍 Abovee 那 16 支**（她說 63 支半小時太久）：`node scripts/e2e.mjs 00-smoke 08-ux-audit 41-abovee 51-abovee-picks 53-bed-rooms 57-abovee-absent 62-prelaunch-photos 65-followup-link-before-exam 67-gift-and-trial 68-abovee-status-follows-photo 69-staging-polish-small 77-chart-number 78-before-golive-seg3 85-exam-not-mine-abovee 86-abovee-row-glance 87-abovee-result-and-problems`（`npm run emulators` 先起；單元測試照跑 `node --test "tests/*.test.js"`）
+
+**2. 手動驗收清單：自己在本機模擬器走過**（`npm run emulators` 背景 ＋ `seed:staging` 對模擬器；**不要碰 staging／正式**），走得通才寫進 PR，照「你可以怎麼點」寫、一個真名都不帶：
+拍 Abovee 用模擬器的假模型（fixture `aboveeList-glance.json` 等）—— 剛辨識完只看到辨識結果、沒有說明句；列上印課程＋人／診間（三返印醫師、沒認到印灰色「醫師？」）；紅字短標記；切到發現問題 N、0 件灰掉；
+「要改的」那一格勾／拿掉、列上印的人跟著變（R2）；「送的／體驗／其他…」展開沒有「別的課當體驗」那一行（壓表、日曆新增、拍 Abovee 各看一眼）。真照片那一條交給她在 staging 點
+
+**3. 全量 E2E 交給 CI**：本機只跑了 16 支，所以推上去之後 `gh workflow run e2e-full.yml --ref claude/abovee-confirm-glance`（六台），跟 PR 的 CI 一起等
+
+**4. 開 PR 進 `develop`**（不是 `main`）：內文寫這一輪做了什麼（連 ADR-0170）、審查修了哪幾條（連 `REVIEW.md`）、手動驗收清單、她在 staging 要點的；**推之前與開 PR 之前自己看一眼 commit 訊息與內文有沒有真名**（repo 是 public）。
+開完照 ccd_pr：`get_status`／`bind_pr`；**PR 的 CI 與 e2e-full 都綠就合進 `develop`**（CLAUDE.md：她 10/15 說過不用再問）；合完 staging 自動部署。這一輪沒動 `functions/`、沒動 `.gs`，不用另外部署。**不進 `main`**
+
+**5. 最後回覆給她**（白話）：修了什麼、PR 與 CI 結果、她在 staging 照順序點的清單，以及這幾件要跟她講一句（HANDOFF 中途發現）：
+二返／三返那一列只印醫師不印診間（二返在設定上是「醫師」那一種，四選一；要兩個都印是另一件事）；「發現問題」多一塊「有提醒的」（不只有紅字的列，連只有一句「為什麼沒先勾」的也在）；
+「要你看」的列在辨識結果上沒有標記、只靠那一顆的數字；抬頭的「要你看 N 段」跟「發現問題 N」數的不一樣
+
+**這是最後一段：不要開 session、不要存 limit-guard 的開場 JSON。** 額度快用完時：收到一致的狀態、HANDOFF 寫「段四（續）」的開場、commit，跟主控說停在哪。
+
+做完要交：每條一個 commit、`REVIEW.md` 每條標修了沒（哪個 commit）、HANDOFF 分段表段四的狀態與 PR 連結、合進 `develop` 的 commit。
