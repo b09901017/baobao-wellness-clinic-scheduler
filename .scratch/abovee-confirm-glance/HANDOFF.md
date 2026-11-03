@@ -97,7 +97,31 @@ subagent 11/3 唯讀過目；主控自己對過 E1、E4、M9（版面）、真�
 
 ### 段二（effort xhigh）
 
-（段一做完時主控補）
+這一輪在做「拍 Abovee 辨識完一眼看得完」：她 11/3 提的四件（列上印診間／醫師、照片下面切換「辨識結果／發現問題 N」、紅字改短標記、拿掉「別的課當體驗」那一行字）。
+分支 `claude/abovee-confirm-glance`（checkout 在上面；`git fetch` 之後落後 `develop` 就 rebase）。**段一做完了**：01（caaca04c）、02（66e610dc：domain 的 `rowGlance()`、`photoDayPlan()` 多回 `slotAfter`、
+`.abl-row__what` 改成 flex、E2E `86`）、HANDOFF（939d20ca）。
+
+**這一段做 03 → 04 → 05，照這個順序。** 03 只做 ADR-0170 與 domain（`tagBy`、短字與先後）；04 是畫面（兩頁切換、短標記畫上去、紅線兩支測試、E2E）；05 是文件。
+
+先讀：`CLAUDE.md`、`docs/agents/lessons.md`、`.scratch/abovee-confirm-glance/spec.md`、這份 HANDOFF 的「每一段共同的規矩」「使用者已經決定的」「過目抓到的」「中途發現 → 段一」、
+issue 03、04、05 全文、issue 02 的「做完時留下的」、ADR-0138、ADR-0129、ADR-0153。
+
+- 03：ADR-0170 推翻 ADR-0138（拍 Abovee 收著的那一兩行）與 ADR-0129「沒有也講一句」、定 ADR-0153 那一句放哪、N 怎麼數、「還差一步」的標記；
+  `mustSeeBy` 維持字串、並排 `tagBy[key]`；來源不只 `warningDetails()`（`trialSay()`、`mergedNotices()`、`photoRowSays()` 都要給短字）；超用／到期在 `entitlementWarnings()` 帶 `kind`，`from()` 一起改；
+  先後：禁忌 → 次數不夠 → 撞期 → 重疊 → 過期 → 品項 → 健檢 → 其他 → 還差一步；`+N` 算種不算句
+- 04：**只畫目前那一頁**（閉包 `view` ＋ `paintBody()`，同首頁；兩頁同時在 DOM 會讓 `data-abl-row` 重複）；N 在 domain 算；`pairingNote()` 四種各自放；
+  紅字標記接在 `.abl-row__glance` 後面、自己 `flex: none`，加了之後照 E2E `86` 的 W1 再量 375 寬沒有橫向捲動；
+  `tests/tip-red-lines.test.js`、`tests/abovee-warnings-in-sight.test.js` 改成釘新的保證（不是刪掉）；issue 04 列的那幾支 E2E 跟著改
+- 05：操作手冊、常見問題（約 1498 行那一條改寫＋「三返點開沒有醫師」）、SPEC、根目錄 CLAUDE.md 連動表「拍 Abovee 記很多段」「畫面上一段常駐的說明」兩列裡講收著那一兩行的句子（只改那幾句）、邊界測試清單
+
+照「每一段共同的規矩」：改之前照 `ripple-check` 查牽連（`mustSeeBy`、`briefWarnings`、`warningDetails`、`from(`、`abl-row__hint`、`要你看`、`abl__absentsay` 都 grep）；一支一個 commit；先寫紅燈；
+`npm run emulators` 起好再跑 `npm run verify`；動到 `public/` 升 `sw.js` 的 `VERSION`（**現在 v221**）並跑 `npm run shell:snapshot`；中途發現記進 HANDOFF「中途發現 → 段二」，不岔出去修；
+subagent 同時最多兩個；真名一個字都不進版控。
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。不要推、不要開 PR**（段四做）。
+
+做完要交：03、04、05 各一個 commit、issue `Status: done`、底下寫「做完時留下的」；HANDOFF 分段表的狀態、中途發現、要使用者決定的（有才寫）；commit HANDOFF。
+最後回覆簡短說做了什麼、卡在哪。
 
 ### 段三：審查（effort xhigh）
 
