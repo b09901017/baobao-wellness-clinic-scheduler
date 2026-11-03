@@ -9,12 +9,16 @@
 
 ### R1 換一位之後才變成「要你看」的列，算不進「發現問題 N」，按鈕灰掉講「沒事」是假的
 
+**段四：修了** —— 526d6f75（打開之後才變成要看的接在 `look` 後面；日子過了還沒結案的進 `later`）
+
 - **在哪裡**：`aboveeImport.js` 的 `problemsPage()`。`look` 只認打開這一層時定好的 `attention`（`aboveeConfirm.js:199`），`hasRowNote()` 也不收 `kind: 'mismatch'`。抬頭的 `summarizeAbovee()` 每一次都重算 `needsAttention()`，所以兩邊對不上
 - **什麼情境會錯**（跑過）：照片上的名字 app 裡沒有（`unknown`，不在 attention）→ 她「換一位」選了客戶甲，客戶甲那一格在 app 上已經完成、照片寫確認前往 → 這一列變成 `mismatch`／`aboveeNotDone`。抬頭寫「要你看 1 段」，按鈕卻是「發現問題 0」、灰掉、按不下去；`mismatchSay()` 那一句只有點開才看得到。跟 ADR-0170「0 件灰掉＝檢查過了、沒事」衝突
 - **建議**：`look` 改成「打開時定好的 ∪ 現在 `needsAttention()` 的」—— 打開時那幾列照舊排前面不跳，後來才變成要看的接在後面（`attention` 是「位置不跳」，不是「名單不變」）。`rowsSig()` 跟著就會整頁重畫
 - **紅燈測試**：`tests/abovee-problems-page.test.js` 加一條 —— `attention` 是空的 Set、一列 `kind: 'mismatch'`，`problemsPage()` 的 `count` 要 ≥ 1、那一列要在 `look`（或某一塊）裡；同一份 items，`count` 不可以小於 `summarizeAbovee(...).attention`
 
 ### R2 「對不上」那一列：拿掉「要改的」那一格的勾，列上印的人跟存進去的不一樣
+
+**段四：修了** —— 82f57a5e（照她選的：對不上的列走 `recordedSlotOf()`；app 上找不到那一段才退回照片上的）
 
 - **在哪裡**：`aboveeImport.js` 的 `glanceSlot()`／`rowGlance()`。`kind: 'mismatch'` 的列：勾著「改成 Abovee 的」時有 `slotAfter`，印 app 那一段套完之後的樣子；沒勾時退回照片上的課程與人
 - **什麼情境會錯**（跑過）：app 那一段的治療師是某甲、照片寫某乙，「要改的」那一行預設勾著 → 列上印某乙（對）；**拿掉勾 → 列上照樣印某乙**，存進去的卻是某甲。課程名也跟著勾換寫法：勾著是 `SIS(60)`（app 那一段），沒勾是 `SIS`（照片上的）
@@ -23,6 +27,8 @@
 
 ### R3 兩句話叫她去看「要改的」那一塊，那一塊現在在另一頁
 
+**段四：修了** —— b4126fb1（三句＋常見問題三處＋E2E 41 的 A7）
+
 - `aboveeConfirm.js:641`（點開一列已經記了、有要改的）：「要不要改，勾在**最上面**「要改的」那一塊。」／「最上面「要改的」那一塊沒勾 …」—— 在辨識結果點開時，最上面沒有那一塊
 - `aboveeImport.js:2854` 的 `recordBarSay()`：「勾起來的有 N 段這一次改不成（「要改的」那一塊寫著為什麼）」—— 底下那一條兩頁都在
 - **建議**：兩句都講明在「發現問題」那一頁（例：「…勾在「發現問題」那一頁最上面「要改的」那一塊」）。`hintsHtml()` 裡那一句（mismatch＋`offersChange`）只畫在發現問題那一頁或點開的時候，點開在辨識結果時也是同一個問題，一起改
@@ -30,11 +36,15 @@
 
 ### R4 ADR-0141 那張「印簡寫／印全名」的表被這一輪改了，沒有記
 
+**段四：修了** —— 41caa12d
+
 - 02 讓拍 Abovee 收著的那一行印**人員簡寫與診間簡寫**（她要的「像日曆那邊一樣」）。可是 ADR-0141 第二節那張表把「拍 Abovee」寫在**印全名**那一欄；根目錄 `CLAUDE.md`「人員的全名與簡寫」那一列寫「**簡寫只在三處**」、「診間的名字、簡寫或清單」那一列寫「月曆、日／週那一列、讀取卡片印簡寫，其餘印全名」
 - 之後的 session 照 CLAUDE.md 會把 `rowGlance()` 的 `nameOf(row, 'short')`「修」回全名
 - **要改**：ADR-0170 開頭的「推翻：」加 ADR-0141 第二節那張表的一格（拍 Abovee 收著的那一行印簡寫；點開之後那幾排丸子照舊全名）、「延伸：」加 ADR-0079（診間簡寫）；`docs/adr/README.md` 兩張表（`tests/adr-index.test.js` 會盯著）；CLAUDE.md 那兩列改成「四處」，指到 `rowGlance()`（ADR-0170 是這一輪新的、還沒合，直接改）
 
 ### R5 常見問題還有四處講舊的位置
+
+**段四：修了** —— 41caa12d
 
 05 grep 過，這四處漏了（都是「收著的列底下就有那一句」或「照片底下那一句」，現在那幾句只在「發現問題」那一頁）：
 
@@ -45,20 +55,28 @@
 
 ### R6 邊界測試清單 C11-7e 講「收著也看得到」
 
+**段四：修了** —— 41caa12d
+
 - `docs/邊界測試清單.md:375`：「後者診間空著、**收著也看得到**「沒寫哪一床 —— 點開選一間」」—— 那一句是 `nearSay()`，現在只在發現問題「有提醒的」與點開之後。改成那個位置
 
 ### R7 hintsHtml() 與 hasRowNote() 沒有測試把兩邊釘在一起
+
+**段四：修了** —— 2c73df36（`tests/abovee-row-hints-placed.test.js`，附一條自我檢查：多叫一支沒位置的函式就紅）
 
 - `hasRowNote()`（`aboveeImport.js:2615`）一行一行照抄 `hintsHtml()`（`aboveeConfirm.js:546`）的判斷；R1 就是這個形狀（`hintsHtml()` 那幾行之外，列還會因為 `needsAttention()` 變成要看的）。lessons 五這一輪自己寫的那一條：「畫它們的那一支裡每一行，在新的地方都有位置嗎？」
 - **建議**：掃原始碼的一支測試 —— `hintsHtml()` 裡每一行用到的 domain 函式（`newRowSay`、`photoRowSays`、`partialSay`、`repeatSay`、`nearSay`、`diffs`／`locked`、`offersChange`），都要出現在 `hasRowNote()`、`rowTag()` 或 `needsAttention()` 裡。下次在 `hintsHtml()` 加一行而沒有替它找位置，就紅
 
 ### R8（小）點開那一塊直接讀 `seenCourse.assigns`
 
+**段四：修了** —— 0c8b0192（domain 的 `seenAssigns()` 兩邊共用；掃描放寬到任何讀課程物件 `.assigns`）
+
 - `aboveeConfirm.js:752`：`(seenCourse?.assigns ?? null)`。CLAUDE.md「一段來訪要指派誰／哪裡」：要不要治療師／診間只走 `assignsFor()`，畫面不自己讀 `course.assigns`（`tests/visits.test.js:1393` 只掃 `course.assigns ===`，所以沒擋到）
 - 行為差異很小（只差在「復能」寫著、照片沒寫哪一台的那一列），但這一段跟 domain 的 `rowGlance()` 退路是同一件事各寫一份
 - **建議**：要畫哪幾排問 domain 一支（`rowGlance()` 已經算出 `cells`，或抽一支 `peopleFieldsFor()` 兩邊共用）；測試把那條掃描放寬到 `\.assigns\b`（設定頁 `masterList.js` 要列例外）
 
 ### 順手（段四要做就做）
+
+**段四：兩條都做了** —— 332718f1（退路補照片上的起訖：`三返(30)`；E2E 86 的 W1 跟著改）
 
 - **組不出時段的列，課程名少了分鐘**：還沒按的三返印「三返」、對不上的列印「SIS」；日曆那一列與已經記了的列是「三返(30)」「SIS(60)」。`rowGlance()` 的退路那一段沒帶 `startsAt`／`endsAt`（照片上有），補上就一樣
 - `absentHtml()` 第三個參數的預設值沒有人用（兩個呼叫端都傳了）
