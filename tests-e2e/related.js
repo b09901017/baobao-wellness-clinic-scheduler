@@ -700,6 +700,34 @@ export const FOLLOWS = {
   'public/icons/': ['public/manifest.webmanifest'],
 };
 
+/**
+ * **`app.css` 裡只屬於一個元件的那幾組 class**（2026-11-03）。
+ *
+ * `app.css` 一萬多行、二十幾支 spec 看它，改一個字就是那二十幾支。但一輪裡常常只改某一層的樣子
+ * （拍 Abovee 那一輪只動 `.abl-*`、`.giftfold*`，verify 照樣挑到整份 CSS 那 21 支）。
+ * `scripts/e2e-changes.mjs` 的 `narrowCss()` 比新舊兩份，**每一條動到的規則**都只指著這裡的某一組
+ * class 時，把 `app.css` 換成 `public/css/app.css#那一組` 交給 `pick()`；挑到的是**整份 app.css
+ * 那一份名單裡、而且摸得到 owners 的那幾支**（交集）—— 本來就不看 CSS 的 spec 照舊不看，
+ * 看 CSS 而畫不出那個元件的不跑。
+ *
+ * - `classes`：那一組 class 的開頭。`abl` 認 `.abl`、`.abl-row`、`.abl__seg`，不認 `.ablation`。
+ * - `owners`：畫得出那一組 class 的檔案。**用到那幾個字的檔案都要在這裡**，
+ *   `tests/e2e-css-scopes.test.js` 掃 `public/` 盯著 —— 漏一個就是那個畫面的 spec 被安靜地少跑。
+ *
+ * 新增一組前先 `grep -rn` 看那個開頭是不是只有一個元件在用。
+ */
+export const CSS_SCOPES = {
+  // 拍 Abovee 與療程單的確認層（療程單那一層借 `.abl` 的殼，`root.className = 'abl tsl'`）；
+  // `has-abl` 是那一層開著時掛在 body 上的
+  abl: {
+    classes: ['abl', 'has-abl'],
+    owners: ['public/js/ui/components/aboveeConfirm.js', 'public/js/ui/components/sheetConfirm.js'],
+  },
+  tsl: { classes: ['tsl'], owners: ['public/js/ui/components/sheetConfirm.js'] },
+  // 「送的／體驗…」收起來的那一段（壓表、來訪編輯器、拍 Abovee 共用）
+  giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
+};
+
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
 
 /** 名單上有這個檔案的那幾支。 */
@@ -746,6 +774,20 @@ export function pick(files = []) {
     // （`project-id.mjs` 只有 start-emulators.sh 讀；它算錯的話每一支都紅在 `sameNamespace()`，很大聲）
     if (file.startsWith('tests-e2e/rules/') || file.startsWith('tests-e2e/start-emulators')
       || file === 'tests-e2e/project-id.mjs' || file === 'tests-e2e/related.js') continue;
+
+    // `app.css#abl`：只動到那一組 class（見 `CSS_SCOPES`）→ 整份的名單 ∩ 摸得到 owners 的
+    const [cssFile, scope] = file.split('#');
+    if (scope !== undefined) {
+      const owners = CSS_SCOPES[scope]?.owners;
+      if (!owners) {
+        all = true;
+        why.push(`${file} 那一組沒有登記在 related.js 的 CSS_SCOPES → 全跑`);
+        continue;
+      }
+      const touching = new Set(owners.flatMap(coveredBy));
+      for (const s of coveredBy(cssFile)) if (touching.has(s)) specs.add(s);
+      continue;
+    }
 
     const follows = Object.entries(FOLLOWS).find(([src]) => hits(file, [src]))?.[1] ?? [];
     const matched = [...new Set([file, ...follows].flatMap(coveredBy))];

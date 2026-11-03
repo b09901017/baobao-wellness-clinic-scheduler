@@ -56,7 +56,7 @@ staging 上被點過 —— 只有急件這樣做。
 
 「這次改動」是**上一次 verify 全綠之後動過的**，而且只跑跟 develop 也不一樣的那幾支（`scripts/e2e-changes.mjs`，2026-10-16 以前是整條分支，一輪後段每次都幾乎全跑）。要整條分支重驗一次：`node scripts/e2e.mjs --related --base develop`。
 
-哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去、**新增一個被追蹤的檔案也要**（`tests/e2e-related.test.js` 盯著；只被別人 import 的進 `FOLLOWS`）。`pick()` 認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。**`ui/views.js` 只多了一頁的登記**（一行都沒刪、加的只有 `import * as X from './views/…'` 與完整的 `register()`）時，交給 `pick()` 之前換成那一頁、加上網址撞得到的既有那幾頁（`scripts/e2e-changes.mjs` 的 `narrowViews()`，2026-10-19）；其餘照舊全跑。
+哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去、**新增一個被追蹤的檔案也要**（`tests/e2e-related.test.js` 盯著；只被別人 import 的進 `FOLLOWS`）。`pick()` 認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。**`ui/views.js` 只多了一頁的登記**（一行都沒刪、加的只有 `import * as X from './views/…'` 與完整的 `register()`）時，交給 `pick()` 之前換成那一頁、加上網址撞得到的既有那幾頁（`scripts/e2e-changes.mjs` 的 `narrowViews()`，2026-10-19）；其餘照舊全跑。**`app.css` 每一條動到的規則都只指著某一個元件的 class**（`.abl-*`、`.giftfold*`…，那一組 class 與畫得出它的檔案只寫在 `related.js` 的 `CSS_SCOPES`）時，只挑看 CSS 而且摸得到那個元件的那幾支（`narrowCss()`，2026-11-03；比的是規則不是行，搬位置、混著共用 class、`@keyframes` 照舊整份）。**新的一組 class 被別的檔案也拿去用，要加進那一組的 `owners`**（`tests/e2e-css-scopes.test.js` 掃 `public/` 盯著）。
 
 E2E 的 app 是模擬器 hosting（`127.0.0.1:5000`）在服務的，而**它服務的是啟動它的那個目錄的 `public/`**，跑完不會自己關，E2E 也不會幫你開。所以換一個 worktree 跑之前要先依 port 停掉殘留的那一組，再從**這一組自己的目錄**起 —— 不然測到的是別的分支的程式碼，而症狀是「明明改好了卻還是紅」。
 
