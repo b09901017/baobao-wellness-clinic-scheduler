@@ -50,6 +50,7 @@
 | [0138](./0138-abovee-warnings-show-on-collapsed-rows.md) 拍 Abovee —— 會改變寫入結果的提醒，收著的列與存檔前那一道都要看得到 | 第 4 點（收著的那一行畫前兩句）—— 改成一個短標記，整句在「發現問題」 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) 「追蹤健檢報告」長不長，不等二返約了沒 | 「還沒有答案的」那一段 —— 名額先給報告勾過的那一次 | [0142](./0142-the-booking-slot-goes-to-the-exam-whose-report-is-in.md) |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) 「追蹤健檢報告」長不長，不等二返約了沒 | 「名額」的上限 —— 健檢超用也追報告 | [0159](./0159-an-extra-exam-still-gets-its-report.md) |
+| [0141](./0141-staff-show-full-names-with-a-short-name.md) 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 第二節那張表「拍 Abovee」那一格 —— 收著的那一行（課程＋人／診間）印簡寫 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
 | [0143](./0143-cutover-day-deletes-production-with-firebase-tools.md) 切換那天正式站連主檔一起刪掉，用 firebase-tools 一類一類刪 | 不是推翻：切換做完了，實際做法跟它寫的步驟不一樣（記在 0165 與 STAGING.md） | [0165](./0165-after-cutover-production-is-the-only-copy.md) |
 | [0148](./0148-a-slot-can-be-a-trial-or-a-gift.md) 一段可以是體驗或送的 —— 存在段上，課程的那一格變成「預設體驗」 | 第一排順序的「EECP體驗」與「沒做的」第二條（扣法不一樣） | [0154](./0154-eecp-is-one-course.md) |
 | [0152](./0152-today-counts-close-and-dated-notes.md) 今天／明天算進簽療程單與有日期的隨手記，逾期算進前幾天沒簽完的 | 決定 1 的「明天」那一格 —— 明天要來的也算 | [0162](./0162-tomorrow-counts-tomorrows-visits.md) |
@@ -203,7 +204,7 @@
 | [0138](./0138-abovee-warnings-show-on-collapsed-rows.md) | 拍 Abovee —— 會改變寫入結果的提醒，收著的列與存檔前那一道都要看得到 | 2026-10-08 | 部分被推翻 → ADR-0170 |
 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) | 「追蹤健檢報告」長不長，不等二返約了沒 | 2026-10-08 | 部分被推翻 → ADR-0142、ADR-0159 |
 | [0140](./0140-changing-a-course-recomputes-the-tasks-of-agreed-visits.md) | 改了課程「壓哪幾個系統／寫紀錄」，已經談定的來訪回頭重算待辦 | 2026-10-08 | 現行 |
-| [0141](./0141-staff-show-full-names-with-a-short-name.md) | 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 2026-10-09 | 現行 |
+| [0141](./0141-staff-show-full-names-with-a-short-name.md) | 人員的顯示名是全名、多一格簡寫；全名跟著合併檔進來 | 2026-10-09 | 部分被推翻 → ADR-0170 |
 | [0142](./0142-the-booking-slot-goes-to-the-exam-whose-report-is-in.md) | 「約二返」的名額先給報告勾過的那一次 | 2026-10-09 | 現行 |
 | [0143](./0143-cutover-day-deletes-production-with-firebase-tools.md) | 切換那天正式站連主檔一起刪掉，用 firebase-tools 一類一類刪 | 2026-10-09 | 做完了 → ADR-0165 |
 | [0144](./0144-a-slot-cancelled-in-the-app-and-still-on-abovee-is-a-new-row.md) | app 上取消過、Abovee 上還掛著的那一格，拍 Abovee 時算新的一段（不預設打勾） | 2026-10-09 | 現行 |

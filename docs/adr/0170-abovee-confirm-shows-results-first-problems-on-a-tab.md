@@ -7,8 +7,11 @@
 - [ADR-0138](./0138-abovee-warnings-show-on-collapsed-rows.md) 決定第 4 點（收著的那一行畫前兩句＋「還有 N 句」）：收著的列改成一個短標記，整句搬到「發現問題」那一頁與點開的那一列。
   第 1、2、3、5 點不變（哪幾種算「不點開也要看得到」只寫在 `mustSee()`、照來源分、每一列只畫自己的、存檔前那一道講「其中 N 段有提醒」）
 - [ADR-0129](./0129-abovee-photo-checks-what-is-missing.md)「畫面」那一段最後一句（沒有多出來的段時只留那一行「對過 …」）：沒有就不畫
+- [ADR-0141](./0141-staff-show-full-names-with-a-short-name.md) 第二節那張「印簡寫／印全名」表裡「拍 Abovee」那一格：**收著的那一行**（課程＋人／診間，`rowGlance()`）印人員與診間的簡寫，
+  同日曆那一列（她：「像日曆那邊一樣」）；點開之後那幾排丸子、確認框、提醒照舊印全名
 
-延伸：[ADR-0153](./0153-abovee-absent-checks-people-on-photo.md)（「照片上的 ○○ 還沒認出是誰，先沒對」那一句放在哪）、
+延伸：[ADR-0079](./0079-the-equipment-decides-who-and-the-rooms-have-no-four.md)（診間的全名與簡寫：收著的那一行印簡寫，同上）、
+[ADR-0153](./0153-abovee-absent-checks-people-on-photo.md)（「照片上的 ○○ 還沒認出是誰，先沒對」那一句放在哪）、
 [ADR-0104](./0104-many-slots-from-one-photo.md)（確認層就是第一道、存檔前只問一次 —— 不變）、
 [ADR-0074](./0074-a-contraindication-warns-it-does-not-block.md)（禁忌只提醒不擋 —— 不變）。
 
