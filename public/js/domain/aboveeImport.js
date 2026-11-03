@@ -3096,9 +3096,9 @@ const GLANCE_LABELS = { therapistId: '治療師', roomId: '診間', doctorId: '�
  * **印的是按「記錄」之後的那一段**，照這個順序找：
  * 1. 這一次會寫進去的列：計畫裡寫進去的那一段（`photoDayPlan()` 的 `slotAfter`）—— 「要改的」那一塊勾著的治療師／診間、
  *    扣法、狀態、改期都已經套好了。**不在這裡再套一次**（以前的 `afterPhoto()` 沒套治療師／診間）
- * 2. 已經記了：app 上那一段（`recordedSlotOf()`）。`existing` 不一定有位置，每一種形狀各找一次
+ * 2. 已經記了、對不上：app 上那一段（`recordedSlotOf()`）。`existing` 不一定有位置，每一種形狀各找一次
  * 3. 新的、組得出時段：交給存檔的同一份（`slotFromPicks(picksOf(item))`）—— 另組一份的話列上印的會跟存進去的不一樣
- * 4. 其餘（認不得人、對不上、組不出來 —— 例：照片上三返、還沒按任何一顆）：照片上認出來的課程與人
+ * 4. 其餘（認不得人、對不上而 app 上找不到那一段、組不出來 —— 例：照片上三返、還沒按任何一顆）：照片上認出來的課程與人
  *
  * 要印哪幾格只看那門課：`assignsFor()` 是治療師或診間（擇一池還沒選器材退回課程上那一格，同 `staffRoleFor()`）、
  * `picksDoctor()` 是醫師。日曆那一列不印醫師，這裡印（她指名「診間和醫師」）。
@@ -3128,8 +3128,9 @@ function glanceSlot(item, plan, ctx) {
   const after = plan?.slotAfter?.[item?.key];
   if (after?.slot) return after;
   if (!item?.customerId) return null;
-  if (item.kind === 'recorded') return recordedSlotOf(item, ctx);
-  // 對不上的列照片上的才是她要對的那一份（app 上那一段點開去日曆看）
+  // 對不上的列也印 app 上那一段（她 11/3 選的，審查 R2）：「要改的」勾著的已經在 `slotAfter`，拿掉勾就是 app 上原本的 ——
+  // 同一列不因為那一格勾不勾換一種來源。app 上那一段找不到（課程不一樣、取消了）才退回照片上的
+  if (item.kind === 'recorded' || item.kind === 'mismatch') return recordedSlotOf(item, ctx);
   if (item.kind !== 'new') return null;
   const { courses = [], equipment = [], ivProducts = [] } = ctx.master ?? {};
   const { slot } = slotFromPicks(picksOf(item), {

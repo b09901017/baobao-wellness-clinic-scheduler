@@ -84,6 +84,22 @@ describe('已經記了：印存完之後那一段', () => {
   });
 });
 
+describe('對不上：印 app 上存完之後那一段（她 11/3 選的，審查 R2）', () => {
+  test('日子過了兩邊都待確認、治療師不一樣：勾著印照片上的人、拿掉印 app 上的人；課程名一樣', () => {
+    const c = { ...ctx([sis({ status: 'pending_confirm' })]), today: '2026-09-20' };
+    const [item] = read([['待確認', '2026-09-10', '10:00 - 11:00', '王小明', '00001234', 'SIS 60', '', '陳小芳']], c);
+    assert.equal(item.kind, 'mismatch');
+    assert.equal(item.adopt, true);
+    const on = rowGlance(item, photoDayPlan([item], c), c);
+    const offItem = { ...item, adopt: false };
+    const off = rowGlance(offItem, photoDayPlan([offItem], c), c);
+    assert.deepEqual(cellsOf(on), { therapistId: '小芳' });
+    assert.deepEqual(cellsOf(off), { therapistId: '騰崴' });
+    assert.equal(on.what, off.what);
+    assert.equal(off.what, slotName(c.visitsBy['c-wang'][0].slots[0], c.master, 'short'));
+  });
+});
+
 describe('新的與照片上的', () => {
   test('照片上三返、服務資源寫醫師、一顆都還沒按 → 印得出那位醫師', () => {
     const c = ctx([], [POOL]);
