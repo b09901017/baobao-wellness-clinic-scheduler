@@ -2515,6 +2515,8 @@ export function absentFromPhoto(transcripts, items, ctx, { everyone = false } = 
 
 const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 const pointSay = (p) => (p.time ? `${md(p.date)} ${p.time}` : md(p.date));
+/** 照片上那幾位還沒認出是誰（ADR-0153，名字照照片上的原字）—— `absentSay()` 與 `absentShown()` 同一句 */
+const notYetOf = (unknown) => `照片上的 ${unknown.join('、')} 還沒認出是誰`;
 
 /**
  * 那一塊上面那一句：對了誰（一位、兩位、每一位，ADR-0153）、哪一段日期、結果。**講「這次照片上沒有」，不講「Abovee 沒有」** —— 可能在別頁。
@@ -2531,7 +2533,7 @@ export function absentSay(result, customers = []) {
   if (result?.why === 'noDates') return '照片上讀不到日期 —— 沒有對「app 有、這次照片上沒有」。';
   if (!result?.checked) return '';
   const { customerIds, unknown = [], ranges } = result.checked;
-  const notYet = unknown.length ? `照片上的 ${unknown.join('、')} 還沒認出是誰` : '';
+  const notYet = unknown.length ? notYetOf(unknown) : '';
   if (customerIds && !customerIds.length) return `${notYet} —— 沒有對「app 有、這次照片上沒有」。`;
   const when = ranges.map(({ lo, hi }) => `${pointSay(lo)}–${pointSay(hi)}`).join('、');
   const names = (customerIds ?? []).map((id) => (customers ?? []).find((c) => c.id === id)?.name ?? '').filter(Boolean).join('、');
@@ -2539,6 +2541,82 @@ export function absentSay(result, customers = []) {
   const n = result.slots.length;
   const said = n ? `${scope}：這 ${n} 段這次照片上沒有。` : `${scope}：都在這次的照片上。`;
   return notYet ? `${said}${notYet}，先沒對。` : said;
+}
+
+/**
+ * 「app 有、這次照片上沒有」那一塊在「發現問題」那一頁講什麼、算幾件（ADR-0170）。
+ *
+ * - 都在照片上 → **不畫、0 件**（ADR-0129 那一句「都在這次的照片上」她劃掉了：「發現問題」那一顆灰掉就是檢查過了、沒事）
+ * - 沒拍到的段 → 照段數；照片上有一位還沒認出是誰（ADR-0153）再加一件。句子照舊是 `absentSay()`
+ * - 只有「還沒認出是誰」→ 只講那一句、算一件（不接「都在這次的照片上」）
+ * - 沒有對（列不是照時間排、讀不到日期、照片上的人一個都沒認出）→ 照講、算一件：那時候 0 件不等於沒事
+ *
+ * @param {ReturnType<typeof absentFromPhoto>} result
+ * @param {{id: string, name: string}[]} customers
+ * @returns {{say: string, count: number}}
+ */
+export function absentShown(result, customers = []) {
+  if (result?.why) return { say: absentSay(result, customers), count: 1 };
+  if (!result?.checked) return { say: '', count: 0 };
+  const { customerIds, unknown = [] } = result.checked;
+  const n = result.slots?.length ?? 0;
+  if (customerIds && !customerIds.length) return { say: absentSay(result, customers), count: 1 };
+  if (n) return { say: absentSay(result, customers), count: n + (unknown.length ? 1 : 0) };
+  if (unknown.length) return { say: `${notYetOf(unknown)}，先沒對。`, count: 1 };
+  return { say: '', count: 0 };
+}
+
+/**
+ * 「發現問題」那一頁列哪幾件、N 是多少（ADR-0170）。**畫面照它回的畫，那一顆上的 N 就是它的 `count`** ——
+ * 各算一份的話 N 會跟列出來的對不上。
+ *
+ * - `notes`：照片層級的問題，一種一件（`statusColumn`：沒拍到「預約狀態」那一欄、`mismatch`：左右兩張列數不一樣、
+ *   `noNames`：沒有姓名那一欄）。左右兩半正常配上（`halves`）不是問題，不列
+ * - `changes`：「要改的」那一塊管的列（`offersChange()`；照列數，同抬頭的「要改 N 段」）
+ * - `look`／`later`：「要你看」與收起來的「日子過了還沒結案」—— 哪幾列是打開這一層時定的（呼叫端記著，之後不跟著跳）
+ * - `flagged`：「有提醒的」—— 辨識結果上有紅字短標記（`rowTag()`，連還差一步）、或列底下有一句（`hasRowNote()`），
+ *   又不在 `look`／`later` 裡的列。標記與整句一對一：她在辨識結果看到一個 ⚠，切過來一定找得到那一列
+ * - `absent`：`absentShown()`
+ * - `count`：不重複的列（同一列在兩塊只算一件）＋沒拍到的段與那幾句＋照片層級
+ *
+ * @param {object[]} items **還沒記的**列（記好了的不算也不列）
+ * @param {ReturnType<typeof photoDayPlan>|null} plan
+ * @param {{attention?: Set<string>, later?: Set<string>, absent?: object, customers?: object[], pairing?: string,
+ *          noStatusColumn?: string|null}} [o]
+ * @returns {{notes: string[], changes: string[], look: string[], later: string[], flagged: string[],
+ *            absent: {say: string, count: number}, count: number}}
+ */
+export function problemsPage(items = [], plan = null, {
+  attention = new Set(), later = new Set(), absent = null, customers = [], pairing = 'single', noStatusColumn = null,
+} = {}) {
+  const list = items ?? [];
+  const notes = [
+    ...(statusColumnSay({ noStatusColumn }) ? ['statusColumn'] : []),
+    ...(pairing === 'mismatch' ? ['mismatch'] : []),
+    ...(pairing === 'noNames' ? ['noNames'] : []),
+  ];
+  const keys = (fn) => list.filter(fn).map((i) => i.key);
+  const changes = keys(offersChange);
+  const look = keys((i) => attention.has(i.key) && !later.has(i.key));
+  const stale = keys((i) => later.has(i.key));
+  const flagged = keys((i) => !attention.has(i.key) && !later.has(i.key) && (Boolean(rowTag(i, plan)) || hasRowNote(i)));
+  const gone = absentShown(absent, customers);
+  const rows = new Set([...changes, ...look, ...stale, ...flagged]);
+  return { notes, changes, look, later: stale, flagged, absent: gone, count: notes.length + rows.size + gone.count };
+}
+
+/**
+ * 這一列底下有沒有一句話要講（「發現問題」那一頁畫的那幾行，`aboveeConfirm.js` 的 `hintsHtml()`）：
+ * 為什麼沒先勾（`newRowSay()`、`partialSay()`、`repeatSay()`、不會寫進去的那幾列的 `photoRowSays()`）、
+ * 認得但不是一字不差（`nearSay()`）、已完成鎖著的那一段跟照片不一樣（`locked` 的 `diffs`）。
+ * 這幾句以前收著也畫（ADR-0116、0128）；只有一句、不在要你看、也沒有紅字的列不收進那一頁的話，
+ * 那一句只剩點開才看得到，「發現問題 0」灰掉講的「沒事」也不是真的（段二（續）中途發現）
+ */
+export function hasRowNote(item) {
+  if (!item) return false;
+  return Boolean(newRowSay(item) || partialSay(item) || repeatSay(item) || nearSay(item)
+    || (!wantsWrite(item) && photoRowSays(item).length)
+    || (item.kind === 'recorded' && item.diffs?.length && item.locked));
 }
 
 /**
@@ -3284,7 +3362,7 @@ function trialSay(item, courses = []) {
     : 'Abovee 上寫體驗，這裡選了扣額度 —— 照扣一次'];
 }
 
-/** 收著的那一行最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句）。 */
+/** 「發現問題」那一頁每一列底下最多畫幾句：前兩句，其餘收成一句「還有 N 句」（一列多半只有一兩句；辨識結果只畫短標記，ADR-0170）。 */
 export function briefWarnings(texts = [], max = 2) {
   const list = texts ?? [];
   return list.length > max ? [...list.slice(0, max), `還有 ${list.length - max} 句 —— 點開這一列看`] : [...list];

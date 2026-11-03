@@ -52,6 +52,12 @@ async function photograph(app, page, name) {
 
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 /** 點開著的那一列：「送的／體驗／其他…」（收著才按）→「其他 ▸」→「健檢不是我排的」。 */
 async function pickNotMine(page, key) {
   const r = row(page, key);
@@ -68,7 +74,9 @@ test('Y1 拍 Abovee：沒有健檢、沒有二返額度的客人，三返與二�
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-not-mine');
 
-  // 讀照片那一下：兩列都排進「要你看」、沒勾、一顆都沒按，那一句指她去「其他」
+  // 讀照片那一下：兩列都排進「要你看」（「發現問題」那一頁，ADR-0170）、沒勾、一顆都沒按，那一句指她去「其他」
+  await expect(row(page, 'a0').locator('.abl-row__hint'), '辨識結果上一行說明都沒有').toHaveCount(0);
+  await view(page, 'problems');
   for (const [key, label] of [['a0', '三返'], ['a1', '二返']]) {
     await expect(page.locator(`.abl__group--look [data-abl-row="${key}"]`)).toHaveCount(1);
     await expect(row(page, key).locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');

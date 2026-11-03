@@ -10403,7 +10403,7 @@ body.has-abl {
   object-fit: cover;
 }
 
-/* 左右兩張怎麼對上的 —— 常駐的一句，會改變寫進去的東西 */
+/* 照片層級的問題（沒拍到預約狀態那一欄、左右列數不一樣、沒有姓名）：「發現問題」那一頁最上面，會改變寫進去的東西（ADR-0170） */
 .abl__pairing {
   flex: 1 1 220px;
   margin: 0;
@@ -10434,8 +10434,26 @@ body.has-abl {
   border-bottom: 1px solid var(--border-soft);
 }
 
-.abl__group--look .abl__day {
+.abl__group--look .abl__day,
+.abl__group--flag .abl__day {
   color: var(--overdue);
+}
+
+/* 照片底下那一個切換（ADR-0170）：「辨識結果｜發現問題 N」，樣子照首頁的「總覽／依客戶」（`.seg`） */
+.abl__seg {
+  margin-bottom: var(--space-4);
+}
+
+/* 0 件：灰掉、按不下去 ＝ 檢查過了、沒事 */
+.abl__seg .seg__item:disabled {
+  color: var(--text-mute);
+  cursor: default;
+}
+
+.abl__notes {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .abl__rows {
@@ -10523,7 +10541,7 @@ body.has-abl {
   font-variant-numeric: tabular-nums;
 }
 
-/* 「要你看」那一組不照日期分，所以日期寫在時間上面 */
+/* 「發現問題」那一頁不照日期分，所以日期寫在時間上面 */
 .abl-row__date {
   display: block;
   font-family: var(--font-sans);
@@ -10546,12 +10564,26 @@ body.has-abl {
   color: var(--text-dim);
 }
 
-/* 課程＋人／診間一格，太長就截（abovee-confirm-glance 02）；右邊留給段二的紅字標記（flex: none，不被截） */
+/* 課程＋人／診間一格，太長就截（abovee-confirm-glance 02）；右邊接紅字短標記（不被截） */
 .abl-row__glance {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 紅字短標記（ADR-0170）：「⚠ 撞期 +1」—— 掃過去一眼就看得到。擠的時候讓前面那一格截，自己不截 */
+.abl-row__flag {
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--overdue);
+}
+
+.abl-row__flag svg {
+  margin-right: 2px;
+  vertical-align: -2px;
 }
 
 .abl-row__person {
@@ -10596,7 +10628,7 @@ body.has-abl {
 
 /* 認得、但不是一字不差（ADR-0128）：不是錯，是要她看一眼 —— 用「快到了」那一種色，不用紅的 */
 .abl-row__hint--near,
-/* 會改變寫入結果的提醒（ADR-0138）：收著的列也畫，跟點開之後那一份同一種色 */
+/* 會改變寫入結果的提醒（ADR-0138、0170）：「發現問題」那一頁的整句，跟點開之後那一份同一種色 */
 .abl-row__hint--warn {
   color: var(--soon);
 }

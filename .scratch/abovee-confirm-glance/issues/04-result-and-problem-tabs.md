@@ -1,6 +1,6 @@
 # 04：照片下面的切換「辨識結果」／「發現問題 N」
 
-Status: todo
+Status: done
 Blocked by: 02、03
 
 ## 動工前先讀
@@ -53,3 +53,27 @@ Blocked by: 02、03
 - 「發現問題」上的 N 等不等於那一頁列出來的件數？
 - 在發現問題那一頁勾一列／拿掉一列，回到辨識結果是同一個勾嗎？按「記錄」寫進去的是勾著的那幾列嗎？
 - 「要改的」預設勾著、她沒切到發現問題就按記錄：確認框照樣講要改的那幾件嗎？（不可以變成看不到就安靜寫進去）
+
+## 做完時留下的（段二（續），2026-11-03）
+
+- **草稿照套**（上一段寫在筆記資料夾的三支腳本＋一支測試＋紅線兩支的 diff）：先放回測試與 diff 跑出 6 條紅 → 套三支腳本 → 綠。套之前讀過一遍、對過 issue 與 ADR-0170
+- **domain**（`aboveeImport.js`）：`absentShown()`（都在照片上不畫、0 件；只有「還沒認出是誰」那一句算一件；沒有對算一件）、
+  `problemsPage()`（`notes`／`changes`／`look`／`later`／`flagged`／`absent`／`count`，同一列只算一件）、`notYetOf()`（`absentSay()` 與它同一句）
+- **中途發現、在這一支修了**：`hasRowNote()` —— 只有一句（讀不到全部來訪、看起來是同一段、名字或課程差一個字、app 上同一格取消過而課程不一樣、
+  已完成鎖著的那一段跟照片不一樣）、不在要你看、也沒有紅字的列，照草稿兩頁都不在，那一句只剩點開才看得到、「發現問題 0」灰掉講的「沒事」是假的。
+  現在那幾列也在「有提醒的」、算進 N；ADR-0170 那一段與表跟著改（ADR 是這一輪新的、還沒合，所以直接改）；單元一條（d0～d5）
+- **畫面**（`aboveeConfirm.js`）：閉包 `view`／`shownRows`、`pageOf()`、`rowsSig()`、`paintBody()` 只畫目前那一頁、`segHtml()`／`paintSeg()`、
+  `resultHtml()`、`problemsHtml()`、`notesHtml()`（取代 `pairingNote()`；正常配上那一句拿掉）、`absentHtml(gone, p, shown)`、
+  `repaintRow()` 在發現問題那一頁、列的那幾列換了就整頁重畫、`rowHtml()` 的 `say` ＋ `hintsHtml()` ＋ `flagHtml(rowTag(item, p))`、切換的 click
+  - 草稿之外改的：**那一顆的字是一整串**（`segLabel()`；`.seg__item` 是 flex，「發現問題 <span>3</span>」中間那個空格會被吃掉 → 「發現問題3」）；
+    `hintsHtml()` 裡幾句「收起來也看得到」的舊註解改掉
+  - **合併扣課那一行（`.abl-row__merged`＋「拆開成兩段」）兩頁都畫、沒收進 `hintsHtml()`**：那是這一列是什麼（辨識結果的一部分、有一顆按鈕），不是說明句
+  - 「app 有、這次照片上沒有」只有「還沒認出是誰」或「沒有對」那一句時，也包成一塊、帶抬頭（以前是裸的一行 `<p>`）—— 在發現問題那一頁沒有抬頭會不知道那一句在講什麼
+- **CSS**：`.abl-row__flag`（`flex: none`、`--overdue`）、`.abl__seg`（0 件灰掉）、`.abl__notes`、`.abl__group--flag`
+- **測試**：`tests/abovee-problems-page.test.js`（16 條）；`tests/tip-red-lines.test.js`、`tests/abovee-warnings-in-sight.test.js` 改成釘新的保證
+  （列上那一行讀 `rowTag()`、不看在哪一頁或點開了沒；整句只在發現問題與點開之後；有標記的列一定在發現問題）；
+  E2E `41`、`51`、`57`、`62`（P2／P4 改成短標記＋發現問題的整句）、`67`、`68`、`77`、`78`、`85`、`86` 跟著切頁；
+  新的一支 `87-abovee-result-and-problems`（R1 什麼事都沒有：一句說明都沒有、「發現問題 0」灰掉；R2 紅字短標記 375 寬不截不橫捲、N＝那一頁列出來的、
+  那一頁拿掉勾回到辨識結果是同一個勾、最後一件處理完回到辨識結果、記錄寫進去的是勾著的；R3 沒切過去就按記錄，確認框照樣講要改的那一件），登記 `related.js`
+- `sw.js` v222 → v223
+- verify：VERIFY_RESULT

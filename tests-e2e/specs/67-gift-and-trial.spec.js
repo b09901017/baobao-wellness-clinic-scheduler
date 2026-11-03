@@ -342,8 +342,11 @@ async function openTrialPhoto(app, page) {
 test('G9 拍 Abovee：預約來源寫體驗的 IN 30 → 預選體驗的復能、INDIBA、不扣；寫體驗的健檢照扣、收著也看得到那一句', async ({ app, page }) => {
   const row = await openTrialPhoto(app, page);
 
-  // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣的那一句不點開也看得到（mustSee）
+  // 健檢那一列收著：Abovee 寫體驗、健檢沒有體驗 —— 照扣，不點開也有紅字短標記（mustSee，ADR-0170）；整句在「發現問題」
+  await expect(row('a1').locator('.abl-row__flag')).toHaveText('體驗');
+  await page.locator('[data-abl-view="problems"]').click();
   await expect(row('a1').locator('.abl-row__hint--warn')).toContainText('健檢、二返沒有體驗');
+  await page.locator('[data-abl-view="result"]').click();
 
   await row('a0').locator('[data-abl-open]').click();
   await expect(row('a0').locator('[data-abl-opt="__course__:course-recovery"]'), '身上有復能池也預選體驗').toHaveAttribute('aria-pressed', 'true');

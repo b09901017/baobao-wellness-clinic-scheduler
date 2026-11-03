@@ -665,6 +665,11 @@ export const COVERAGE = {
     'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/naming.js',
     'public/css/app.css', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
   ],
+  // 拍 Abovee 照片底下切換「辨識結果／發現問題 N」、紅字短標記（abovee-confirm-glance 04，ADR-0170）
+  '87-abovee-result-and-problems': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
+    'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
+  ],
 };
 
 /**

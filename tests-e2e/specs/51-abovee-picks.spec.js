@@ -96,6 +96,12 @@ async function photograph(app, page, name) {
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 const optValues = (r) => r.locator('[data-abl-opt]').evaluateAll((els) => els.map((el) => el.dataset.ablOpt));
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 test('N2（08）認不出課程選得到要做什麼、三返60、功醫門診、認錯人換一位；記下去跟壓表同一種形狀', async ({ app, page }) => {
   await app.seed(picksSeed());
   await app.signIn('/');
@@ -183,6 +189,8 @@ test('N3（09）兩列都勾了合併扣課 → 一列、記成一段 60 分扣�
   await expect(page.locator('[data-abl-row]')).toHaveCount(2);
 
   const orphan = row(page, 'a2');
+  await expect(orphan.locator('.abl-row__hint'), '辨識結果上一行說明都沒有（ADR-0170）').toHaveCount(0);
+  await view(page, 'problems');
   await expect(page.locator('.abl__group--look')).toContainText('客戶A');
   await expect(orphan.locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
   await expect(orphan.locator('.abl-row__hint')).toContainText('找不到另一半');
@@ -245,15 +253,17 @@ test('N5（10、11、07）搬了時間的不預設打勾、講得出 app 上是�
   await photograph(app, page, 'aboveeList-compare');
   const tasksBefore = (await app.readAll('tasks')).length;
 
-  // a0：Abovee 上 11:00、app 上 10:00 → 新的、沒打勾、要你看、一顆去日曆
+  // a0：Abovee 上 11:00、app 上 10:00 → 新的、沒打勾、要你看（在「發現問題」那一頁，ADR-0170）、一顆去日曆
+  await view(page, 'problems');
   await expect(page.locator('.abl__group--look [data-abl-row="a0"]')).toBeVisible();
   await expect(row(page, 'a0').locator('[data-abl-check]')).toHaveAttribute('aria-checked', 'false');
   await expect(row(page, 'a0').locator('.abl-row__hint')).toContainText('app 上 10:00 有一段 SIS(60)');
   await row(page, 'a0').locator('[data-abl-open]').click();
   await expect(row(page, 'a0').locator('[data-abl-day="2026-09-10"]')).toBeVisible();
 
-  // a1：已經記了、診間不一樣 →「要改的」那一塊一行、預設勾（07 推翻 ADR-0123 的「按了才改」）；拿掉就不改
-  await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('已經記了');
+  // a1：已經記了、診間不一樣 →「要改的」那一塊一行、預設勾（07 推翻 ADR-0123 的「按了才改」）；拿掉就不改。
+  // 「要改的」是一行一件、不是列：a1 那一列只在辨識結果
+  await expect(row(page, 'a1')).toHaveCount(0);
   const a1 = () => page.locator('[data-abl-change="adopt"][data-abl-for="a1"]');
   await expect(page.locator('.abl__group--change')).toContainText('李小華');
   await expect(page.locator('.abl__group--change')).toContainText('診間 治5 → 治8');
@@ -267,6 +277,8 @@ test('N5（10、11、07）搬了時間的不預設打勾、講得出 app 上是�
   await a1().click();
   await expect(page.locator('[data-abl-save]')).toHaveText('改這 1 段');
   // 那一列點開只列不一樣、沒有第二顆按鈕
+  await view(page, 'result');
+  await expect(row(page, 'a1').locator('.abl-row__tag')).toHaveText('已經記了');
   await row(page, 'a1').locator('[data-abl-open]').click();
   await expect(row(page, 'a1').locator('.abl-row__diffs')).toContainText('診間：app 是 治5、Abovee 是 治8');
   await expect(row(page, 'a1').locator('[data-abl-adopt]')).toHaveCount(0);

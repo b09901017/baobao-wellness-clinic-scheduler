@@ -60,6 +60,12 @@ async function photograph(app, page, name) {
 const row = (page, key) => page.locator(`[data-abl-row="${key}"]`);
 const people = (page, key) => row(page, key).locator('.abl-row__main .abl-row__person');
 
+/** 照片底下那一個切換（ADR-0170）：`problems` 發現問題（要改的、要你看、列底下那幾句）、`result` 辨識結果 */
+async function view(page, which) {
+  await page.locator(`[data-abl-view="${which}"]`).click();
+  await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
+}
+
 test('W1 拍 Abovee：列上印治療師／醫師（三返還沒按也印）、沒認到的灰色、已經記了的照「要改的」勾不勾印；375 寬不橫向捲', async ({ app, page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await app.seed(seed());
@@ -80,9 +86,11 @@ test('W1 拍 Abovee：列上印治療師／醫師（三返還沒按也印）、�
   await expect(row(page, 'a3').locator('.abl-row__course')).not.toHaveText('SIS 60');
   await expect(row(page, 'a3').locator('.abl-row__course')).toHaveText(await row(page, 'a1').locator('.abl-row__course').innerText());
   await expect(people(page, 'a3')).toHaveText(['騰崴']);
-  // 「要改的」那一格拿掉 → 不改 → 印 app 上的芝寧
+  // 「要改的」那一格（在「發現問題」那一頁，ADR-0170）拿掉 → 不改 → 辨識結果上印 app 上的芝寧
+  await view(page, 'problems');
   await page.locator('[data-abl-change="adopt"][data-abl-for="a3"]').click();
   await expect(page.locator('[data-abl-change="adopt"][data-abl-for="a3"]')).toHaveAttribute('aria-checked', 'false');
+  await view(page, 'result');
   await expect(people(page, 'a3')).toHaveText(['芝寧']);
 
   // 手機寬：每一列都不撐出橫向捲動，課程＋人那一格截在列裡面
