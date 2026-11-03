@@ -31,7 +31,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
-  photoRowSays, problemsPage, rowGlance, rowTag,
+  photoRowSays, problemsPage, rowGlance, rowTag, seenAssigns,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
@@ -749,7 +749,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     //（abovee-confirm-glance 02）—— 按了只改這一列的那一格，存檔照舊走 `slotFromPicks()`，組不出來就照舊擋
     const seenCourse = course ? null
       : (ctx.master.courses.find((c) => c.id === item.course?.courseId) ?? null);
-    const assigns = course ? assignsFor(ent, course, item.equipmentId) : (seenCourse?.assigns ?? null);
+    const assigns = course ? assignsFor(ent, course, item.equipmentId) : (seenCourse ? seenAssigns(null, seenCourse, item.equipmentId) : null);
     const peopleCourse = course ?? seenCourse;
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');

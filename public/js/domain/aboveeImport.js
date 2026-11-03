@@ -3164,12 +3164,20 @@ function recordedSlotOf(item, ctx) {
   return slot ? { visit, slot } : null;
 }
 
+/**
+ * 拍 Abovee 照片上認出來的課程要畫治療師還是診間那一排（列上那一行與點開之後那幾排丸子共用，審查 R8）：
+ * `assignsFor()`；擇一池還沒選器材時它沒有答案，退回課程上那一格（同 `staffRoleFor()`）—— 只拿來畫，不寫入。
+ */
+export function seenAssigns(entitlement, course, equipmentId) {
+  return assignsFor(entitlement, course, equipmentId) ?? course?.assigns ?? 'none';
+}
+
 function glanceOf(slot, master, entitlements) {
   const course = (master.courses ?? []).find((c) => c.id === slot.courseId) ?? null;
   const what = slotName(slot, master, 'short') || '？';
   if (!course) return { what, cells: [] };
   const ent = slot.entitlementId ? ((entitlements ?? []).find((e) => e.id === slot.entitlementId) ?? null) : null;
-  const assigns = assignsFor(ent, course, slot.equipmentId) ?? course.assigns ?? 'none';
+  const assigns = seenAssigns(ent, course, slot.equipmentId);
   const fields = [
     assigns === 'therapist' ? 'therapistId' : assigns === 'room' ? 'roomId' : null,
     picksDoctor(course) ? 'doctorId' : null,
