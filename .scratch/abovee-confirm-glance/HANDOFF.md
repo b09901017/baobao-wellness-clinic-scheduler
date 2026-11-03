@@ -171,7 +171,28 @@ subagent 同時最多兩個；真名一個字都不進版控。
 
 ### 段三：審查（effort xhigh）
 
-（段二做完時主控補）
+這一輪在做「拍 Abovee 辨識完一眼看得完」（`spec.md`）。分支 `claude/abovee-confirm-glance`（checkout 在上面，最新 89ad64e3）。
+**01～05 都做完了**：01 caaca04c、02 66e610dc、03 adc3e59d、04 4306dfb3、05 8b3518ff。
+
+**這一段只審查、不修**：用 Skill 叫 `matt-code-review`，審 `develop`（cd1d29b7）到 HEAD 這一輪全部的改動（Standards ＋ Spec 兩軸，它會開兩個 subagent —— 那就是上限，不要再多開）。
+結果寫進 `.scratch/abovee-confirm-glance/REVIEW.md`，分「要修」（每條：哪裡、什麼情境會錯、建議的紅燈測試）、「不修」（理由）、「要她決定的」三塊。主控自己再對最重的幾條會在段四之前做。
+
+先讀：`CLAUDE.md`、`docs/agents/lessons.md`、`spec.md`、這份 HANDOFF 的「使用者已經決定的」「過目抓到的」「中途發現」（段一、段二全部）、issue 01～05 的「做完時留下的」、ADR-0170。
+
+要特別看的（問句；先照 `ripple-check` 查這幾個符號的呼叫端，再 grep 字串）：
+- 列上印的人／診間會不會跟按「記錄」存進去的不一樣？（`rowGlance()`、`slotAfter`、`composeGroups()`、`slotOf()`；已經記了的列「要改的」那一格勾／沒勾；改期、合併扣課後一半、沒有時間的舊段那幾條退路）
+- 一列有會改變寫入結果的提醒（`mustSee`），會不會在辨識結果上一個標記都沒有？（`mustSeeBy` 與 `tagBy` 是不是兩條路都產、一一對得上；`warningTag()`／`rowTag()` 不在對照表上的退路；`trialSay()`、`mergedNotices()`、`photoRowSays()`）
+- 「發現問題 N」的 N 等不等於那一頁列出來的件數？0 件灰掉時是不是真的沒有任何一句只在點開才看得到？（`problemsPage()`、`absentShown()`、`hasRowNote()`、`notYetOf()`）
+- 同一列會不會在 DOM 裡出現兩次？在發現問題那一頁勾一列、換一位、拆開、按一顆，回到辨識結果是同一個狀態嗎？N 變 0 會退回辨識結果嗎？（`view`、`pageOf()`、`rowsSig()`、`paintBody()`、`repaintRow()`、`rowEl()`）
+- 超用與到期分得出來嗎？`visits.js` 的 `from()` 帶 `kind` 之後，有沒有別的地方比整個 warning 物件、或拿 `from()` 的結果去 `JSON` 比對而被多出來的那一格弄壞？（grep `from(`、`entitlementWarnings`、`source ===`）
+- **本機只跑了拍 Abovee 那 16 支 E2E**（她說的）：`visits.js`、`app.css` 挑到的其餘沒跑 —— 看 `app.css` 的改動是不是只動 `.abl-*` 與 `.giftfold*`、`visits.js` 的改動會不會影響壓表／來訪編輯器／試算表的提醒；有疑慮寫進 REVIEW，段四的 CI 全量會再跑
+- 375 寬：短標記、課程＋人那一格會不會被截掉或撐出橫向捲動（E2E `86` W1、`87`）
+- 「別的課當體驗」：三個入口都不見了？講概念的註解還在？
+- 公開 repo：這一輪每一個 commit 訊息、測試、fixture 有沒有真名（人員只准種子上的名字與「某＋名」）
+
+**主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。不要改程式、不要推、不要開 PR。**
+
+做完要交：`REVIEW.md`（commit）、HANDOFF 分段表段三的狀態、要使用者決定的（有才寫）；最後回覆簡短說找到幾條要修、有沒有要她決定的。
 
 ### 段四：照審查修、驗收、PR（effort medium）
 
