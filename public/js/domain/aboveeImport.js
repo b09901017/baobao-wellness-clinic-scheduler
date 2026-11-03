@@ -2573,7 +2573,8 @@ export function absentShown(result, customers = []) {
  * - `notes`：照片層級的問題，一種一件（`statusColumn`：沒拍到「預約狀態」那一欄、`mismatch`：左右兩張列數不一樣、
  *   `noNames`：沒有姓名那一欄）。左右兩半正常配上（`halves`）不是問題，不列
  * - `changes`：「要改的」那一塊管的列（`offersChange()`；照列數，同抬頭的「要改 N 段」）
- * - `look`／`later`：「要你看」與收起來的「日子過了還沒結案」—— 哪幾列是打開這一層時定的（呼叫端記著，之後不跟著跳）
+ * - `look`／`later`：「要你看」與收起來的「日子過了還沒結案」—— 打開這一層時定的那幾列排前面（呼叫端記著，之後不跟著跳），
+ *   之後才變成要看的（`needsAttention()`）接在後面
  * - `flagged`：「有提醒的」—— 辨識結果上有紅字短標記（`rowTag()`，連還差一步）、或列底下有一句（`hasRowNote()`），
  *   又不在 `look`／`later` 裡的列。標記與整句一對一：她在辨識結果看到一個 ⚠，切過來一定找得到那一列
  * - `absent`：`absentShown()`
@@ -2597,9 +2598,12 @@ export function problemsPage(items = [], plan = null, {
   ];
   const keys = (fn) => list.filter(fn).map((i) => i.key);
   const changes = keys(offersChange);
-  const look = keys((i) => attention.has(i.key) && !later.has(i.key));
-  const stale = keys((i) => later.has(i.key));
-  const flagged = keys((i) => !attention.has(i.key) && !later.has(i.key) && (Boolean(rowTag(i, plan)) || hasRowNote(i)));
+  // 打開之後才變成要看的（她換了一位、那一段跟照片對不上，審查 R1）接在後面：`attention` 是「位置不跳」，不是「名單不變」
+  const lateLook = (i) => !attention.has(i.key) && needsAttention(i);
+  const isLater = (i) => later.has(i.key) || (lateLook(i) && pastStillOpen(i));
+  const look = [...keys((i) => attention.has(i.key) && !isLater(i)), ...keys((i) => lateLook(i) && !isLater(i))];
+  const stale = keys(isLater);
+  const flagged = keys((i) => !attention.has(i.key) && !isLater(i) && !lateLook(i) && (Boolean(rowTag(i, plan)) || hasRowNote(i)));
   const gone = absentShown(absent, customers);
   const rows = new Set([...changes, ...look, ...stale, ...flagged]);
   return { notes, changes, look, later: stale, flagged, absent: gone, count: notes.length + rows.size + gone.count };

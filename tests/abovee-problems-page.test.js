@@ -13,7 +13,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { absentSay, absentShown, problemsPage } from '../public/js/domain/aboveeImport.js';
+import { absentSay, absentShown, problemsPage, summarizeAbovee } from '../public/js/domain/aboveeImport.js';
 
 const CUSTOMERS = [{ id: 'c-wang', name: '王小明' }];
 const range = { lo: { date: '2026-10-02', time: '09:00' }, hi: { date: '2026-10-16', time: '10:00' } };
@@ -148,5 +148,16 @@ describe('problemsPage()：那一頁列哪幾件、N 是多少', () => {
     const p = page(items, { attention: new Set(['b1']), pairing: 'mismatch', absent: absent({ slots: [slot(5)] }) },
       { problems: { b2: ['還沒選器材'] } });
     assert.equal(p.count, 1 + 1 + 1 + 1 + 1);
+  });
+  // 審查 R1：打開時不在要你看、換一位之後才變成要看的列（對不上）—— 抬頭數得到、這一頁也要列得到
+  test('打開之後才變成要你看的列：接在後面、算進 N；N 不小於抬頭的「要你看」', () => {
+    const items = [
+      { key: 'e0', kind: 'mismatch', customerId: 'c-wang', reason: 'aboveeNotDone', appStatus: 'done' },
+      { key: 'e1', kind: 'mismatch', customerId: 'c-wang', reason: 'course' },
+    ];
+    const p = page(items, { attention: new Set(['e1']) });
+    assert.deepEqual(p.look, ['e1', 'e0'], '打開時那幾列照舊排前面');
+    assert.ok(p.count >= summarizeAbovee(items).attention);
+    assert.equal(page([items[0]]).count, 1);
   });
 });
