@@ -169,7 +169,7 @@ async function openScheduleDay(app, page, customerId = 'cust-g') {
 const shownEnts = (page) => page.locator('[data-ent]').evaluateAll((els) => els
   .filter((el) => el.offsetParent !== null).map((el) => el.dataset.ent));
 
-test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…」；別的課當體驗 → 復能 → INDIBA → 30 分 → 一段 IN(30) 體驗、不扣，那一排沒有重畫', async ({ app, page }) => {
+test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…」；展開 → 復能 → INDIBA → 30 分 → 一段 IN(30) 體驗、不扣，那一排沒有重畫', async ({ app, page }) => {
   await app.seed([...masterDocs(), ...poolCustomer()]);
   await app.signIn('/');
   await openScheduleDay(app, page);
@@ -188,6 +188,8 @@ test('G4 壓表：有額度的客戶只看得到額度＋「送的／體驗…�
   await expect(page.locator('[data-ent="__course__:course-hrv"]')).toBeVisible();
   await expect(page.locator('[data-ent="__course__:course-checkup"]'), '健檢不能當體驗').toHaveCount(0);
   await expect(page.locator('[data-ent="__course__:course-followup"]'), '二返也不能').toHaveCount(0);
+  // abovee-confirm-glance 01：分類那一排前面不畫「別的課當體驗」那一行小標（三個入口共用 giftFold.js，量一處）
+  await expect(fold, '沒有「別的課當體驗」那一行').not.toContainText('別的課當體驗');
   // 兩門以上的分類按了才露出那幾門
   await expect(page.locator('[data-ent="__course__:course-rehab"]')).toBeHidden();
   await page.locator('[data-giftfold-group]', { hasText: '醫師門診' }).click();

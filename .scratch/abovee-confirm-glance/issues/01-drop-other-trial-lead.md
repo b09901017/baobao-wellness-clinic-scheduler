@@ -1,6 +1,6 @@
 # 01：「送的／體驗／其他」展開後拿掉「別的課當體驗」那一行字
 
-Status: todo
+Status: done
 Blocked by: —
 
 ## 動工前先讀
@@ -35,3 +35,14 @@ Blocked by: —
 
 - 三個入口展開「送的／體驗／其他…」之後，畫面上還有沒有任何一處印出「別的課當體驗」？（單元測試掃 `giftFold.html()` 的輸出；E2E `67` 在一個入口量一次）
 - 拿掉那一行之後，分類那一顆（例：「醫師門診 ▾」）會不會跟預設體驗那幾顆擠成同一行、或順序變了？（`tests/gift-fold.test.js` 既有的順序那幾條照舊綠）
+
+## 做完時留下的（段一，2026-11-03）
+
+- 拿掉 `giftFold.js` 那一行 `<span class="giftfold__lead">別的課當體驗</span>` 與 `app.css` 的 `.giftfold__lead`；分類那一排照舊是自己一行（`row()`），順序沒動
+- 改了講畫面位置的四處：`masterList.js` 課程那顆 `?`、`CONTEXT.md` 預設體驗那一條、`docs/操作手冊.md` 兩處（壓表第 1 步、設定 → 課程）、`SPEC.md` 分類那一段
+- 測試：`tests/gift-fold.test.js` 原本比 `indexOf('別的課當體驗')` 的那一條改成比分類那一排的第一顆；新的一條「展開之後沒有那一行小標」（收著選著／展開三種）；
+  E2E `67` 的 G4 多一行 `not.toContainText('別的課當體驗')`（壓表那一個入口量一次）
+- **沒動的**：註解裡指 `giftOptions()` 的 `other` 那一組（`slotOptions.js`、`masterData.js`、`schedule.js`、`visitEditor.js`、`aboveeConfirm.js`、`giftFold.js` 的檔頭）、
+  CLAUDE.md 連動表兩列（講的是 `other` 那一組）、ADR-0148、測試名字裡的那幾個字（`exam-not-mine-option`、`provisional-courses`、`slot-options-order`、`uncounted-courses`：都是講那一組，不是比畫面上的字）
+- `docs/常見問題.md` 沒有提到那幾個字；過目 M10 講的約 1498 行那一條是 05 的事（「收著的列底下為什麼多一兩行字」）
+- `sw.js` v219 → v220

@@ -1055,13 +1055,6 @@ textarea {
   margin-top: var(--space-3);
 }
 
-.giftfold__lead {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text-mute);
-}
-
 /* 「換一款」自己不是一個選項，所以不長得像選項：虛線、淡字。 */
 .chip--more {
   border-style: dashed;
