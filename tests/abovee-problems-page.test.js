@@ -161,3 +161,17 @@ describe('problemsPage()：那一頁列哪幾件、N 是多少', () => {
     assert.equal(page([items[0]]).count, 1);
   });
 });
+
+// 審查 R3：「要改的」那一塊只在「發現問題」那一頁（ADR-0170）—— 叫她去看它的那幾句要講明在那一頁，
+// 在辨識結果點開一列時「最上面」沒有那一塊
+describe('指向「要改的」那一塊的句子講明在「發現問題」那一頁', () => {
+  test('recordBarSay() 與確認層裡的句子', async () => {
+    const { recordBarSay } = await import('../public/js/domain/aboveeImport.js');
+    assert.match(recordBarSay({ cannot: 2 }), /「發現問題」那一頁「要改的」那一塊/);
+    const { readFileSync } = await import('node:fs');
+    const ui = readFileSync(new URL('../public/js/ui/components/aboveeConfirm.js', import.meta.url), 'utf8');
+    const says = ui.match(/'[^'\n]*「要改的」那一塊[^'\n]*'/g) ?? [];
+    assert.ok(says.length >= 4, `找到 ${says.length} 句`);
+    for (const s of says) assert.match(s, /「發現問題」那一頁/, s);
+  });
+});

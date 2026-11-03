@@ -2855,7 +2855,7 @@ export function recordBar(wanted = [], plan = {}) {
 /** 那一顆上面那一句（還差一步、這一次改不成、還沒勾）。 */
 export function recordBarSay({ fresh = 0, changed = 0, stuck = 0, cannot = 0 } = {}) {
   if (stuck) return `勾起來的有 ${stuck} 段還差一步，點開補上`;
-  if (cannot) return `勾起來的有 ${cannot} 段這一次改不成（「要改的」那一塊寫著為什麼）`;
+  if (cannot) return `勾起來的有 ${cannot} 段這一次改不成（「發現問題」那一頁「要改的」那一塊寫著為什麼）`;
   return fresh + changed ? '' : '勾起要記的那幾段';
 }
 

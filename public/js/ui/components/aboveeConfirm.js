@@ -561,7 +561,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${/* 中途發現 12：狀態對不上（只提醒）、治療師／診間照 Abovee 改的那一段 —— 留在要你看，這一行講治療師那一件在哪裡勾 */''}
         ${item.kind === 'mismatch' && offersChange(item) && !open && !savedKeys.has(item.key)
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))} —— ${item.adopt
-            ? '照 Abovee 改（勾在最上面「要改的」那一塊）' : '最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
+            ? '照 Abovee 改（勾在「發現問題」那一頁最上面「要改的」那一塊）' : '「發現問題」那一頁最上面「要改的」那一塊沒勾，不改'}</p>` : ''}
         ${item.kind === 'recorded' && item.diffs?.length && item.locked && !open
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}`;
   }
@@ -638,7 +638,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // 是哪一種已經記了（同一個時間、合併扣課的後一半、沒有時間的舊段）那一句在 domain（`recordedSay()`，11）
       // 上面那一句講的是照片要它改成什麼；這一次會不會改看「要改的」那一塊的勾
       const where = !offersChange(item) ? ''
-        : `<p class="abl-row__say">${wantsWrite(item) ? '要不要改，勾在最上面「要改的」那一塊。' : '最上面「要改的」那一塊沒勾 —— 這一次不改。'}</p>`;
+        : `<p class="abl-row__say">${wantsWrite(item) ? '要不要改，勾在「發現問題」那一頁最上面「要改的」那一塊。' : '「發現問題」那一頁最上面「要改的」那一塊沒勾 —— 這一次不改。'}</p>`;
       return `<div class="abl-row__detail">${seen}<p class="abl-row__say">${esc(recordedSay(item))}</p>${adoptHtml(item, warnings)}${where}${who}</div>`;
     }
     if (item.kind === 'mismatch') {
