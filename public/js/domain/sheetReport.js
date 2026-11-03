@@ -20,8 +20,8 @@ import { purchaseDays, purchaseDayLabel } from './purchases.js';
 import {
   isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, shortStatus, MARK_ORDER, MARK_LEGEND,
 } from './visits.js';
-import { pairsOf, holdsExam, usedAndDone } from './followups.js';
-import { followupsOfExam, nthLabel, nthOf } from './nthFollowup.js';
+import { pairsOf, holdsExam, usedAndDone, isFollowupCourse } from './followups.js';
+import { followupsOfExam, nthLabel, nthOf, SECOND } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate, dayOf } from './dates.js';
 import { chartNosOf } from './identify.js';
@@ -29,7 +29,7 @@ import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
 import { nameOf as variantName, fullNameOf } from './naming.js';
-import { giftKindOf, giftLabel } from './masterData.js';
+import { giftKindOf, giftLabel, isExamNotMine } from './masterData.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
@@ -235,7 +235,8 @@ const ownedBy = (entitlementId) => (slot) => slot.entitlementId === entitlementI
 const NO_NUMBER = '—';
 
 /**
- * `extraRows()` 那幾列的先後：n返 → 體驗 → 送的 → 額度被刪的（gift-and-trial 03）。
+ * `extraRows()` 那幾列的先後：n返 → 體驗 → 送的 → 額度被刪的（gift-and-trial 03）。**沒有額度的二返排在 n返 那一組的最前面**
+ * （返數當 2，見 `extraRows()` 的 `rowNthOf()`；ADR-0169）。
  * `free` 是剩下那一種：沒有額度、不是 n返、也不是送的／體驗 —— 照規則存不下去（`validateVisit()` 擋「要選一個額度」），
  * 只有規則之前就在的舊資料會有，排在送的後面、照舊寫「（不算次數）」。
  */
@@ -282,6 +283,11 @@ const suffixOf = (kind) => SUFFIX[kind] ?? `（${giftLabel(kind)}）`;
  * 健檢那一欄底下那一行（`followupNotes()`）**照舊** —— 她：「要留，各自一列」。同一場三返在表上出現兩次是她要的。
  * **它還是不算進二返那一筆額度**：這裡認的是返數（`nthOf()`），額度那幾列認的是 `entitlementId`，兩邊不相交。
  *
+ * **健檢不是她排的**（`examNotMine`，2026-11-02，ADR-0169）：那幾段不扣、不接。三返～十返帶著返數，照返數進原本那一列；
+ * **二返自己一列「二返（不算次數）」、排在三返那一列前面**（返數當 2）。以前就在的舊資料裡沒有額度的二返（二返那門課、
+ * 不是送的／體驗，以前落在 `free`）名字也是「二返（不算次數）」—— **同一個名字不可以有兩列**，所以兩種併成同一列。
+ * 健檢那一欄底下那一行不印它們（`followupNotes()` 只繞接著那一次健檢的段）。
+ *
  * **這幾列不是額度**：
  *
  * - 「應有」「剩餘」沒有那個數字，印一槓。「已完成」「已排未上」是實際的次數，
@@ -305,10 +311,22 @@ const suffixOf = (kind) => SUFFIX[kind] ?? `（${giftLabel(kind)}）`;
 export function extraRows({ scheduled = [], visits = [], dates = [], coursesById = {}, equipment = [] }) {
   const drawn = new Set(scheduled.map((e) => e.id));
   const equipmentById = Object.fromEntries((equipment ?? []).map((e) => [e.id, e]));
+  const courseList = Object.values(coursesById ?? {});
+
+  /**
+   * 這一段在 n返 那一組算第幾返：n返 照返數；**沒有額度的二返算 2**（健檢不是她排的那一種，與以前就在的同形狀舊資料，
+   * 見上面）。標記問 `isExamNotMine()`、舊資料問「是不是二返那門課」—— 送的／體驗、扣著額度的都不是。
+   */
+  const rowNthOf = (slot) => {
+    const nth = nthOf(slot);
+    if (nth) return nth;
+    if (slot?.entitlementId || giftKindOf(slot, coursesById)) return null;
+    return isExamNotMine(slot) || isFollowupCourse(slot?.courseId, courseList) ? SECOND : null;
+  };
 
   /** 這一段是哪一種：`nth`、`trial`、`gift`、`gone`、`free`。有自己那一列（額度）的回 `null`。 */
   const kindOf = (slot) => {
-    if (nthOf(slot)) return 'nth';
+    if (rowNthOf(slot)) return 'nth';
     const id = slot?.entitlementId ?? null;
     if (id) return drawn.has(id) ? null : 'gone';
     return giftKindOf(slot, coursesById) ?? 'free';
@@ -322,7 +340,7 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
   const keyOf = (slot) => {
     const kind = kindOf(slot);
     if (!kind) return null;
-    if (kind === 'nth') return `nth|${nthOf(slot)}`;
+    if (kind === 'nth') return `nth|${rowNthOf(slot)}`;
     const eq = eqOf(slot, kind);
     return `${kind}|${slot?.courseId ?? `name:${slot?.courseName ?? ''}`}${eq ? `|eq:${eq.id}` : ''}`;
   };
@@ -336,7 +354,7 @@ export function extraRows({ scheduled = [], visits = [], dates = [], coursesById
       const outcome = slotOutcome(v, slot);
       if (!outcome) continue;
 
-      const nth = nthOf(slot);
+      const nth = rowNthOf(slot);
       const kind = kindOf(slot);
       const eq = eqOf(slot, kind);
       const group = groups.get(key) ?? {

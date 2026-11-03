@@ -120,7 +120,8 @@ describe('這一段可以做什麼（slotOptionsFor）', () => {
   test('額度照原本那一排的順序在前面，不算次數的課接在後面', () => {
     const ents = [ent(), ent({ id: 'e-used', label: '用完的', totalQty: 2, doneCount: 2 })];
     // 「別的課當體驗」（gift-and-trial 04）另外驗，這裡只看不算次數的那幾顆
-    const out = slotOptionsFor(ctxOf(ents)).filter((o) => !o.other);
+    // 「健檢不是我排的」（exam-not-mine 05，`extra`）在另一支驗
+    const out = slotOptionsFor(ctxOf(ents)).filter((o) => !o.other && !o.extra);
     assert.deepEqual(out.map((o) => o.label), ['復能(60)', '功醫門診', '營養師諮詢']);
     assert.equal(out[0].remaining, 10);
     assert.equal(out[0].entitlement.id, 'e-rec');

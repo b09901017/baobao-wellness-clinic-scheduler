@@ -391,7 +391,7 @@ test('G12 壓表：展開 → 選功醫門診 → 收回（開關寫著功醫門
   await expect(page.locator('[data-ent="__course__:course-fm"]'), '選擇沒有被收起來吃掉').toHaveAttribute('aria-pressed', 'true');
 
   await page.locator('[data-ent="ent-pool"]').click();
-  await expect(more(page), '換成額度：開關變回原本的字').toHaveText('送的／體驗…');
+  await expect(more(page), '換成額度：開關變回原本的字').toHaveText('送的／體驗／其他…');
   await expect(more(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(fold, '換一顆額度不動她收起來的').toHaveAttribute('data-giftfold', 'closed');
 });

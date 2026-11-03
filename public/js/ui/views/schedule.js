@@ -1299,7 +1299,7 @@ function dayPanel(row) {
                     data-ent="${esc(o.entitlementId)}">${esc(o.label)}
               ${/* n返 沒有次數這件事，所以那一格不印「剩 0」——
                     0 看起來像「用完了」，而它根本不是一筆額度 */''}
-              ${o.isNth || o.isGift ? '<span class="chip__note">不扣次數</span>'
+              ${o.isNth || o.isGift || o.isNotMine ? '<span class="chip__note">不扣次數</span>'
                 : `<span class="num dim">&nbsp;剩 ${o.remaining}</span>`}</button>`,
         })}
       </div>
@@ -1499,7 +1499,29 @@ function entFields(row, picked) {
     ${assigns === 'therapist' ? therapistField(all) : ''}
     ${assigns === 'room' ? roomField(all, course) : ''}
     ${picksDoctor(course) ? doctorField(all, course) : ''}
-    ${picked.isNth ? nthFields(row) : examField(row, picked)}`;
+    ${picked.isNth ? nthFields(row) : (picked.isNotMine ? notMineNthField() : examField(row, picked))}`;
+}
+
+/**
+ * 「健檢不是我排的」的「第幾返」（exam-not-mine 07，ADR-0169）：**二返～十返、不預選**（她按一下）。
+ *
+ * 跟 n返 那一排（`nthFields()`，`data-nth`，三返～十返）**另一排、另一個屬性**（`data-nmnth`）：那一排的說明寫
+ * 「二返…在上面那一排選它的額度」，而這裡二返就在這一排。返數照樣存在 `view.nth`（兩排不會同時出現，
+ * `resetCourseBoundPicks()` 本來就清它）。沒有「這是哪一次健檢的」那一排 —— 這一段不接健檢。
+ * 選了只改 `aria-pressed`（ADR-0038）。
+ */
+function notMineNthField() {
+  const numbers = [];
+  for (let n = 2; n <= MAX_NTH; n += 1) numbers.push(n);
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">第幾返${tip('健檢不是你排的：這一場不扣任何次數、不接 app 裡的任何一次健檢。')}</span>
+      <div class="chiprow noscroll-bar">
+        ${numbers.map((n) => `
+          <button class="chip chip--sm" type="button" aria-pressed="${n === view.nth}"
+                  data-nmnth="${n}">${esc(nthLabel(n))}</button>`).join('')}
+      </div>
+    </div>`;
 }
 
 /**
@@ -1925,6 +1947,16 @@ function onDeckClick(e) {
   const nth = e.target.closest('[data-nth]');
   if (nth) return pickNth(Number(nth.dataset.nth));
 
+  // 「健檢不是我排的」的第幾返（07）：同一格 `view.nth`，只換這一排的 aria-pressed
+  const nmnth = e.target.closest('[data-nmnth]');
+  if (nmnth) {
+    const n = Number(nmnth.dataset.nmnth);
+    view.nth = view.nth === n ? null : n;
+    deckEl()?.querySelectorAll('[data-nmnth]').forEach((b) =>
+      b.setAttribute('aria-pressed', String(Number(b.dataset.nmnth) === view.nth)));
+    return null;
+  }
+
   const time = e.target.closest('[data-time]');
   if (time) return pickTime(time.dataset.time === view.startsAt ? null : time.dataset.time);
 
@@ -2076,8 +2108,9 @@ function pickCourse(entitlementId) {
   // 換一門送的課還是送的（來訪編輯器與拍 Abovee 同一條，gift-and-trial 02）
   if (picked?.isGift) view.giftKind = kind;
   // 候選是跟著額度走的，所以要在畫之前先算 —— 只有一個選得下去的就先幫她選好。
+  // 「健檢不是我排的」兩邊都不走（exam-not-mine 07）：第幾返她自己按、不接健檢
   if (picked?.isNth) pickDefaultNth(row);
-  else pickExamIfObvious(row, picked);
+  else if (!picked?.isNotMine) pickExamIfObvious(row, picked);
   pickIvIfBought(picked);
   pickDoctorIfOnly(picked);
   fields.innerHTML = entFields(row, picked);
@@ -2195,6 +2228,8 @@ async function addSlot() {
     // 額度那一排上沒有這一顆（用完了、n返 沒有健檢可接）就等於沒選
     entitlementId: picked?.entitlement?.id ?? null,
     isNth: Boolean(picked?.isNth),
+    // 健檢不是我排的（exam-not-mine 07，ADR-0169）：二返那門課、不扣、不接健檢；返數是 `view.nth`（2～10，沒選 → 「先選第幾返」）
+    examNotMine: Boolean(picked?.isNotMine),
     // 送的／體驗：沒有額度，課程就是她按的那一顆（ADR-0121、gift-and-trial 01）
     giftCourseId: picked?.isGift ? picked.course.id : null,
     giftKind: pickedGiftKind(picked),

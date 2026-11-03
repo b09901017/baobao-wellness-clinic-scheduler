@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   slotOptionsFor, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse, giftPick, NTH_PICK, FOLLOWUP_GROUP,
+  notMineOption,
 } from '../public/js/domain/slotOptions.js';
 import { SEED } from '../public/js/domain/seed.js';
 import * as giftFold from '../public/js/ui/components/giftFold.js';
@@ -44,11 +45,15 @@ describe('收起來的是哪幾顆', () => {
     assert.deepEqual(shown.map((o) => o.label), ['復能-三選一(60)', 'ILIB(60)', '身體組成分析']);
     const firstFolded = out.findIndex((o) => o.folded);
     assert.equal(firstFolded, 3);
-    assert.ok(out.slice(firstFolded).every((o) => o.folded && o.isGift && o.entitlement === null));
+    // 收起來的：送的／體驗那幾顆，最後一顆是「健檢不是我排的」（exam-not-mine 05：不是送的，自己的旗標）
+    const folded = out.slice(firstFolded);
+    assert.ok(folded.every((o) => o.folded && o.entitlement === null));
+    assert.ok(folded.slice(0, -1).every((o) => o.isGift));
+    assert.equal(folded.at(-1).isNotMine, true);
   });
 
   test('展開之後第一排：功醫門診 → HRV → 心臟科評估 → EECP（她最常按的那幾門）', () => {
-    const first = options(THREE).filter((o) => o.folded && !o.other);
+    const first = options(THREE).filter((o) => o.folded && !o.other && !o.extra);
     assert.deepEqual(first.map((o) => o.label), ['功醫門診', 'HRV', '心臟科評估', 'EECP']);
   });
 
@@ -117,6 +122,7 @@ describe('順序跟主檔讀回來的順序無關', () => {
         course: board.find((o) => o.entitlementId === e.id).course,
       })),
       ...giftOptions(shuffled(COURSES)),
+      notMineOption(shuffled(COURSES)),
     ], COURSES);
     assert.deepEqual(editor.map((o) => o.entitlementId), board.map((o) => o.entitlementId));
   });
@@ -153,10 +159,10 @@ describe('畫法（ui/components/giftFold.js）', () => {
   const chip = (o) => `<button data-x="${o.entitlementId}">${o.label}</button>`;
   const html = (opts, value, open = foldOpen(opts, value)) => giftFold.html({ options: opts, value, open, chip });
 
-  test('收著：最後一顆「送的／體驗…」，那一組帶 closed', () => {
+  test('收著：最後一顆「送的／體驗／其他…」，那一組帶 closed', () => {
     const out = html(options(THREE), null);
     assert.match(out, /data-giftfold="closed"/);
-    assert.match(out, /data-giftfold-more[^>]*>送的／體驗…/);
+    assert.match(out, /data-giftfold-more[^>]*>送的／體驗／其他…/);
   });
 
   test('展開：帶 open；第一排不算次數的課、底下「別的課當體驗」', () => {
@@ -193,9 +199,9 @@ describe('畫法（ui/components/giftFold.js）', () => {
     assert.match(btn, /aria-expanded="false"/);
   });
 
-  test('收著、選著一般額度：開關照舊寫「送的／體驗…」、沒有按下去', () => {
+  test('收著、選著一般額度：開關照舊寫「送的／體驗／其他…」、沒有按下去', () => {
     const btn = moreOf(html(options(THREE), 'e-pool', false));
-    assert.match(btn, />送的／體驗…<\/button>/);
+    assert.match(btn, />送的／體驗／其他…<\/button>/);
     assert.match(btn, /aria-pressed="false"/);
   });
 
@@ -214,8 +220,9 @@ describe('畫法（ui/components/giftFold.js）', () => {
   });
 
   test('foldLabel()：三種字', () => {
-    assert.equal(giftFold.foldLabel(false), '送的／體驗…');
-    assert.match(giftFold.foldLabel(false, 'EECP'), /^EECP<span class="chip__note">送的／體驗 ▸<\/span>$/);
+    assert.equal(giftFold.foldLabel(false), '送的／體驗／其他…');
+    assert.match(giftFold.foldLabel(false, 'EECP'), /^EECP<span class="chip__note">送的／體驗／其他 ▸<\/span>$/);
+    assert.match(giftFold.foldLabel(true), /^送的／體驗／其他<span class="chip__note">▾ 收起來<\/span>$/);
     assert.match(giftFold.foldLabel(true, 'EECP'), /▾ 收起來/);
   });
 

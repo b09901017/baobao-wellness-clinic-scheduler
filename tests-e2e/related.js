@@ -638,6 +638,28 @@ export const COVERAGE = {
     'public/sw.js', 'public/js/ui/swUpdate.js', 'public/js/ui/views/home.js', 'public/js/ui/views/settings.js',
     'public/js/data/tasks.js', 'public/js/data/notes.js', 'public/js/data/visits.js', 'public/js/data/config.js',
   ],
+  // 健檢不是我排的（exam-not-mine，ADR-0169）：帶標記的段存進去、讀回來、日曆上的名字、長按確認之後形狀不變、待辦照二返那門課
+  '82-exam-not-mine': [
+    'public/js/domain/masterData.js', 'public/js/domain/visits.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/naming.js', 'public/js/domain/taskRules.js', 'public/js/domain/consequences.js',
+    'public/js/data/visits.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 健檢不是我排的：日曆新增與來訪編輯器（exam-not-mine 06）—— 收在「其他 ▸」、第幾返不預選、換回別的一顆清掉標記、既有一段改成帶標記的確認框
+  '83-exam-not-mine-editor': [
+    'public/js/ui/views/visitEditor.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
+  // 健檢不是我排的：壓表（exam-not-mine 07）—— 收在「其他 ▸」、第幾返不預選、不整頁重畫、按回額度之後組出來的段乾淨、紅字
+  '84-exam-not-mine-booking': [
+    'public/js/ui/views/schedule.js', 'public/js/domain/slotOptions.js', 'public/js/ui/components/giftFold.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js', 'public/js/domain/masterData.js',
+  ],
+  // 健檢不是我排的：拍 Abovee（exam-not-mine 08、09）—— 讀照片不替她按、不勾、講一句；按了之後第幾返照照片、沒有接健檢；存進去不扣；再拍一次已經記了
+  '85-exam-not-mine-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js', 'public/js/domain/consequences.js',
+    'public/js/domain/masterData.js', 'tests-e2e/fixtures/ai/',
+  ],
 };
 
 /**

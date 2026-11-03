@@ -38,7 +38,7 @@ import {
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { slotOptionsFor, foldOpen } from '../../domain/slotOptions.js';
-import { MAX_NTH, MIN_NTH, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
+import { MAX_NTH, MIN_NTH, SECOND, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
 import { searchCustomers } from '../../domain/customers.js';
 import {
   THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, GIFT_KINDS, giftLabel,
@@ -580,14 +580,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
-              sub: o.isNth || o.isGift ? '不扣次數' : `剩 ${o.remaining}`,
+              sub: o.isNth || o.isGift || o.isNotMine ? '不扣次數' : `剩 ${o.remaining}`,
               on: o.entitlementId === value, attr: 'data-abl-opt',
             }),
           })}
         </div>`);
-      if (item.isNth && !options.some((o) => o.isNth)) {
-        rows.push('<p class="abl-row__say">照片上是 n返，這位客戶還沒有排著或做完的健檢可以接 —— 選別的，或先去約健檢。</p>');
-      }
+      // 照片上是 n返／二返、這一位走不了一般那一條：那一句在 domain（`newRowSay()` 的 `notMineHint`，exam-not-mine 08），
+      // 收著也看得到（上面那一行）—— 這裡不再講一次
     }
 
     const ent = item.isNth ? null
@@ -613,7 +612,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         value: x.id, label: x.name, on: item.ivProductId === x.id, attr: 'data-abl-iv',
       }))));
     }
-    if (item.isNth && course) {
+    if (item.notMine) {
+      // 健檢不是她排的（ADR-0169）：只有「第幾返」—— **沒有「接哪一次健檢」**（它不接任何一次）
+      rows.push(notMineNthRow(item));
+    } else if (item.isNth && course) {
       rows.push(...nthRows(item));
     } else {
       // 連同這一張照片上勾著的健檢一起列（ADR-0145：健檢和二返都是新的，當下就接得上）
@@ -755,7 +757,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     return pool.map((c) => chipHtml({ value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who' })).join('');
   }
 
-  /** 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。 */
+  /**
+   * 這位客戶這一段可以做什麼（`slotOptionsFor()`，壓表同一支；用完的也列）。最後收在「其他 ▸」裡的是「健檢不是我排的」
+   * （exam-not-mine 05、09）：按了走 `pickOption()` 的 `NOT_MINE_PICK`。
+   */
   function optionsFor(item) {
     if (!item.customerId) return [];
     return slotOptionsFor({
@@ -766,6 +771,19 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       // n返 借的課程跟著她選的那一次健檢走
       followupForVisitId: item.isNth ? item.followupForVisitId : null,
     }, { includeUsedUp: true });
+  }
+
+  /**
+   * 「健檢不是我排的」那一列的第幾返（ADR-0169）：二返～十返，照片上的字已經按好（`pickOption()`）；照片上不是回訪就沒按，
+   * 勾了由 `slotFromPicks()` 擋「先選第幾返」（「還差一步」那一行）。屬性是 `data-abl-nmnth` —— **不是 n返 那一排的 `data-abl-nth`**
+   * （來訪編輯器 `s${i}-nmnth`、壓表 `data-nmnth` 同一個分法）。
+   */
+  function notMineNthRow(item) {
+    const numbers = [];
+    for (let n = SECOND; n <= MAX_NTH; n += 1) numbers.push(n);
+    return chipRow('第幾返', numbers.map((n) => ({
+      value: String(n), label: nthLabel(n), on: item.nth === n, attr: 'data-abl-nmnth',
+    })), tip('健檢不是你排的：這一場不扣任何次數、不接 app 裡的任何一次健檢。'));
   }
 
   /**
@@ -887,6 +905,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
+    // 「健檢不是我排的」那一列的第幾返（ADR-0169）：只換返數，標記、醫師、時長照舊
+    if (t.dataset.ablNmnth) { set({ ...item, nth: Number(t.dataset.ablNmnth) }); return; }
     // 按到那門課的「體驗的時候排幾分」→ 換成體驗（ADR-0154，壓表、來訪編輯器同一支 `trialFromMinutes()`）
     if (t.dataset.ablMin) { set(pickMinutes(item, Number(t.dataset.ablMin), ctx, items)); return; }
     if (t.dataset.ablGift) { set({ ...item, giftKind: t.dataset.ablGift }); return; }

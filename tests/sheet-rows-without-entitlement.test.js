@@ -248,6 +248,79 @@ describe('n返 也自己一列（issue 14，ADR-0131；健檢底下那一行照�
   });
 });
 
+describe('健檢不是她排的（ADR-0169，exam-not-mine 03）', () => {
+  // 別人轉來的客人：健檢不在 app 裡，二返與三返不扣、不接（時段上的 `examNotMine: true`）
+  const exam = day('2026-09-01', [{ entitlementId: 'e-exam', courseId: 'exam', courseName: '健檢', status: 'done' }]);
+  const second = day('2026-09-08', [{
+    entitlementId: 'e-fu', courseId: 'fu', courseName: '二返', followupForVisitId: exam.id, doctorId: 'd1', status: 'done',
+  }]);
+  const notMine = (date, n, over = {}) => day(date, [{
+    entitlementId: null, courseId: 'fu', courseName: n === 2 ? '二返' : `${n === 3 ? '三' : '四'}返`,
+    ...(n === 2 ? {} : { followupNth: n }), followupForVisitId: null, giftKind: null, doctorId: 'd1',
+    status: 'done', examNotMine: true, ...over,
+  }], { status: over.status ?? 'done' });
+
+  test('帶標記的二返自己一列「二返（不算次數）」，排在三返那一列前面；帶標記的三返進原本那一列', () => {
+    const sheet = build([notMine('2026-10-01', 2), notMine('2026-10-02', 3)], []);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['二返（不算次數）', '三返（不算次數）']);
+    const row = rowOf(sheet, '二返（不算次數）');
+    assert.deepEqual([row.total, row.done, row.booked, row.remaining, row.extra], ['—', 1, 0, '—', true]);
+    assert.equal(markOn(sheet, '二返（不算次數）', '2026-10-01'), '✓');
+    assert.equal(markOn(sheet, '三返（不算次數）', '2026-10-02'), '✓');
+    assert.equal(markOn(sheet, '二返（不算次數）', '2026-10-02'), '');
+  });
+
+  test('跟一般的三返（接著健檢）同一列：照返數分，不看連結', () => {
+    const linked = day('2026-09-20', [{
+      entitlementId: null, courseId: 'fu', courseName: '三返', followupNth: 3, followupForVisitId: exam.id, doctorId: 'd1', status: 'done',
+    }]);
+    const sheet = build([exam, second, linked, notMine('2026-10-02', 3)], [E_EXAM, E_FU]);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['健檢', '二返', '三返（不算次數）']);
+    assert.equal(rowOf(sheet, '三返（不算次數）').done, 2);
+  });
+
+  test('一般二返的額度列「應有／已完成／已排未上／剩餘」一個數字都沒變；合計也沒變', () => {
+    const numbers = (sheet) => { const r = rowOf(sheet, '二返'); return [r.total, r.done, r.booked, r.remaining]; };
+    const before = build([exam, second], [E_EXAM, E_FU]);
+    const after = build([exam, second, notMine('2026-10-01', 2), notMine('2026-10-05', 3)], [E_EXAM, E_FU]);
+    assert.deepEqual(numbers(after), numbers(before));
+    assert.deepEqual(after.totals, before.totals);
+    assert.equal(markOn(after, '二返', '2026-10-01'), '', '帶標記的二返那一天，二返額度那一列是空的');
+  });
+
+  test('健檢那一欄底下那一行不印它（它沒有接健檢）', () => {
+    const before = build([exam, second], [E_EXAM, E_FU]);
+    const after = build([exam, second, notMine('2026-10-01', 2), notMine('2026-10-05', 3)], [E_EXAM, E_FU]);
+    assert.deepEqual(after.followupNotes, before.followupNotes);
+  });
+
+  test('同一個名字不會有兩列：舊資料裡沒有額度的二返也併進「二返（不算次數）」', () => {
+    const old = day('2026-09-15', [free('fu')]);
+    const sheet = build([old, notMine('2026-10-01', 2), notMine('2026-10-02', 3)], []);
+    assert.deepEqual(sheet.rows.map((r) => r.label), ['二返（不算次數）', '三返（不算次數）']);
+    assert.equal(rowOf(sheet, '二返（不算次數）').done, 2);
+  });
+
+  test('不變量：只做一段帶標記的二返的那一天，那一欄照樣有符號；來訪紀錄有它', () => {
+    const sheet = build([notMine('2026-10-01', 2)], []);
+    const empty = sheet.dates.filter((_, i) => sheet.rows.every((r) => !r.marks[i]));
+    assert.deepEqual(empty, []);
+    assert.equal(sheet.log.reduce((n, d) => n + d.items.length, 0), 1);
+  });
+
+  test('手動貼上那條路：同一列、同一個順序', () => {
+    const visits = [notMine('2026-10-01', 2), notMine('2026-10-02', 3)];
+    const { rows } = customerReport({
+      customer: { id: 'c1', name: '客戶A' }, entitlements: [], visits, courses: COURSES, staff: MASTER.staff,
+    });
+    const labels = rows.map((r) => r[0]);
+    const at = labels.indexOf('二返（不算次數）');
+    assert.ok(at > 0);
+    assert.deepEqual(rows[at], ['二返（不算次數）', '—', '1', '0', '—', '✓', '']);
+    assert.equal(labels[at + 1], '三返（不算次數）');
+  });
+});
+
 describe('註記列的位置不受影響', () => {
   test('「這一天用了哪一台」與「記了什麼」的 rowIndex 指的還是額度那幾列', () => {
     const sheet = build([day('2026-10-01', [pool({ note: '她說下午比較好' }), free('fm')])]);

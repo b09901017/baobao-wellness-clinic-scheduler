@@ -57,7 +57,7 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 
-## 全部（166 支）
+## 全部（167 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -229,3 +229,4 @@
 | [0166](./0166-bucket-done-is-counted-by-the-day.md) | 逾期／今天／明天的「已完成」照日子算，任務、簽療程單、隨手記一起列 | 2026-10-21 | 現行 |
 | [0167](./0167-open-the-app-from-the-device-first.md) | 打開 app 先用手機裡的：程式檔（點「有新版本」才換）、先畫殼、首頁先用快取畫 | 2026-10-21 | 現行 |
 | [0168](./0168-sign-in-through-the-apps-own-address.md) | Google 登入走 app 自己的網址（iPad 主畫面那一顆才登得進去） | 2026-10-21 | 現行 |
+| [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
