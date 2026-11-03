@@ -55,7 +55,15 @@ def shot_rows(stem, n_expected):
     if not bands:
         return a, None, '切不出任何一列'
     med = float(np.median([y1 - y0 + 1 for y0, y1 in bands]))
-    # 多出來的先拿掉頭尾比較矮的（表頭、被截掉一半的列）
+    # 表頭先拿掉：每一頁都連表頭一起截時（2026-11 那一批），表頭跟資料列一樣高，下面那條「矮的先拿掉」拿不掉它。
+    # 資料列左邊一定有狀態徽章（一整塊彩色，約 1,200 像素），表頭那裡只有字（ClearType 的彩邊，約 230）
+    fills = [badge_fill(a, y0, y1) for y0, y1 in bands]
+    medf = float(np.median(fills))
+    while len(bands) > n_expected and fills[0] < 0.4 * medf:
+        bands, fills = bands[1:], fills[1:]
+    while len(bands) > n_expected and fills[-1] < 0.4 * medf:
+        bands, fills = bands[:-1], fills[:-1]
+    # 多出來的先拿掉頭尾比較矮的（被截掉一半的列）
     while len(bands) > n_expected:
         top, bot = bands[0], bands[-1]
         ht, hb = top[1] - top[0] + 1, bot[1] - bot[0] + 1
@@ -65,6 +73,13 @@ def shot_rows(stem, n_expected):
     if len(bands) != n_expected:
         return a, None, '切出 %d 列，抄本是 %d 列' % (len(bands), n_expected)
     return a, bands, None
+
+
+def badge_fill(a, y0, y1, width=160):
+    """一列最左邊那一段（鉛筆＋狀態徽章）有幾個亮的彩色像素。"""
+    b = a[y0:y1 + 1, :width]
+    chroma = b.max(axis=2) - b.min(axis=2)
+    return int(((chroma > 60) & (b.max(axis=2) > 150)).sum())
 
 
 def segments(a, y0, y1):
@@ -245,12 +260,22 @@ def anchors_from(shots, rows_by_shot, limit_shots=3):
     return out
 
 
+# Abovee 的字型不是固定的：2026-10 那兩批是 Noto Sans TC，2026-11-04 那一批換成微軟正黑體 UI（同樣 90% 縮放，
+# 日期那一格寬 55→57、高 9→8）。校正先照 `--font` 試，對不上再試這幾個。
+FONT_TRIES = ["'Noto Sans TC'", "'Microsoft JhengHei UI'", "'Microsoft JhengHei'"]
+
+
 def cmd_calibrate(opt, recs_by_shot):
-    """字型照 Abovee 的（Noto Sans TC）、字級從日期的寬度粗估，再掃：粗 → 色調 → 細 → 色調 → check。
-    錨點只拿第一張的日期與時段（十幾個不同的字串就夠），起始位置只試 64 個（100% 縮放的版面單位是 1/64 px）——
-    第一版拿三張圖、每個字級試 512 個位置，跑了十分鐘以上還沒完。"""
+    """錨點＝前幾張圖的日期與時段。兩步：
+    1. 粗：每個候選字型、字級從日期寬度估的 ±1.2（間隔 0.1），用**寬鬆比**（大小不必一樣）挑最像的字型與字級。
+       以前只用 Noto 的寬度比估一個起點、再掃 ±0.4 —— 字型一換，起點就偏了，嚴格比每一個都是「大小對不上」，掃不出來。
+    2. 細：那個字型、粗掃字級的 ±0.1（間隔 0.02），由近到遠每一個先擬色調再嚴格比，吻合最多的那個；全部吻合就停。
+    **全部錨點吻合才算校正成功**，才存一份到 `--shared` —— 失敗的校正存過去，會蓋掉下個月本來可以直接用的那一份
+    （2026-11-04 發生過一次）。起始位置只試 64 個（100% 縮放的版面單位是 1/64 px）。"""
+    import contextlib, io
     import calibrate as cal
     from pxx import conf
+    from pxx.conf import phases
     A = anchors_from(opt.shots, recs_by_shot, limit_shots=1)
     if len(A) < 6:
         A = anchors_from(opt.shots, recs_by_shot, limit_shots=3)
@@ -258,38 +283,56 @@ def cmd_calibrate(opt, recs_by_shot):
         print('錨點太少（%d 個）：切不出日期與時段。照 pixel-exact-screenshot-extraction 的第 2 步手動校。' % len(A))
         return 1
     cal.anchors = lambda: A
+    texts = sorted(set(t for _, t in A))
     widths = sorted(o.shape[1] for o, t in A if len(t) == 10)
     em0 = round(widths[len(widths) // 2] / 5.17, 1)   # 「2026-10-01」大約 5.17 em 寬（Noto Sans TC）
-    conf.save(font=opt.font, em=em0)
-    print('錨點 %d 個（%d 種字串）；字型 %s；字級粗估 %.1f' % (len(A), len(set(t for _, t in A)), opt.font, em0), flush=True)
-    best = pick_em(cal, em0 - 0.4, em0 + 0.4, 0.1)
-    conf.save(em=best)
-    print('字級（粗）%.2f' % best, flush=True)
-    cal.cmd_lut([])
-    best = pick_em(cal, best - 0.06, best + 0.06, 0.02)
-    conf.save(em=best)
-    print('字級（細）%.2f' % best, flush=True)
-    cal.cmd_lut([])
+    fonts = [opt.font] + [f for f in FONT_TRIES if f != opt.font]
+    print('錨點 %d 個（%d 種字串）；字級粗估 %.1f；試 %d 種字型' % (len(A), len(texts), em0, len(fonts)), flush=True)
+
+    coarse = None
+    for font in fonts:
+        em = em0 - 1.2
+        while em <= em0 + 1.2 + 1e-9:
+            e = cal.score(A, cal.render(texts, phases(8), font=font, em=round(em, 2)), strict=False)
+            m = float(sum(e)) / len(e)
+            if coarse is None or m < coarse[0]:
+                coarse = (m, font, round(em, 2))
+            em += 0.1
+    _, font, em_c = coarse
+    print('粗：%s，字級 %.2f（寬鬆比 %.1f）' % (font, em_c, coarse[0]), flush=True)
+
+    best = None
+    tries = [round(em_c + d * 0.02, 2) for d in (0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5)]
+    for em in tries:
+        conf.save(font=font, em=em)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = cal.cmd_lut([])
+        if rc == 1:
+            continue
+        e = cal.score(A, cal.render(texts, phases()), strict=True)
+        ok = sum(x < EXACT for x in e)
+        print('  字級 %.2f：%d/%d 吻合' % (em, ok, len(A)), flush=True)
+        if best is None or ok > best[0]:
+            best = (ok, em)
+        if ok == len(A):
+            break
+    if best is None:
+        print('校正失敗：%s 每一個字級都擬不出色調。照 pixel-exact-screenshot-extraction 的第 2 步手動校。' % font)
+        return 1
+    ok, em = best
+    conf.save(font=font, em=em, col_gap=6 if em < 11.5 else 10)   # 90% 縮放時欄跟欄比較近
+    with contextlib.redirect_stdout(io.StringIO()):
+        cal.cmd_lut([])
+    print('細：%s，字級 %.2f，錨點 %d/%d 吻合' % (font, em, ok, len(A)), flush=True)
+    if ok < len(A):
+        print('校正沒有全部吻合 —— 不存到共用的校正資料夾。照 pixel-exact-screenshot-extraction 的第 2 步手動校。')
+        return 1
     if opt.shared:
         os.makedirs(opt.shared, exist_ok=True)
         for f in ('profile.json', 'lut.npy'):
             shutil.copy(os.path.join(os.environ['PXX_WORK'], f), os.path.join(opt.shared, f))
         print('校正存了一份到 %s（下次同樣縮放的截圖直接用）' % opt.shared)
     return 0
-
-
-def pick_em(cal, lo, hi, step):
-    import numpy as np
-    from pxx.conf import phases
-    A = cal.anchors(); texts = sorted(set(t for _, t in A))
-    best, v = None, lo
-    while v <= hi + 1e-9:
-        e = cal.score(A, cal.render(texts, phases(64), em=v), strict=True)
-        key = (-sum(x < EXACT for x in e), float(np.mean(e)))
-        if best is None or key < best[0]:
-            best = (key, round(v, 4))
-        v += step
-    return best[1]
 
 
 # ---------- 驗證 ----------
