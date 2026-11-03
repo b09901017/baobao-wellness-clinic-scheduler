@@ -125,7 +125,7 @@ describe('月底對帳', () => {
     const r = reconcile({ ...CLEAN, 'c-a': { '2026-10-20': 'done' } },
       [...THREE, ['10-20', '王小明', '課程完成', { actualChartNo: CHART.客戶甲, relation: '夫妻' }]]);
     const row = r.issues.find((i) => i.date === '2026-10-20' && i.abovee);
-    assert.deepEqual(row.abovee.paidBy, { chartNo: CHART.客戶甲, relation: '夫妻', name: '客戶甲' });
+    assert.deepEqual(row.abovee.paidBy, { chartNo: CHART.客戶甲, relation: '夫妻', name: '客戶甲', customerId: 'c-a' });
   });
 
   test('沒拍到「共 N 筆」：只信第一列到最後一列之間 —— 最後一天沒截完的下午那一段不喊，頭尾那兩天不算次數', () => {
@@ -222,5 +222,115 @@ describe('健檢不是她排的（ADR-0169，exam-not-mine 03）：不另開桶'
     const snap = snapshot({});
     snap.visits.push(flagged('2026-10-09', 3));
     assert.deepEqual(types(run(snap, ROWS)), ['10-02 missing']);
+  });
+});
+
+// ---------- 2026-11-04 她定的樣子：可能少截、只差時間、合併扣課沒標、舊表、TimeTree ----------
+
+/** 照原樣跑一次：自己組好的快照、Abovee、（選填）舊表與行事曆 */
+function runRaw(snap, data, legacy = null) {
+  const dir = mkdtempSync(join(tmpdir(), 'mer-'));
+  try {
+    writeFileSync(join(dir, 's.json'), JSON.stringify(snap));
+    writeFileSync(join(dir, 'a.json'), JSON.stringify(data));
+    const extra = legacy ? ['--legacy', join(dir, 'l.json')] : [];
+    if (legacy) writeFileSync(join(dir, 'l.json'), JSON.stringify(legacy));
+    execFileSync(process.execPath, [SCRIPT, '--abovee', join(dir, 'a.json'), '--snapshot', join(dir, 's.json'),
+      '--month', '2026-10', '--today', '2026-11-02', '--out', join(dir, 'r.json'), ...extra], { stdio: 'pipe' });
+    return JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+/** 存著的次數跟著重算（不然多一件「畫面上的次數要重算」） */
+function recount(snap) {
+  for (const e of snap.entitlements) {
+    const c = counts(e, snap.visits.filter((v) => v.customerId === e.parentId), e.id);
+    Object.assign(e, { doneCount: c.done, bookedCount: c.booked });
+  }
+  return snap;
+}
+
+describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
+  test('同一位、同一天、同一門課，app 的時間不一樣（app 那段已完成）→ 一件「只差時間」，不是「app 少一次」＋「Abovee 找不到」', () => {
+    const snap = snapshot(CLEAN);
+    snap.visits.find((v) => v.date === '2026-10-16').slots[0].startsAt = '00:00';
+    const r = runRaw(recount(snap), abovee(THREE));
+    assert.deepEqual(types(r), ['10-16 timeOnly']);
+    assert.equal(r.issues[0].app.time, '00:00');
+    assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
+  });
+
+  test('Abovee 兩列各 30 分都課程完成、沒標合併扣課，app 一段 60 分蓋住兩列 → 一件「沒標合併扣課」', () => {
+    const rows = [...THREE.slice(0, 2),
+      ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30' }],
+      ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:00' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), ['10-16 mergeUnmarked']);
+    assert.equal(r.issues[0].abovee.with.course, 'SIS 30');
+  });
+
+  /** 三張截圖：a（滿頁兩列）、b（跟 a 一模一樣）、c；app 在 a 的最後一列與 c 的第一列之間多一段 */
+  function paged({ twin }) {
+    const data = abovee([['10-02', '王小明', '課程完成'], ['10-09', '王小明', '課程完成'], ['10-16', '王小明', '課程完成']]);
+    data.rows[2].src = 'c.png';
+    data.rows[2].row = 1;
+    data.meta.shots = ['a.png', 'c.png'];
+    data.meta.rowsPerShot = { 'a.png': 2, 'b.png': 2, 'c.png': 1 };
+    data.meta.duplicates = twin ? [{ shot: 'b.png', sameAs: 'a.png' }] : [];
+    return data;
+  }
+
+  test('同一頁截了兩次、下一頁沒截到：那一段 app 的不喊「Abovee 找不到」，收進「可能少截」，那幾天不算次數', () => {
+    const r = runRaw(recount(snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-12': 'done' } })), paged({ twin: true }));
+    assert.deepEqual(types(r), []);
+    assert.equal(r.gaps.length, 1);
+    assert.equal(r.gaps[0].twin, 'b.png');
+    assert.deepEqual(r.gaps[0].slots.map((x) => x.date), ['2026-10-12']);
+    assert.ok(r.days.filter((d) => d.coverage === 'gap').map((d) => d.date).includes('2026-10-12'));
+    assert.deepEqual(r.summary.totals, { abovee: 1, app: 1, sheet: 1 });
+  });
+
+  test('沒有重複的截圖，但滿頁的接縫之間 app 有段 → 也是「可能少截」；接縫之間 app 沒有段就不講', () => {
+    const r = runRaw(recount(snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-12': 'done' } })), paged({ twin: false }));
+    assert.equal(r.gaps.length, 1);
+    assert.equal(r.gaps[0].twin, null);
+    assert.equal(runRaw(snapshot(CLEAN), paged({ twin: false })).gaps.length, 0);
+  });
+
+  test('舊表：多勾（Abovee 與 app 都沒做完）與少勾（兩邊都做完、舊表沒勾）才列；跟 app 一樣的不列', () => {
+    const legacy = {
+      legacy: {
+        file: 'all_client.xlsx', groups: { 王小明: ['c-wang'] }, unmatchedSheets: [], unmappedLabels: [],
+        ticks: [
+          { group: '王小明', date: '2026-10-02', label: 'SIS(60min)', courseId: 'course-recovery', accepts: ['course-recovery'] },
+          { group: '王小明', date: '2026-10-05', label: 'SIS(60min)', courseId: 'course-recovery', accepts: ['course-recovery'] },
+          { group: '王小明', date: '2026-10-16', label: 'SIS(60min)', courseId: 'course-recovery', accepts: ['course-recovery'] },
+        ],
+      },
+      timetree: { file: null, days: [] },
+    };
+    const r = runRaw(snapshot(CLEAN), abovee(THREE), legacy);
+    assert.deepEqual(r.legacy.rows.map((x) => `${x.date.slice(5)} ${x.kind}`), ['10-05 extra', '10-09 missing']);
+  });
+
+  test('TimeTree：只列「Abovee 那天做完了、TimeTree 那天沒寫這一位」', () => {
+    const legacy = { legacy: { file: null }, timetree: { file: 'timetree.ics', days: [{ customerId: 'c-wang', date: '2026-10-02' }] } };
+    const r = runRaw(snapshot(CLEAN), abovee(THREE), legacy);
+    assert.deepEqual(r.timetree.missing.map((m) => m.date.slice(5)), ['10-09', '10-16']);
+  });
+});
+
+describe('合成抄本：同一頁截了兩次', () => {
+  test('兩張抄出來一模一樣 → 只算一次，記在 meta.duplicates', async () => {
+    const { assemble } = await import('../.claude/skills/month-end-reconciliation/scripts/assemble.mjs');
+    const head = '預約狀態\t預約日期\t預約時段\t姓名\t病歷號\t課程\t合併扣課\t實際扣課病歷號\t關係\t預約來源\t診間\t服務資源\t取消原因';
+    const body = ['課程完成\t2026-10-02\t10:00 - 11:00\t王小明\t00001234\tSIS 60\t\t\t\t顧客會\t\t\t-',
+      '課程完成\t2026-10-09\t10:00 - 11:00\t王小明\t00001234\tSIS 60\t\t\t\t顧客會\t\t\t-'].join('\n');
+    const tsv = (shot) => `# 截圖\t${shot}\n${head}\n${body}\n`;
+    const out = assemble([{ file: '01_a.tsv', text: tsv('a.png') }, { file: '02_b.tsv', text: tsv('b.png') }], { month: '2026-10' });
+    assert.equal(out.rows.length, 2);
+    assert.deepEqual(out.meta.duplicates, [{ shot: 'b.png', sameAs: 'a.png' }]);
+    assert.deepEqual(out.meta.shots, ['a.png']);
   });
 });
