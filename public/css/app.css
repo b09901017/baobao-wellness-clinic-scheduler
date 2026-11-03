@@ -10538,11 +10538,30 @@ body.has-abl {
 }
 
 .abl-row__what {
-  overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
   font-size: var(--text-sm);
   color: var(--text-dim);
+}
+
+/* 課程＋人／診間一格，太長就截（abovee-confirm-glance 02）；右邊留給段二的紅字標記（flex: none，不被截） */
+.abl-row__glance {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.abl-row__person {
+  margin-left: 0.6em;
+  color: var(--text);
+}
+
+/* 還沒有的那一格（「醫師？」）：一眼看得出缺什麼，但不是錯 */
+.abl-row__person--none {
+  color: var(--text-mute);
 }
 
 .abl-row__tag {

@@ -27,7 +27,7 @@ import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, absentSay, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
-  photoRowSays,
+  photoRowSays, rowGlance,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
   statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
 } from '../../domain/aboveeImport.js';
@@ -43,7 +43,7 @@ import { searchCustomers } from '../../domain/customers.js';
 import {
   THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
-import { slotName, fullNameOf } from '../../domain/naming.js';
+import { fullNameOf } from '../../domain/naming.js';
 import { shortDate, monthLabel } from '../../domain/dates.js';
 import { icon } from '../icons.js';
 import { pushLayer, whenSettled } from '../nav.js';
@@ -346,7 +346,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
               <div class="abl-row__main">
                 <span class="abl-row__time"><small class="abl-row__date">${esc(shortDate(s.date))}</small>${esc(s.startsAt ?? '—')}</span>
                 <span class="abl-row__who">${esc(s.customerName)}</span>
-                <span class="abl-row__what">${esc(s.name)}</span>
+                <span class="abl-row__what"><span class="abl-row__glance">${esc(s.name)}</span></span>
                 <span class="abl-row__tag">${esc(shortStatus(s.status))}</span>
               </div>
             </div>
@@ -439,7 +439,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const open = openKey === item.key;
     const customer = ctx.customers.find((c) => c.id === item.customerId);
     const built = slotOf(item);
-    const what = built?.slot ? slotName(built.slot, ctx.master, 'short') : (item.row.course || '？');
+    // 課程＋人／診間，印的是存完之後那一段（`rowGlance()`，abovee-confirm-glance 02）
+    const glance = rowGlance(item, p, ctx);
     const canCheck = item.kind === 'new' && item.customerId && !savedKeys.has(item.key) && !running;
     const problems = wantsWrite(item) ? (p.problems[item.key] ?? []) : [];
     const near = nearSay(item);
@@ -456,7 +457,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             <span class="abl-row__time">${attention.has(item.key) && item.date
               ? `<small class="abl-row__date">${esc(shortDate(item.date))}</small>` : ''}${esc(item.startsAt ?? '—')}</span>
             <span class="abl-row__who">${esc(customer?.name ?? (item.row.name || '？'))}</span>
-            <span class="abl-row__what">${esc(what)}</span>
+            <span class="abl-row__what">${glanceHtml(glance)}</span>
             <span class="abl-row__tag">${esc(tag === 'unknown' && item.who.how === 'none' ? 'app 裡沒有' : TAGS[tag])}</span>
           </button>
         </div>
@@ -484,6 +485,18 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
           ? `<p class="abl-row__hint">${esc(item.diffs.map((d) => diffSay(d, ctx.master)).join('；'))}</p>` : ''}
         ${open ? detailHtml(item, built, problems, p.warningsBy[item.key] ?? [], whatIfOf(item)) : ''}
       </li>`;
+  }
+
+  /**
+   * 列上那一行的課程＋人／診間（abovee-confirm-glance 02），樣子照日曆那一列：`IN(60) 姿璇`、`三返 夏`；
+   * 還沒有的那一格灰色「醫師？」。一整串一格、太長就截（`.abl-row__glance`）——
+   * 右邊那一格留給段二的紅字標記（`.abl-row__what` 是 flex，標記接在後面、不被截）。
+   */
+  function glanceHtml(g) {
+    const cells = g.cells.map((c) => (c.name
+      ? `<span class="abl-row__person">${esc(c.name)}</span>`
+      : `<span class="abl-row__person abl-row__person--none">${esc(c.label)}？</span>`)).join('');
+    return `<span class="abl-row__glance"><span class="abl-row__course">${esc(g.what)}</span>${cells}</span>`;
   }
 
   /**
@@ -643,12 +656,17 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       }))));
     }
 
-    const assigns = course ? assignsFor(ent, course, item.equipmentId) : null;
+    // 還沒按任何一顆（照片上三返、還沒按「健檢不是我排的」）組不出時段：治療師／診間／醫師那幾排照照片認出的課程畫
+    //（abovee-confirm-glance 02）—— 按了只改這一列的那一格，存檔照舊走 `slotFromPicks()`，組不出來就照舊擋
+    const seenCourse = course ? null
+      : (ctx.master.courses.find((c) => c.id === item.course?.courseId) ?? null);
+    const assigns = course ? assignsFor(ent, course, item.equipmentId) : (seenCourse?.assigns ?? null);
+    const peopleCourse = course ?? seenCourse;
     if (course && picksEquipment(ent, course) && !item.equipmentId) {
       rows.push('<p class="abl-row__say">先選上面那一台，才知道要治療師還是診間。</p>');
     } else if (assigns === 'room') {
       // 認到的是停用的那一間（她主檔上停用的診間，ADR-0127）時那一顆也要在上面，不然看起來像沒認到
-      const slots = orderedRoomSlots(course, ctx.master.rooms, { keep: item.roomId });
+      const slots = orderedRoomSlots(peopleCourse, ctx.master.rooms, { keep: item.roomId });
       const usual = slots.filter((s) => s.usual || s.retired);
       const shown = showAllRooms.has(item.key) || !usual.length ? slots : usual;
       rows.push(chipRow('診間', shown.map((s) => ({
@@ -659,10 +677,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         value: s.id, label: s.name, on: item.therapistId === s.id, attr: 'data-abl-therapist',
       }))));
     }
-    if (course && picksDoctor(course)) {
+    if (peopleCourse && picksDoctor(peopleCourse)) {
       // 誰排前面只寫在 `doctorChoicesFor()`（ADR-0120）。**這裡不套 `preselect`** ——
       // 照片上已經寫著是哪一位，認不出來時替她挑一位等於把照片上的字蓋掉
-      const { first, others } = doctorChoicesFor(course, ctx.master.staff);
+      const { first, others } = doctorChoicesFor(peopleCourse, ctx.master.staff);
       rows.push(chipRow('醫師', [...first, ...others].map((s) => ({
         value: s.id, label: s.name, on: item.doctorId === s.id, attr: 'data-abl-doctor',
       }))));

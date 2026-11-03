@@ -1,6 +1,6 @@
 # 02：拍 Abovee 每一列直接印治療師／醫師／診間，已經記了的印 app 的名字
 
-Status: todo
+Status: done
 Blocked by: —
 
 ## 動工前先讀
@@ -52,3 +52,23 @@ Blocked by: —
 - 已經記了的 EECP 那一列：課程印的是日曆上那個名字，不是照片原字 `EECP60`？
 - 治療師的課會不會多印一格診間（或反過來）？醫師那一格只在 `picksDoctor()` 為真時出現？
 - 有沒有任何一處從人員那一筆直接讀 `.name`（`tests/staff-short-name.test.js` 會抓）？
+
+## 做完時留下的（段一，2026-11-03）
+
+- **domain**：`aboveeImport.js` 的 `rowGlance(item, plan, ctx)` → `{ what, cells: [{ field, label, name|null }] }`。找那一段的順序：
+  1. `photoDayPlan()` 多回一份 `slotAfter[key]`（`{ visit, slot }`）：`writes` 裡每一列 —— `touch.done` 的（「要改的」勾著、真的改成了的）讀 `touch.at[key]`，新的讀 `adds.at[key]`。
+     沒套上的（`missed`、有 problems 的）不在 `writes` 裡 → 往下退到 app 上那一段，也就是存完之後的樣子
+  2. 已經記了：`recordedSlotOf()` —— 有 `slotIndex` 照位置；**改期存好之後**（舊的那一段已取消）找照片那個時間、同一筆剛好一段活著的；
+     `halfOf` 找前一半那個時間；`timeless` 找那一天同一門課、沒有時間、剛好一段；都找不到退回照片上的
+  3. 新的：`slotFromPicks(picksOf(item))`（存檔交給它的同一份）
+  4. 其餘（認不得人、對不上、組不出來）：照片上的 `item.course`＋`item.*Id`；n返 走 `slotName()` 讀 `followupNth`／快照那一條；認不出課程只有原字
+  - 要印哪幾格：`assignsFor()`（擇一池還沒選器材退回 `course.assigns`）＋`picksDoctor()`；名字只走 `nameOf(row, 'short')`
+- **畫面**：`rowHtml()` 只畫（`glanceHtml()`）。`.abl-row__what` 改成 flex 容器，裡面 `.abl-row__glance`（課程＋人，nowrap＋ellipsis）——
+  **段二的紅字標記直接接在 `.abl-row__glance` 後面、`flex: none`**，不被截。「app 有、這次照片上沒有」那一塊的列也包一層 `.abl-row__glance`（樣子不變）。
+  缺的那一格灰色（`.abl-row__person--none`，`醫師？`）。列底下那幾行提示一行都沒動
+- **點開那一塊（第三件）做了**：組不出時段時，治療師／診間／醫師那幾排照照片認出的課程畫（`seenCourse`）。按了只改那一列的那一格（`pickOption()` 本來就留著人與診間），
+  存檔照舊走 `slotFromPicks()`、組不出照舊擋 —— 不會讓還沒選額度的列存進去。器材、品項、排多久那幾排照舊要 `built.course`
+- 測試：`tests/abovee-row-glance.test.js`（9 條：勾／不勾的治療師、日曆名字、沒有計畫、合併扣課後一半與找不到、沒有時間的舊段、三返醫師、新的列讀時段、缺的格、認不得人）；
+  E2E `86-abovee-row-glance`（W1：三返還沒按就印醫師、灰色「治療師？」、已經記了照「要改的」勾不勾換人、375 寬不橫向捲、點開醫師那一排先選好、換醫師列上跟著換），登記 `related.js`
+- `aboveeConfirm.js` 不再 import `slotName`。`sw.js` v220 → v221
+- 已知的小洞（沒修）：**記好了**的列（`savedKeys`）不在計畫裡，改期記好之後靠 `recordedSlotOf()` 那一條找新的那一段；新的列記好之後照舊 `slotFromPicks()`（同一份選擇，印的一樣）

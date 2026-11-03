@@ -33,7 +33,7 @@ import { chargesEntitlement, counts, isProduct } from './entitlements.js';
 import { cannotClose, closeBlocks, examChoicesFor, examStatusIn, isFollowupCourse, pairsOf, PICKABLE_EXAM } from './followups.js';
 import { changeChargeSay, closeBlockSay } from './consequences.js';
 import { DOCTOR_ROLE, THERAPIST_ROLE, normalizeAlias, isBedlessOf, oneCharOff, GIFT_KINDS, canBeGift,
-  giftKindOf, isTrialMinutes, trialMinutesOf, EXAM_NOT_MINE_LABEL,
+  giftKindOf, isTrialMinutes, trialMinutesOf, EXAM_NOT_MINE_LABEL, picksDoctor,
 } from './masterData.js';
 import { noticeFlags } from './contraindications.js';
 import { endOf, isValidTime, toMinutes } from './visitTime.js';
@@ -42,7 +42,7 @@ import {
   NTH_PICK, NOT_MINE_PICK, EXTRA_GROUP, giftCourseIdOf, giftPick, notMineOption, slotOptionsFor, trialFromMinutes,
 } from './slotOptions.js';
 import { MIN_NTH, nthLabel, nthOf } from './nthFollowup.js';
-import { fullNameOf, slotName } from './naming.js';
+import { fullNameOf, nameOf, slotName } from './naming.js';
 import { isValidDate, shortDate } from './dates.js';
 import { bookingSystemOf } from './taskRules.js';
 
@@ -2803,6 +2803,7 @@ const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots
  *   `freed` 給 `save()`（「取消 Abovee」一出生就勾好，02）、`keys` 是這一筆寫進去的那幾列、`pressed` 是那一天有沒有一段活著的新段（標壓完）。
  *   `rows`：每一列做了什麼、那一筆額度因此差幾次（`charge`：扣 +1、還 −1；跟 `counts()` 一段一段加起來同一個數）。
  *   `deltas`：每一位每一筆額度前後的差（`countDeltas()`）—— `rows` 的 `charge` 加起來就是它的 `remaining` 的負數
+ *   `slotAfter`：這一次會寫進去的每一列（列的 key）→ 寫進去的那一筆與那一段（`{ visit, slot }`）—— 「要改的」勾著的那幾件已經套好
  */
 export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {}) {
   const list = items ?? [];
@@ -2959,7 +2960,13 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     afterAll[customerId] = [...stored.filter((v) => !replaced.has(v?.id)), ...mine.map((w) => ({ ...w.visit, id: w.id }))];
     deltas[customerId] = countDeltas(ctx.entitlementsBy?.[customerId] ?? [], stored, afterAll[customerId]);
   }
-  return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas };
+  // 每一列存完之後那一段（`rowGlance()`，abovee-confirm-glance 02）：列上那一行印的就是會寫進去的那一份
+  const slotAfter = {};
+  for (const w of writes) {
+    for (const key of Object.keys(w.touch?.done ?? {})) slotAfter[key] = { visit: w.visit, slot: w.visit.slots?.[w.touch.at[key]] ?? null };
+    for (const item of w.adds?.items ?? []) slotAfter[item.key] = { visit: w.visit, slot: w.visit.slots?.[w.adds.at[item.key]] ?? null };
+  }
+  return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas, slotAfter };
 }
 
 /**
@@ -2988,6 +2995,104 @@ export function whatIfChecked(items, key, ctx, o = {}) {
 
 /** 這一份計畫裡要標成壓完的每一位每一天（`queueMarksAfter()` 收的那一份）。 */
 export const pressedDays = (plan) => (plan?.writes ?? []).filter((w) => w.pressed).map((w) => ({ customerId: w.customerId, date: w.date }));
+
+// ---------- 列上那一行 ----------
+
+/** 列上那一行的人／診間那幾格，缺的時候畫面印「醫師？」。 */
+const GLANCE_LABELS = { therapistId: '治療師', roomId: '診間', doctorId: '醫師' };
+
+/**
+ * 一列收著時那一行要印的課程名＋人／診間（abovee-confirm-glance 02）。她 11/3：「能不能也看到診間和醫師
+ * 不要我每個都要點開 像日曆那邊一樣」。印法照日曆那一列（`agendaFor()`）：簡寫（`nameOf(row, 'short')`）。
+ *
+ * **印的是按「記錄」之後的那一段**，照這個順序找：
+ * 1. 這一次會寫進去的列：計畫裡寫進去的那一段（`photoDayPlan()` 的 `slotAfter`）—— 「要改的」那一塊勾著的治療師／診間、
+ *    扣法、狀態、改期都已經套好了。**不在這裡再套一次**（以前的 `afterPhoto()` 沒套治療師／診間）
+ * 2. 已經記了：app 上那一段（`recordedSlotOf()`）。`existing` 不一定有位置，每一種形狀各找一次
+ * 3. 新的、組得出時段：交給存檔的同一份（`slotFromPicks(picksOf(item))`）—— 另組一份的話列上印的會跟存進去的不一樣
+ * 4. 其餘（認不得人、對不上、組不出來 —— 例：照片上三返、還沒按任何一顆）：照片上認出來的課程與人
+ *
+ * 要印哪幾格只看那門課：`assignsFor()` 是治療師或診間（擇一池還沒選器材退回課程上那一格，同 `staffRoleFor()`）、
+ * `picksDoctor()` 是醫師。日曆那一列不印醫師，這裡印（她指名「診間和醫師」）。
+ *
+ * @param {object} item 一列
+ * @param {{slotAfter?: object}|null} plan `photoDayPlan()` 的結果（記好的列不在裡面，傳 `null` 也可以）
+ * @param {{entitlementsBy, visitsBy, master}} ctx
+ * @returns {{what: string, cells: {field: 'therapistId'|'roomId'|'doctorId', label: string, name: string|null}[]}}
+ *   `name` 是 `null` ＝ 還沒有那一格。認不出課程：只有原字、`cells` 是空的
+ */
+export function rowGlance(item, plan, ctx) {
+  const master = ctx?.master ?? {};
+  const found = glanceSlot(item, plan, ctx);
+  if (found?.slot) return glanceOf(found.slot, master, ctx.entitlementsBy?.[item.customerId] ?? []);
+  const seen = item?.course;
+  const course = seen ? ((master.courses ?? []).find((c) => c.id === seen.courseId) ?? null) : null;
+  if (!course) return { what: clean(item?.row?.course) || '？', cells: [] };
+  // 照片上認出來的那一段（n返 的名字只在快照上：`slotName()` 讀 `followupNth` 那一條）
+  return glanceOf({
+    courseId: course.id, equipmentId: item.equipmentId ?? seen.equipmentId ?? null, ivProductId: item.ivProductId ?? seen.ivProductId ?? null,
+    giftKind: null, ...(seen.nth ? { followupNth: seen.nth, courseName: nthLabel(seen.nth) } : {}),
+    therapistId: item.therapistId ?? null, roomId: item.roomId ?? null, doctorId: item.doctorId ?? null,
+  }, master, []);
+}
+
+function glanceSlot(item, plan, ctx) {
+  const after = plan?.slotAfter?.[item?.key];
+  if (after?.slot) return after;
+  if (!item?.customerId) return null;
+  if (item.kind === 'recorded') return recordedSlotOf(item, ctx);
+  // 對不上的列照片上的才是她要對的那一份（app 上那一段點開去日曆看）
+  if (item.kind !== 'new') return null;
+  const { courses = [], equipment = [], ivProducts = [] } = ctx.master ?? {};
+  const { slot } = slotFromPicks(picksOf(item), {
+    courses, equipment, ivProducts,
+    entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: ctx.visitsBy?.[item.customerId] ?? [],
+  });
+  return slot ? { slot } : null;
+}
+
+/**
+ * 已經記了的那一列對到 app 上哪一段。`existing` 的形狀不只一種：
+ * - 有 `slotIndex`：那一段。**改期存好之後**舊的那一段取消了，新的在照片那個時間（同一筆、剛好一段活著的）
+ * - 合併扣課的後一半（`halfOf`）：前一半那個時間的那一段
+ * - 沒有時間的舊段（`timeless`）：那一天同一門課、沒有時間、活著的，剛好一段才算
+ * 都找不到 → `null`（退回照片上的）
+ */
+function recordedSlotOf(item, ctx) {
+  const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing?.visitId) ?? null;
+  if (!visit) return null;
+  const slots = visit.slots ?? [];
+  const only = (fn) => {
+    const hits = slots.filter((s) => isLiveSlot(s) && fn(s));
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const at = item.existing?.slotIndex;
+  const old = Number.isInteger(at) ? (slots[at] ?? null) : null;
+  const slot = (item.move && old && slotStatus(visit, old) === 'cancelled' ? only((s) => s.startsAt === item.startsAt) : null)
+    ?? old
+    ?? (item.halfOf ? only((s) => s.startsAt === item.halfOf) : null)
+    ?? (item.timeless ? only((s) => !s.startsAt && s.courseId === item.course?.courseId) : null);
+  return slot ? { visit, slot } : null;
+}
+
+function glanceOf(slot, master, entitlements) {
+  const course = (master.courses ?? []).find((c) => c.id === slot.courseId) ?? null;
+  const what = slotName(slot, master, 'short') || '？';
+  if (!course) return { what, cells: [] };
+  const ent = slot.entitlementId ? ((entitlements ?? []).find((e) => e.id === slot.entitlementId) ?? null) : null;
+  const assigns = assignsFor(ent, course, slot.equipmentId) ?? course.assigns ?? 'none';
+  const fields = [
+    assigns === 'therapist' ? 'therapistId' : assigns === 'room' ? 'roomId' : null,
+    picksDoctor(course) ? 'doctorId' : null,
+  ].filter(Boolean);
+  return { what, cells: fields.map((field) => ({ field, label: GLANCE_LABELS[field], name: glanceName(field, slot[field], master) })) };
+}
+
+function glanceName(field, id, { rooms = [], staff = [] } = {}) {
+  if (!id) return null;
+  const row = (field === 'roomId' ? rooms : staff).find((x) => x.id === id) ?? null;
+  return row ? (nameOf(row, 'short') || null) : null;
+}
 
 /**
  * 存的那一下要寫的那一份（`record()`：一位重讀之後叫它，再交給 `writePhotoPlan()`）。
