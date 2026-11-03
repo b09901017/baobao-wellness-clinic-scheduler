@@ -1950,7 +1950,7 @@ function visitWarnings(visit, ctx) {
  * |---|---|
  * | `notice` | 選到的那一台對這位客戶的警示要注意（ADR-0074）|
  * | `overlap` | 同一筆裡自己跟自己重疊 |
- * | `entitlement` | 排完會超過總次數、排在到期之後（講的是用到那一筆額度的每一段）|
+ * | `entitlement` | 排完會超過總次數（`kind: 'over'`）、排在到期之後（`kind: 'expired'`）（講的是用到那一筆額度的每一段）|
  * | `ivMismatch` | 品項跟買的不一樣 |
  * | `assign` | 還沒選／不需要醫師、診間、治療師；一般排在別間；二返還沒接到健檢 |
  * | `nth` | 同一次健檢底下已經有同樣的返數 |
@@ -1958,10 +1958,15 @@ function visitWarnings(visit, ctx) {
  * | `frequency` | 每季一次那種限制（講的是那門課的每一段）|
  * | `examNotMine` | 按了「健檢不是我排的」，可是身上還有二返額度、或有一次接得上的健檢（ADR-0169）|
  *
- * @returns {{text: string, source: string, slots: number[]}[]}
+ * 同一種來源要再分的那一圈多帶一格 `kind`（現在只有 `entitlement`：拍 Abovee 的短標記把超用寫「次數不夠」、到期寫「過期」，ADR-0170）。
+ * 沒有的那幾句連這一格都沒有。
+ *
+ * @returns {{text: string, source: string, slots: number[], kind?: string}[]}
  */
 export function warningDetails(visit, ctx) {
-  const from = (source, list) => list.map((w) => ({ text: w.text, source: w.source ?? source, slots: w.slots }));
+  const from = (source, list) => list.map((w) => ({
+    text: w.text, source: w.source ?? source, slots: w.slots, ...(w.kind ? { kind: w.kind } : {}),
+  }));
   return [
     ...from('notice', equipmentNoticeWarnings(visit, ctx)),
     ...from('overlap', overlapWarnings(visit, ctx)),
@@ -2112,12 +2117,12 @@ function entitlementWarnings(visit, { entitlements = [], customerVisits = [] }) 
 
     const c = countsWithDraft(ent, customerVisits, visit, ent.id);
     if (c.done + c.booked > c.total) {
-      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots });
+      out.push({ text: `「${ent.label}」排完這次會超過總次數（共 ${c.total} 次，已排 ${c.done + c.booked} 次）`, slots, kind: 'over' });
     }
 
     if (ent.expiresAt && isValidDate(ent.expiresAt) && isValidDate(visit.date)
         && daysBetween(ent.expiresAt, visit.date) > 0) {
-      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots });
+      out.push({ text: `「${ent.label}」在 ${ent.expiresAt} 就到期了，這次排在到期之後`, slots, kind: 'expired' });
     }
   }
 

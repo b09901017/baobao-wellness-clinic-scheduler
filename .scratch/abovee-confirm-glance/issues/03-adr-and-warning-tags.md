@@ -1,6 +1,6 @@
 # 03：ADR-0170 ＋ 紅字的短標記（domain）
 
-Status: todo
+Status: done
 Blocked by: —
 
 ## 動工前先讀
@@ -50,3 +50,18 @@ Blocked by: —
 - 超用與到期分得出來嗎（「次數不夠」與「過期」不會印成同一個字）？
 - 一列有 mustSee 的提醒、短字對照表沒有它：會不會一個標記都沒有（＝她看不到）？
 - 不是 mustSee 的提醒（例：二返排在健檢之前 `examAfter()`）會不會被畫成紅字標記？
+
+## 做完時留下的（段二，2026-11-03）
+
+- **ADR-0170**（`docs/adr/0170-abovee-confirm-shows-results-first-problems-on-a-tab.md`）：推翻 ADR-0138 第 4 點、ADR-0129「沒有也講一句」；
+  ADR-0153 那一句寫在「延伸」（放在發現問題、算一件），不算推翻。N 的數法寫成一張表：照片層級一種一件、要改的照列數、要你看／過了還沒結案／還差一步一列一件、
+  app 有照片沒有照段數＋「還沒認出是誰」一件＋「沒有對」一件；**同一列在兩塊只算一件、記好了的不算也不列**、正常配上的那一句不畫。索引兩列＋「全部」改了
+- **domain**：
+  - `visits.js`：`entitlementWarnings()` 超用帶 `kind: 'over'`、到期帶 `kind: 'expired'`；`warningDetails()` 的 `from()` 有 `kind` 才多帶那一格（別的來源連鍵都沒有）
+  - `aboveeImport.js`：`warningsByRow()` 多回 `tags`（跟 `mustSee` 一對一；拍 Abovee 自己那三種的來源是 `mergedNotice`、`trial`、`photoStatus`＋`photoRowReason()` 的 code）；
+    `photoDayPlan()` 多回 `tagBy`（兩條路：新的組、改過的那一筆 `onTouched`）；`mustSeeBy` 照舊是字串
+  - `warningTag(tags, { stuck })` → `{ text, more, all } | null`：短字與先後只在 `TAG_WORDS`（禁忌、次數不夠、撞期、重疊、過期、品項、健檢、體驗、狀態），對不到的「提醒」、`stuck` 加「還差一步」排最後；N 算種
+  - `rowTag(item, plan)`：只有 `wantsWrite()` 的列；`problems` 有東西就是 stuck。**04 的畫面只叫這一支**
+- 測試：`tests/abovee-warning-tags.test.js`（15 條：先後、+N 算種、超用／到期兩個字、對不到的「提醒」、還差一步、`tagBy` 跟 `mustSeeBy` 一對一、不是 mustSee 的沒有標記、`rowTag()` 勾不勾）
+- 紅線兩支測試沒動（04 一起改）；`briefWarnings()` 留著（發現問題那一頁照舊用）
+- `sw.js` v221 → v222

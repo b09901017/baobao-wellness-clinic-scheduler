@@ -2793,6 +2793,7 @@ const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots
  * @param {{at?: string}} [o]
  * @returns {{
  *   groups: object[], problems: Record<string, string[]>, warningsBy: Record<string, string[]>, mustSeeBy: Record<string, string[]>,
+ *   tagBy: Record<string, {source: string, kind?: string}[]>,
  *   writes: {id: string, customerId: string, customerName: string, date: string, visit: object, before: object|null,
  *            freed: number[], keys: string[], adds: object|null, touch: object|null, pressed: boolean}[],
  *   missed: object[], rows: {key: string, customerId: string, date: string, kind: 'new'|'status'|'move'|'adopt', to?: string,
@@ -2804,6 +2805,8 @@ const charge = (visit, index) => (visit && chargesEntitlement(visit, visit.slots
  *   `rows`：每一列做了什麼、那一筆額度因此差幾次（`charge`：扣 +1、還 −1；跟 `counts()` 一段一段加起來同一個數）。
  *   `deltas`：每一位每一筆額度前後的差（`countDeltas()`）—— `rows` 的 `charge` 加起來就是它的 `remaining` 的負數
  *   `slotAfter`：這一次會寫進去的每一列（列的 key）→ 寫進去的那一筆與那一段（`{ visit, slot }`）—— 「要改的」勾著的那幾件已經套好
+ *   `tagBy`：`mustSeeBy` 每一句從哪裡來（同一列、同樣多、同一個順序）—— 收著的列那個紅字短標記讀它（`rowTag()`，ADR-0170）。
+ *   `mustSeeBy` 照舊只有字串（確認框與好幾支測試讀它）
  */
 export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {}) {
   const list = items ?? [];
@@ -2854,6 +2857,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
   for (const i of already) problems[i.key] = [ALREADY_IN_APP];
   const warningsBy = {};
   const mustSeeBy = {};
+  const tagBy = {};
   const { courses = [], equipment = [] } = ctx.master ?? {};
   // 改過的那一筆裡，改了的那幾段身上的提醒；改期那一段有錯誤就擋那一列
   const onTouched = (t, details, errors) => {
@@ -2861,6 +2865,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       const mine = details.filter((w) => (w.slots ?? []).includes(t.at[key]));
       warningsBy[key] = mine.map((w) => w.text);
       mustSeeBy[key] = mine.filter(mustSee).map((w) => w.text);
+      tagBy[key] = mine.filter(mustSee).map(tagSource);
       if (errors.length && t.done[key].includes('move')) problems[key] = [...(problems[key] ?? []), ...errors];
     }
   };
@@ -2874,6 +2879,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
       if (errors.length) problems[item.key] = [...(problems[item.key] ?? []), ...errors];
       warningsBy[item.key] = byRow[item.key].all;
       mustSeeBy[item.key] = byRow[item.key].mustSee;
+      tagBy[item.key] = byRow[item.key].tags;
     }
     if (g.visit.id && touched.has(g.visit.id)) onTouched(touched.get(g.visit.id), details, errors);
   }
@@ -2966,7 +2972,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
     for (const key of Object.keys(w.touch?.done ?? {})) slotAfter[key] = { visit: w.visit, slot: w.visit.slots?.[w.touch.at[key]] ?? null };
     for (const item of w.adds?.items ?? []) slotAfter[item.key] = { visit: w.visit, slot: w.visit.slots?.[w.adds.at[item.key]] ?? null };
   }
-  return { groups, problems, warningsBy, mustSeeBy, writes, missed, rows, before, after: afterAll, deltas, slotAfter };
+  return { groups, problems, warningsBy, mustSeeBy, tagBy, writes, missed, rows, before, after: afterAll, deltas, slotAfter };
 }
 
 /**
@@ -3230,26 +3236,32 @@ export function checkCtxFor(groups, group, ctx) {
  *   是 `all` 的子集、同一句。合併扣課另一台的提醒（`mergedNotices()`）也算 —— 那是同一種「器材對警示要注意」；
  *   Abovee 寫體驗卻照扣的那一句（`trialSay()`）也算；照片上的預約狀態記成別的那幾句（`photoRowSays()`，03）也算 ——
  *   她勾了一列「還沒到就寫完成了」，存進去的是待確認，沒點開就不知道
+ * - `tags`：`mustSee` 每一句從哪裡來（`{ source, kind? }`，同樣多、同一個順序）—— 短標記照它挑字（`warningTag()`，ADR-0170）。
+ *   拍 Abovee 自己那三種的來源是 `mergedNotice`、`trial`、`photoStatus`（`kind` 是 `photoRowReason()` 的那一種）
  *
  * @param {{items: object[], at: Record<string, number>}} group `planAbovee()` 的一組
  * @param {{text: string, source: string, slots: number[]}[]} details `warningDetails(group.visit, …)`
  * @param {{customer?: object, equipment?: object[], courses?: object[]}} [o] 合併扣課第二台要問的：這位客戶的警示、器材主檔；
  *   體驗那一句要問的：課程主檔
- * @returns {Record<string, {all: string[], mustSee: string[]}>}
+ * @returns {Record<string, {all: string[], mustSee: string[], tags: {source: string, kind?: string}[]}>}
  */
 export function warningsByRow(group, details = [], { customer = null, equipment = [], courses = [] } = {}) {
   const out = {};
   for (const item of group?.items ?? []) {
     const at = group.at?.[item.key];
     const mine = (details ?? []).filter((w) => (w.slots ?? []).includes(at));
+    // 勾著的列簽不簽得成已完成看這一組的（整批組過的），不看讀照片那一下記的（`photoRowSays()` 同一支）
+    const reason = photoRowReason(item, group.blocked?.[item.key] ?? null);
     const second = [
-      ...mergedNotices(item, customer, equipment), ...trialSay(item, courses),
-      // 勾著的列簽不簽得成已完成看這一組的（整批組過的），不看讀照片那一下記的
-      ...photoRowSays(item, group.blocked?.[item.key] ?? null),
+      ...mergedNotices(item, customer, equipment).map((text) => ({ text, source: 'mergedNotice' })),
+      ...trialSay(item, courses).map((text) => ({ text, source: 'trial' })),
+      ...(reason ? [{ text: reason.text, source: 'photoStatus', kind: reason.code }] : []),
     ];
+    const shown = [...mine.filter(mustSee), ...second];
     out[item.key] = {
-      all: [...mine.map((w) => w.text), ...second],
-      mustSee: [...mine.filter(mustSee).map((w) => w.text), ...second],
+      all: [...mine.map((w) => w.text), ...second.map((w) => w.text)],
+      mustSee: shown.map((w) => w.text),
+      tags: shown.map(tagSource),
     };
   }
   return out;
@@ -3276,6 +3288,65 @@ function trialSay(item, courses = []) {
 export function briefWarnings(texts = [], max = 2) {
   const list = texts ?? [];
   return list.length > max ? [...list.slice(0, max), `還有 ${list.length - max} 句 —— 點開這一列看`] : [...list];
+}
+
+// ---------- 紅字短標記（ADR-0170）----------
+//
+// 她 11/3：「簡短的，像是⚠ 撞期 ⚠ 次數不夠⚠ 禁忌 +1⚠ 過期⚠ 品項⚠ 重疊⚠ 健檢等等，一列有好幾個提醒時，
+// 只寫最要緊的那一個，後面接「+1」字是紅的、短的，掃過去一眼就看得到」。
+
+/** 一句提醒的來源，只留短標記要的那兩格（`warningDetails()` 那一份還帶著句子與段落）。 */
+function tagSource(w) {
+  return w.kind ? { source: w.source, kind: w.kind } : { source: w.source };
+}
+
+/**
+ * 短字與先後：**由上到下就是要緊的順序**（她接受的：禁忌 → 次數不夠 → 撞期 → 重疊 → 過期 → 品項 → 健檢，其餘排後面）。
+ * 來源是 `warningDetails()` 的 `source`（ADR-0138 那幾種）＋拍 Abovee 自己的三種（`warningsByRow()`）。
+ * **畫面不比來源** —— 只讀 `warningTag()` 回的字。
+ */
+const TAG_WORDS = [
+  ['禁忌', (t) => t.source === 'notice' || t.source === 'mergedNotice'],
+  ['次數不夠', (t) => t.source === 'entitlement' && t.kind === 'over'],
+  ['撞期', (t) => t.source === 'conflict'],
+  ['重疊', (t) => t.source === 'overlap'],
+  ['過期', (t) => t.source === 'entitlement' && t.kind === 'expired'],
+  ['品項', (t) => t.source === 'ivMismatch'],
+  // 健檢不是我排的、其實扣得到或接得上（ADR-0169）；照片寫課程完成、二返接的健檢還沒做完（`closeBlock`）
+  ['健檢', (t) => t.source === 'examNotMine' || (t.source === 'photoStatus' && t.kind === 'closeBlock')],
+  ['體驗', (t) => t.source === 'trial'],
+  ['狀態', (t) => t.source === 'photoStatus'],
+];
+/** 對照表沒有的：**不是不畫** —— `mustSee()` 多一種而這裡忘了給字時，她照樣看得到這一列有事 */
+const TAG_OTHER = '提醒';
+/** 勾著、存不下去（`problems`）：排在所有紅字後面 —— 列底下那一行「還差一步：…」只在「發現問題」那一頁畫 */
+const TAG_STUCK = '還差一步';
+
+/**
+ * 收著的列那一個紅字短標記（ADR-0170）：最要緊的那一個＋「+N」。**N 算種不算句**：兩句撞期是一種、禁忌的兩個來源是一種。
+ *
+ * @param {{source: string, kind?: string}[]} tags 這一列的 `tagBy`（只有 `mustSee()` 那幾種 —— 不是的一個都不在裡面）
+ * @param {{stuck?: boolean}} [o] 這一列勾著、存不下去
+ * @returns {{text: string, more: number, all: string[]}|null} 什麼都沒有 → `null`（一個像素都不佔）
+ */
+export function warningTag(tags = [], { stuck = false } = {}) {
+  const words = new Set();
+  for (const t of tags ?? []) words.add(TAG_WORDS.find(([, is]) => is(t))?.[0] ?? TAG_OTHER);
+  const all = [...TAG_WORDS.map(([w]) => w), TAG_OTHER].filter((w) => words.has(w));
+  if (stuck) all.push(TAG_STUCK);
+  return all.length ? { text: all[0], more: all.length - 1, all } : null;
+}
+
+/**
+ * 這一列在「辨識結果」那一頁的短標記：**只有會寫進去的列**（`wantsWrite()`，同 ADR-0138 —— 沒勾的不會寫進去）。
+ * 記好了的列不在計畫裡（`photoDayPlan()` 只收還沒記的），自然是 `null`。
+ *
+ * @param {object} item
+ * @param {ReturnType<typeof photoDayPlan>|null} plan
+ */
+export function rowTag(item, plan) {
+  if (!item || !wantsWrite(item)) return null;
+  return warningTag(plan?.tagBy?.[item.key] ?? [], { stuck: (plan?.problems?.[item.key] ?? []).length > 0 });
 }
 
 // ---------- 直接標成壓完 ----------
