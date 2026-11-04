@@ -21,7 +21,7 @@ import {
 
 import { initFirebase } from './firebase.js';
 import * as repo from './repo.js';
-import { usingEmulator } from '../firebase-config.js';
+import { emulatorPorts, usingEmulator } from '../firebase-config.js';
 import { MAX_PHOTO_BYTES, photoPathFor } from '../domain/treatmentSheets.js';
 
 const pathOf = (customerId) => `customers/${customerId}/treatmentSheets`;
@@ -35,7 +35,7 @@ function bucket() {
   if (storage) return storage;
   const { app } = initFirebase();
   storage = getStorage(app);
-  if (usingEmulator()) connectStorageEmulator(storage, '127.0.0.1', 9199);
+  if (usingEmulator()) connectStorageEmulator(storage, '127.0.0.1', emulatorPorts.storage);
   // SDK 預設斷線時重試十分鐘。她站在櫃台等一個轉圈十分鐘等於當機 —— 一分鐘還傳不上去就講出來
   storage.maxUploadRetryTime = 60_000;
   storage.maxOperationRetryTime = 30_000;

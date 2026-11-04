@@ -14,7 +14,7 @@ import {
   connectFirestoreEmulator,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-import { firebaseConfig, isConfigured, usingEmulator } from '../firebase-config.js';
+import { emulatorPorts, firebaseConfig, isConfigured, usingEmulator } from '../firebase-config.js';
 
 export { isConfigured };
 
@@ -35,8 +35,9 @@ export function initFirebase() {
   });
 
   if (usingEmulator()) {
-    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
-    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    // port 照 `emulatorPorts`：E2E 一個 worker 一組模擬器時每組不一樣，平常就是 9099／8080
+    connectAuthEmulator(auth, `http://127.0.0.1:${emulatorPorts.auth}`, { disableWarnings: true });
+    connectFirestoreEmulator(db, '127.0.0.1', emulatorPorts.firestore);
   }
 
   return { app, auth, db };
@@ -60,7 +61,7 @@ export function initPublicFirebase() {
 
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
-  if (usingEmulator()) connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  if (usingEmulator()) connectFirestoreEmulator(db, '127.0.0.1', emulatorPorts.firestore);
 
   return { app, db };
 }

@@ -6,11 +6,10 @@
 //
 // 這裡一個真名都沒有；假抄字裡的人一律王小明、客戶A，病歷號 1234。
 
-import { AUTH_HOST, APP_ORIGIN, readDoc, seedDocs } from '../emulator.js';
-import { projectIdFor } from '../../../public/js/firebase-config.js';
+import { AUTH_HOST, APP_ORIGIN, FUNCTIONS_ORIGIN, readDoc, seedDocs } from '../emulator.js';
 
-/** 模擬器的 Function 只認啟動它的那個專案（`start-emulators.sh` 開 0 號）。 */
-export const EXTRACT_URL = `http://127.0.0.1:5001/${projectIdFor(0)}/asia-east1/extract`;
+/** 模擬器的 Function 只認啟動它的那個專案（`start-emulators.sh` 的 `--project`，見 `FUNCTIONS_ORIGIN`）。 */
+export const EXTRACT_URL = `${FUNCTIONS_ORIGIN}/asia-east1/extract`;
 
 /** 一張最小的「JPEG」：Function 只看開頭三個位元組，不解碼。 */
 export const TINY_JPEG_BASE64 = Buffer.from([

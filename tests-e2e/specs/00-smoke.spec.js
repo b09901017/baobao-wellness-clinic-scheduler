@@ -40,11 +40,11 @@ test('S2 種子客戶進得去詳情頁，額度看得到', async ({ app, page }
 
 test('S3 白名單以外的人只看得到「還沒有權限」', async ({ page, app }) => {
   // 先把白名單那一筆拿掉，再登入。主檔留著 —— 要驗證的是「有資料但看不到」。
-  const { clearFirestore, seedDocs } = await import('../fixtures/emulator.js');
+  const { APP_ORIGIN, clearFirestore, seedDocs } = await import('../fixtures/emulator.js');
   await clearFirestore();
   await seedDocs(masterDocs());
 
-  await page.goto('http://127.0.0.1:5000/');
+  await page.goto(`${APP_ORIGIN}/`);
   await page.waitForSelector('[data-signin]');
   const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('[data-signin]')]);
   await popup.waitForLoadState('domcontentloaded');

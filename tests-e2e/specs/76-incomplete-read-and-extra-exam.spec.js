@@ -11,9 +11,10 @@
 //
 // 單元測試（`tests/incomplete-read.test.js`）量擋不擋的那一支與原始碼的順序；這裡從瀏覽器量兩種斷線：
 // - 確定離線（`setOffline(true)`，`navigator.onLine` 是 false）
-// - 網路不穩到 SDK 自己退回快取（擋掉模擬器的 8080，`navigator.onLine` 照樣是 true）
+// - 網路不穩到 SDK 自己退回快取（擋掉模擬器的 Firestore，`navigator.onLine` 照樣是 true）
 
 import { test, expect } from '../fixtures/app.js';
+import { FIRESTORE_ORIGIN } from '../fixtures/emulator.js';
 import {
   masterDocs, customer, entitlement, visit, slot, task, TODAY, addDays,
 } from '../fixtures/data.js';
@@ -140,8 +141,8 @@ test('I2 網路不穩到 SDK 自己退回快取（navigator.onLine 照樣是 tru
     new MutationObserver(() => window.__toastSaid.push(node.innerText)).observe(node, { childList: true, subtree: true, characterData: true });
   });
 
-  // 擋掉模擬器的 Firestore（8080）：瀏覽器覺得自己在線上，SDK 連不上、讀取退回快取
-  await page.route('http://127.0.0.1:8080/**', (route) => route.abort());
+  // 擋掉模擬器的 Firestore（平常是 8080，一個 worker 一組時是那一組的）：瀏覽器覺得自己在線上，SDK 連不上、讀取退回快取
+  await page.route(`${FIRESTORE_ORIGIN}/**`, (route) => route.abort());
   expect(await page.evaluate(() => navigator.onLine)).toBe(true);
 
   await page.locator('[data-task]').first().check();
@@ -154,7 +155,7 @@ test('I2 網路不穩到 SDK 自己退回快取（navigator.onLine 照樣是 tru
   expect(said.join('｜'), '還在讀的那幾秒不可以說「已經存在這台裝置上了」').not.toMatch(/還沒送出去|這台裝置/);
   await expect(page.locator('#toast'), '不給重試鈕：重試拿的還是快取那一份').not.toContainText('重試');
 
-  await page.unroute('http://127.0.0.1:8080/**');
+  await page.unroute(`${FIRESTORE_ORIGIN}/**`);
   expect(await snapshot(app), '勾選與健檢鏈一筆都沒寫').toEqual(before);
 });
 

@@ -14,13 +14,17 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
   envOf, ENV, firebaseConfig, usingEmulator, envBanner, projectIdFor, authDomainFor,
+  emulatorPortsFor, emulatorPorts, MAX_EMULATOR_SLOTS,
 } from '../public/js/firebase-config.js';
+import {
+  groupConfig, portSlotFor, servicesFor, workersFrom,
+} from '../tests-e2e/emulator-groups.mjs';
 
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
@@ -28,10 +32,17 @@ const CONFIG_SRC = read('public/js/firebase-config.js');
 const EMULATOR_SH = read('tests-e2e/start-emulators.sh');
 const E2E_FIXTURE = read('tests-e2e/fixtures/emulator.js');
 const FIREBASERC = JSON.parse(read('.firebaserc'));
+const FIREBASE_JSON = JSON.parse(read('firebase.json'));
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 /** 把註解拿掉再問 —— 註解裡出現的字串不算數（見底下 measurementId 那一條）。 */
 const codeOf = (src) => src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+/**
+ * 拿掉註解**整行**（`//`、`/*`、` *` 開頭的）。找寫死的 port 不能用 `codeOf()`：它把 `//` 之後當註解，
+ * `'http://127.0.0.1:5000'` 會連著被吃掉，於是最常見的那種寫法永遠掃不到。
+ */
+const withoutCommentLines = (src) => src.split('\n').filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join('\n');
 
 /** 從 config 原始碼裡把某一個環境的 projectId 挖出來。 */
 function projectIdOf(env) {
@@ -229,6 +240,123 @@ describe('模擬器的命名空間：三邊算的是同一支推導', () => {
       false,
       'start-emulators.sh 又把某一台機器的 JAVA_HOME 寫死了',
     );
+  });
+});
+
+describe('模擬器的 port：一個 worker 一組時三邊算的也是同一支（emulatorPortsFor）', () => {
+  // 跟 projectIdFor() 同一個理由：app、E2E fixture、start-emulators.sh（經 emulator-groups.mjs
+  // 寫每一組的設定檔）三邊一定要算出同一組 port。對不上的症狀是登入按鈕等不到、或畫面全空，
+  // 看不出是哪一行。
+
+  const SERVICES = ['auth', 'firestore', 'functions', 'hosting', 'storage'];
+
+  test('組號沒給 ＝ 平常那一組，跟 firebase.json 寫的一樣', () => {
+    // 手動開 app、E2E_WORKERS 沒設的 E2E 走的都是這條 —— 預設的行為一個 port 都不能變
+    for (const none of [undefined, null, '', '  ']) {
+      const p = emulatorPortsFor(none);
+      for (const s of SERVICES) {
+        assert.equal(p[s], FIREBASE_JSON.emulators[s].port, `${s} 的平常 port 跟 firebase.json 對不上`);
+      }
+    }
+    assert.deepEqual(emulatorPorts, emulatorPortsFor(undefined), 'node 裡沒有 __E2E_PORT_SLOT，應該是平常那一組');
+  });
+
+  test('每一組的每一個 port 都不撞：組內、組間、跟平常那一組都不撞', () => {
+    const normal = new Set(Object.values(emulatorPortsFor(undefined)));
+    const seen = new Map();
+    for (let k = 0; k < MAX_EMULATOR_SLOTS; k += 1) {
+      for (const [name, port] of Object.entries(emulatorPortsFor(k))) {
+        assert.ok(!normal.has(port), `第 ${k} 組的 ${name}（${port}）撞到平常那一組 —— 平常的模擬器開著就跑不起來`);
+        assert.ok(!seen.has(port), `第 ${k} 組的 ${name}（${port}）跟 ${seen.get(port)} 撞在一起`);
+        seen.set(port, `第 ${k} 組的 ${name}`);
+      }
+    }
+  });
+
+  test('認不得的組號丟例外 —— 不猜一組出來', () => {
+    for (const bad of [-1, 1.5, MAX_EMULATOR_SLOTS, 'abc', NaN, {}]) {
+      assert.throws(() => emulatorPortsFor(bad), /組號/, `${String(bad)} 應該丟例外`);
+    }
+  });
+
+  test('字串跟數字給同一個答案', () => {
+    for (const k of [0, 1, 3]) assert.deepEqual(emulatorPortsFor(String(k)), emulatorPortsFor(k));
+  });
+
+  test('E2E_WORKERS：沒設是 1，打錯一個字就丟例外', () => {
+    for (const none of [undefined, null, '', ' ']) assert.equal(workersFrom(none), 1);
+    assert.equal(workersFrom('1'), 1);
+    assert.equal(workersFrom('3'), 3);
+    for (const bad of ['0', '-2', '2.5', 'two', String(MAX_EMULATOR_SLOTS + 1)]) {
+      assert.throws(() => workersFrom(bad), /E2E_WORKERS/, `${bad} 應該丟例外`);
+    }
+  });
+
+  test('只有 E2E_WORKERS 大於 1 才分組；分組時組號就是 TEST_PARALLEL_INDEX', () => {
+    assert.equal(portSlotFor(undefined, '0'), null, '沒設 E2E_WORKERS 時一律平常那一組');
+    assert.equal(portSlotFor('1', '0'), null);
+    assert.equal(portSlotFor('2', '1'), '1');
+    assert.equal(portSlotFor('2', undefined), '0');
+  });
+
+  test('第 k 組的設定檔：port 照 emulatorPortsFor(k)、Hosting 只在 0 號組、其餘照抄 firebase.json', () => {
+    for (const k of [0, 1, 2]) {
+      const cfg = groupConfig(FIREBASE_JSON, k);
+      const p = emulatorPortsFor(k);
+      assert.equal(cfg.emulators.auth.port, p.auth);
+      assert.equal(cfg.emulators.firestore.port, p.firestore);
+      assert.equal(cfg.emulators.firestore.websocketPort, p.websocket);
+      assert.equal(cfg.emulators.functions.port, p.functions);
+      assert.equal(cfg.emulators.storage.port, p.storage);
+      assert.equal(cfg.emulators.hub.port, p.hub);
+      assert.equal(cfg.emulators.logging.port, p.logging);
+      assert.equal(cfg.emulators.ui.enabled, false);
+      assert.equal(Boolean(cfg.emulators.hosting), k === 0, `第 ${k} 組的 Hosting 開關不對`);
+      assert.equal(servicesFor(k).includes('hosting'), k === 0);
+      for (const key of Object.keys(FIREBASE_JSON).filter((x) => x !== 'emulators')) {
+        assert.deepEqual(cfg[key], FIREBASE_JSON[key], `第 ${k} 組的 ${key} 沒有照抄 firebase.json`);
+      }
+    }
+  });
+
+  test('**真的跑一次** shell 那條路：workers 與 only 跟直接呼叫給同一個答案', () => {
+    const run = (args, env = {}) => execFileSync(
+      process.execPath,
+      ['tests-e2e/emulator-groups.mjs', ...args],
+      { cwd: ROOT, encoding: 'utf8', env: { ...process.env, E2E_WORKERS: '', ...env } },
+    );
+    assert.equal(run(['workers']), '1', 'E2E_WORKERS 沒設時 shell 那條路要回 1（走以前那一條 exec）');
+    assert.equal(run(['workers'], { E2E_WORKERS: '3' }), '3');
+    assert.equal(run(['only', '0']), servicesFor(0).join(','));
+    assert.equal(run(['only', '1']), servicesFor(1).join(','));
+  });
+
+  test('app 那三支連模擬器的地方讀 emulatorPorts，不寫死 port', () => {
+    for (const rel of ['public/js/data/firebase.js', 'public/js/data/ai.js', 'public/js/data/treatmentSheets.js']) {
+      const code = withoutCommentLines(read(rel));
+      assert.equal(/127\.0\.0\.1'?,?\s*:?\s*(9099|8080|5001|9199|5000)\b/.test(code), false, `${rel} 又寫死了模擬器的 port`);
+      assert.match(code, /emulatorPorts\./, `${rel} 要讀 firebase-config.js 的 emulatorPorts`);
+    }
+  });
+
+  test('E2E 的 fixture 與 spec 沒有寫死模擬器的 port（除了 Rules 測試，它有自己的一組）', () => {
+    const dirs = ['tests-e2e/fixtures', 'tests-e2e/fixtures/ai', 'tests-e2e/specs'];
+    const files = dirs.flatMap((d) => readdirSync(new URL(`../${d}`, import.meta.url))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => `${d}/${f}`));
+    // 兩種寫法都算：字串裡的 `127.0.0.1:5000`、regex 字面值裡的 `127\.0\.0\.1:5000`（81 的 P4 漏過一次）
+    const hardcoded = /127\\?\.0\\?\.0\\?\.1:(9099|8080|5001|9199|5000)\b/;
+    const hits = files.filter((rel) => hardcoded.test(withoutCommentLines(read(rel))));
+    assert.deepEqual(hits, [], `這幾支寫死了模擬器的 port，一個 worker 一組時會連到平常那一組：${hits.join(', ')}`);
+    assert.match(codeOf(E2E_FIXTURE), /PORTS = emulatorPortsFor\(/, 'fixture 的 PORTS 要用 emulatorPortsFor() 算');
+  });
+
+  test('start-emulators.sh：沒設 E2E_WORKERS 走以前那一條，分組時照 emulator-groups.mjs 一組一組開', () => {
+    assert.match(EMULATOR_SH, /WORKERS="\$\(node tests-e2e\/emulator-groups\.mjs workers\)"/);
+    assert.match(EMULATOR_SH, /node tests-e2e\/emulator-groups\.mjs config "\$k"/);
+    assert.match(EMULATOR_SH, /node tests-e2e\/project-id\.mjs "\$k"/, '每一組的 --project 要是 projectIdFor(k)');
+    assert.match(EMULATOR_SH, /All emulators ready/, '要等一組起好再開下一組');
+    assert.match(EMULATOR_SH, /emulator-groups\.mjs stop/, '收掉時要照那幾組的 port 停');
   });
 });
 

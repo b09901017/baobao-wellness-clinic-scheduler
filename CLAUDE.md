@@ -60,6 +60,8 @@ staging 上被點過 —— 只有急件這樣做。
 
 E2E 的 app 是模擬器 hosting（`127.0.0.1:5000`）在服務的，而**它服務的是啟動它的那個目錄的 `public/`**，跑完不會自己關，E2E 也不會幫你開。所以換一個 worktree 跑之前要先依 port 停掉殘留的那一組，再從**這一組自己的目錄**起 —— 不然測到的是別的分支的程式碼，而症狀是「明明改好了卻還是紅」。
 
+**幾個 worker 由 `E2E_WORKERS` 給，沒設就是 1**（家裡的筆電照舊 1：10/2 過熱斷電過）。大於 1 時**一個 worker 一整組模擬器**：模擬器與 E2E 要帶同一個值（`E2E_WORKERS=2 npm run emulators`、`E2E_WORKERS=2 npm run verify`），第 k 組的 port 是 `firebase-config.js` 的 `emulatorPortsFor(k)`（平常的 port 加 `20000+10k`，平常那一組開著也跑得起來）、專案是 `projectIdFor(k)`、Hosting 只開在 0 號組；接法在 `tests-e2e/emulator-groups.mjs`，兩邊值對不上 `app.sameNamespace()` 會大聲講。**新增一處連模擬器的程式要讀 `emulatorPorts`／fixture 的 `PORTS`、`APP_ORIGIN`、`FIRESTORE_ORIGIN`，不寫死 port**（`tests/env.test.js` 掃 fixture 與 spec）。收掉照那幾組的 port 停（`node tests-e2e/emulator-groups.mjs stop`），平常的 port 不碰。
+
 E2E 裡**不要用 `page.waitForTimeout()`**，等 locator 的狀態：`app.layer(選擇器)` 等一層推上來、`app.saved()` 等一次寫入結束（讀 `ui/toast.js` 的狀態機，寫失敗會大聲）、`app.settled()` 等一頁畫完。固定等待兩邊都錯 —— 順的時候白等，慢一拍的時候讀到還沒重畫的畫面，而**兩種症狀都不指向那一行**。`tests/e2e-waits.test.js` 盯著，還沒清完的那幾支在它的 `PENDING` 裡而且只准變短。
 
 修 bug 先寫一支重現得出來的失敗測試。**改 domain 規則、狀態機推導、跨模組資料結構的那幾次，動工前先在 `.scratch/<feature-slug>/issues/` 開一支 issue**；純文案與 CSS 不用。
