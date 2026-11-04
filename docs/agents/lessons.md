@@ -167,7 +167,12 @@
 10/19 找到：staging-polish 那一輪從頭到尾本機 `develop` 都停在 `cd71d34`；PR #164 合進去之後開下一支，`verify` 說「動了 154 個檔案 → 全跑」，
 對齊之後是 7 個檔案、9 支。
 
-> `verify` 說全跑、而這一次只改了一兩個檔案？先 `git log -1 develop` 對一下 `origin/develop`，舊了就 `git branch -f develop origin/develop`（不在 develop 上時）。
+11/2 雲端 VM 上同一個坑（VM 的本機 `develop` 也停在舊的那一格，挑了 48 支）；11/4 家裡這台的本機 `develop` 也落後 `origin/develop` 29 個。
+**11/4 修了**：沒帶 `--base` 時 `scripts/e2e.mjs` 先 `git fetch -q origin develop`（限時 8 秒、不問帳密，抓不到不擋），
+有 `origin/develop` 就比它、沒有才退回本機的 `develop`，畫面第一行講用的是哪一份（`e2e-changes.mjs` 的 `defaultBase()`）。
+自己帶 `--base` 的不抓 —— 整條分支重驗一次寫 `--base origin/develop`，不要寫 `--base develop`。
+
+> `verify` 說全跑、而這一次只改了一兩個檔案？看第一行比的是不是 `origin/develop`、是不是剛抓的；自己帶了 `--base` 的話，帶的是不是那一份舊的本機 `develop`？
 
 ---
 
@@ -182,6 +187,39 @@
   commit 之後 CI 的 `shell-version` 紅了，develop 沒有部署。**而且只看了全量 E2E 那一條就說「CI 全綠」**：PR 上的 `test` 是另一條 workflow。
 
 > 要挑 E2E 時問的是 `related.js` 的 `pick()` 不是自己的記憶嗎？新增了檔案，`git add` 之後有沒有再跑一次 `shell:snapshot` 與 `npm test`？說「CI 綠」之前看的是 `gh pr checks` 的每一條嗎？
+
+---
+
+## 十四、雲端 VM（Remote Control）上的兩個坑
+
+在外面用手機叫 VM 上的 Claude 時才會遇到，家裡的終端機、桌面 app、VS Code 都沒有：
+
+- **背景指令 30 分鐘就被停**：Remote Control 開的對話算官方說的「沒人看著的 session」，`run_in_background` 預設 30 分鐘、
+  帶 `timeout` 最多 2 小時（`7200000`）（https://code.claude.com/docs/en/tools-reference#time-limit-for-background-commands ）。
+  11/2 exam-not-mine 在 VM 上跑 `--related`，模擬器在 E2E `67` 之前被停（`.scratch/exam-not-mine/HANDOFF.md` 有記）—— 看起來像 E2E 壞了，其實是時間到了。
+  **不要用 `BASH_DEFAULT_TIMEOUT_MS` 拉長**：它也是前景指令的預設，拉長之後卡住的前景指令也跟著等那麼久。
+- **`pkill -f "firebase.*emulators"` 把自己那個 shell 砍掉**（exit 144）：`-f` 比的是整條命令列，而跑這一行的 shell 自己的命令列裡就有那串字；
+  pkill 只排除它自己，不排除叫它的 shell（https://man7.org/linux/man-pages/man1/pkill.1.html ）。停模擬器照 port 停：Linux 用 `fuser -k <port>/tcp`。
+
+> 這一條背景指令在 VM 上會不會跑超過 30 分鐘？要的話帶 `timeout`（最多 2 小時），再長就拆或丟 CI。要停一個程序，比的那串字會不會也出現在我自己這一行指令裡？
+
+---
+
+## 十五、只在某一台機器上紅：靠快慢才綠的畫面與測試
+
+11/4 雲端 VM（2 顆實體核心）跑全量，CI 全綠的幾支在那裡紅。**一支都不是 VM 壞了**，是畫面或測試靠「讀得夠快／點得夠慢」才對：
+
+- **`openSheet()` 回傳之前就叫第一次 `onMount`**：「依客戶」抽屜的接線讀 `whoDrawer.sheet.el`，第一次是 null、直接 return，
+  要等細節讀回來重畫才接上 —— 9/2 起抽屜滑進來（340ms）之前讀不完的機器上，她點的第一下被吃掉（`11` 的 D6）。`customersBulk.js` 早就寫著這個坑。接線一律用 `onMount` 給的那個元素
+- **同一個修法只做在一個入口**（第一節的形狀）：任務那一頁的「詳情」早就改成等那一天讀完（issue 11），抽屜那一顆還在講「還在讀，等一下再按一次」（`11` 的 D7、`29` 的 S2）
+- **讀完才畫的那一下，她已經不在那一頁了**：壓表存完之後的 `reload()` 回來時她換了頁 —— 換頁先來一下 popstate，那一個月那一層把舊的那一頁畫回選月份，
+  `paintPage()` 找不到 `[data-page]`（`68` 的 S7）。記下開始時的那一頁（`schedule.js` 的 `pageTurns`／`leftSince()`），回來不一樣就不畫
+- **測試「慢 2.5 秒再斷言還沒回來」**：那幾秒從請求送出去算，斷言在 `page.reload()` 回來之後才問 —— 頁面 load 得久、或快取那一份讀得慢，就在斷言之前用完了（`81` 的 P5、P8、P9、P10、P12）。
+  改成**扣住、斷言完才放**（`route` 裡 `await gate`）。**固定等 1.8 秒再讀資料庫**同一個形狀：等那一次寫入自己的訊號（`app.saved()`、抽屜收起來）
+- 重現的方法：`page.route()` 扣住**某一個集合**的讀取 —— WebChannel 的 POST 內文有 `"collectionId":"events"`，只扣它，別的照常（`68` 的 `holdReadsOf()`）。
+  CDP 的 `Emulation.setCPUThrottlingRate` 只慢頁面、不燒 CPU，可以先試，但重現不了「模擬器回得慢」那一種
+
+> 這一下點擊、這一句斷言，在讀得比 340ms 慢的手機、或比這台快十倍的機器上，還成立嗎？`await` 回來之後，畫面上還是我開始時的那一頁嗎？
 
 ---
 
@@ -201,4 +239,4 @@
 - **E2E 量「按了之後東西有沒有跑走」之前，先等進場動畫播完**（10/19）：元素還在動，Playwright 判「不穩」、重試時自己 scroll into view ——
   橫向的那一疊被它捲走，量到的是它捲的。等的是 `el.getAnimations({ subtree: true })` 的 `finished`，不是「x 兩次一樣」（動畫可能在 y 上）。
   分辨的方法：`DEBUG=pw:api` 看有沒有「element is not stable → retrying → scrolling into view」，再掛勾 `scrollIntoView`／`scrollTo`／`scrollLeft` 看 app 有沒有叫
-- **平行的 subagent**：這個環境的 subagent 寫不了 `.md` 報告檔（主控代存）；撞到用量上限會中斷，用 SendMessage 接回去；同時只准一組模擬器＋一個瀏覽器（她的筆電會過熱）
+- **平行的 subagent**：這個環境的 subagent 寫不了 `.md` 報告檔（主控代存）；撞到用量上限會中斷，用 SendMessage 接回去；同時只准一個 subagent 跑 E2E（一次 E2E 照 `E2E_WORKERS` 就開 2 組模擬器＋2 個瀏覽器；她的筆電長時間跑滿會過熱）

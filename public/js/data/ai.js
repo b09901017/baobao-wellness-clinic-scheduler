@@ -19,7 +19,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app-check.js';
 
 import { initFirebase } from './firebase.js';
-import { appCheckSiteKey, firebaseConfig, projectIdFor, usingEmulator } from '../firebase-config.js';
+import { appCheckSiteKey, emulatorPorts, firebaseConfig, usingEmulator } from '../firebase-config.js';
 
 const REGION = 'asia-east1';
 /** 模型含重試最多 100 秒、Function 120 秒，再多留一點給網路。 */
@@ -70,13 +70,13 @@ function callable() {
 
   const functions = getFunctions(app, REGION);
   if (usingEmulator()) {
-    connectFunctionsEmulator(functions, '127.0.0.1', 5001);
-    // 模擬器的 Function 只認啟動它的那個專案（`start-emulators.sh` 開的是 0 號），
-    // 而 app 在平行 E2E 裡的專案是 `…-wN`。照 app 的專案 id 叫會 404，所以寫死 0 號那一份的網址。
-    // 代價：平行跑的時候 Function 寫的用量落在 0 號命名空間（現在 `workers: 1`，不影響）。
+    connectFunctionsEmulator(functions, '127.0.0.1', emulatorPorts.functions);
+    // 模擬器的 Function 只認啟動它的那個專案（`start-emulators.sh` 的 `--project`），所以網址要寫明是哪一個。
+    // 一組模擬器時那是 0 號、app 的專案也是 0 號；一個 worker 一組時第 k 組開的是 `projectIdFor(k)`、
+    // app 的專案也是它 —— 兩種都等於 app 自己的 projectId。
     call = httpsCallableFromURL(
       functions,
-      `http://127.0.0.1:5001/${projectIdFor(0)}/${REGION}/extract`,
+      `http://127.0.0.1:${emulatorPorts.functions}/${firebaseConfig.projectId}/${REGION}/extract`,
       { timeout: TIMEOUT_MS },
     );
   } else {

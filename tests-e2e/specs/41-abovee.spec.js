@@ -9,7 +9,7 @@
 import { test, expect } from '../fixtures/app.js';
 import { customer, entitlement, masterDocs } from '../fixtures/data.js';
 import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
-import { PROJECT_ID, allowUser } from '../fixtures/emulator.js';
+import { FIRESTORE_ORIGIN, PROJECT_ID, allowUser } from '../fixtures/emulator.js';
 
 const MONTH = '2026-09';
 const chart = (no) => [{ text: `病歷號 ${no}`, color: 'grey' }];
@@ -92,7 +92,7 @@ async function view(page, which) {
   await expect(page.locator(`[data-abl-view="${which}"]`)).toHaveAttribute('aria-pressed', 'true');
 }
 
-const DOCS = `http://127.0.0.1:8080/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const DOCS = `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const OWNER = { Authorization: 'Bearer owner' };
 
 /** 把白名單整份拿掉（讓接下來的寫入被 Rules 擋），回傳原本的 uid 好放回去（同 40）。 */

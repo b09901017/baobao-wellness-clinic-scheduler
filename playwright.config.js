@@ -6,15 +6,21 @@
 // `public/js/firebase-config.js` 的 `projectIdFor(worker)` 是**唯一的推導**，
 // app、E2E fixture、`start-emulators.sh` 三邊都呼叫它（`tests/env.test.js` 盯著）。
 //
-// **不必開 N 顆模擬器**：一顆 Firestore 模擬器本來就裝得下多個 projectId，
-// 沒被用過的命名空間第一次被寫到時自己長出來。Auth 那側分不了專案
-// （見 `tests-e2e/fixtures/emulator.js` 的 `AUTH_PROJECT_ID`），而那不影響隔離。
+// 一顆 Firestore 模擬器本來就裝得下多個 projectId，但幾個 worker 共用一顆會搶 CPU
+// （見底下 `workers` 那一段），所以**平行跑的時候一個 worker 一整組模擬器**（`E2E_WORKERS`，
+// `tests-e2e/emulator-groups.mjs`；port 的推導是 `firebase-config.js` 的 `emulatorPortsFor()`）。
 //
 // **預設無頭，headed 要自己開。** headed + `slowMo: 80` 讓全跑從 12 分鐘變成
 // 25 分鐘（.artifacts/results.json 量的），日常改一行程式付不起這個代價。
 // 要親眼看測試在跑：`npm run test:e2e:watch`。
 
 import { defineConfig, devices } from '@playwright/test';
+
+import { emulatorPortsFor } from './public/js/firebase-config.js';
+import { groupedFrom, workersFrom } from './tests-e2e/emulator-groups.mjs';
+
+// 幾個 worker（見底下 `workers` 那一段）。不合法的值在這裡就丟例外，不會安靜地退回 1
+const WORKERS = workersFrom(process.env.E2E_WORKERS);
 
 // 有 HEADLESS 或 CI 就無頭。npm 那幾條路一律經過 `scripts/e2e.mjs`，
 // 它會設 HEADLESS=1（`--watch` 那條不設）。
@@ -45,8 +51,11 @@ export default defineConfig({
   // 真正的瓶頸有兩個：那一顆 Firestore 模擬器（單一 Java 行程），以及 app 的
   // Firebase SDK 是每個測試都從 gstatic CDN 重載一次（worker 越多越容易載不到）。
   //
-  // 改成 3 只要動這一行 —— 前置的隔離已經在了。
-  workers: 1,
+  // **2026-11-04 起可以一個 worker 一整組模擬器**（`E2E_WORKERS=N`，見 `tests-e2e/emulator-groups.mjs`）：
+  // 搶的那一顆 Java 行程一人一顆，客廳 e2e-speed 10/29 的實驗 2／3 個 worker 都全過。
+  // **沒設就是 1**（CI；她家裡與 VM 在 Claude 的設定裡設 2，見 CLAUDE.md）；模擬器也要用同一個值開
+  // （`E2E_WORKERS=N npm run emulators`），對不上時 `app.sameNamespace()` 大聲講。
+  workers: WORKERS,
   // **1 次重試**：headed 模式下長時間跑會把 Windows 的桌面堆疊吃光
   // （worker 會以 0xC0000142 掛掉），負載一高固定等待就不夠。
   // 真的 bug 會連續失敗兩次，照樣紅 —— 重試只救得了環境造成的抖動。
@@ -61,7 +70,8 @@ export default defineConfig({
     ['json', { outputFile: '.artifacts/results.json' }],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:5000',
+    // Hosting 只開在一組上：一個 worker 一組時是 0 號組（`emulatorPortsFor(0)`），平常是 5000
+    baseURL: `http://127.0.0.1:${emulatorPortsFor(groupedFrom(process.env.E2E_WORKERS) ? 0 : null).hosting}`,
     // **一定要設。** Playwright 的 click()／fill() 預設是「不逾時」，
     // 所以一個選錯的選擇器會安靜地吃滿整個 test timeout（180 秒），
     // 一支 6 個測試的檔案就跑掉 18 分鐘而且看不出是哪一行卡住。

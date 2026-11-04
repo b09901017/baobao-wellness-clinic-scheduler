@@ -123,6 +123,18 @@ const view = {
 let ctx = null;
 
 /**
+ * 那一個月那一頁換過幾次：整頁畫一次（`mount()`）、退回選月份（`leaveMonth()`）各加一。
+ *
+ * 讀完才畫的那幾支（`paintBatch()`、存完之後的 `reload()`）先記下開始時的值，讀回來不一樣、
+ * 或那一頁已經離開文件，就不畫了 —— 她換了頁、按了返回、又進來一次。換頁先來一下 popstate，
+ * 那一個月那一層把舊的那一頁畫回選月份，以前重讀回來照畫，`[data-page]` 是 null（E2E `68` 的 S7）。
+ */
+let pageTurns = 0;
+
+/** 從 `turn` 那一刻到現在，那一頁換過了、或已經不在畫面上了。 */
+const leftSince = (turn, el) => turn !== pageTurns || !el.isConnected;
+
+/**
  * 「進到某一個月」那一層。返回鍵要退回選月份，不是跳走整個壓表（ADR-0048）。
  *
  * 卡片組（deck）自己還會再疊一層，所以層次是：選月份 → 那一個月 → 卡片組，
@@ -343,6 +355,7 @@ function ensureMonthLayer(el) {
 function leaveMonth(el, { fromBack = false } = {}) {
   if (!fromBack) monthLayer?.pop();
   monthLayer = null;
+  pageTurns += 1;
   view.batchId = null;
   view.customerId = null;
   resetPicks();
@@ -481,7 +494,9 @@ async function contextAfterCatchUp(el, batch, data) {
 // ---------- 批次 ----------
 
 async function paintBatch(el) {
+  const turn = pageTurns;
   const batch = await batchesData.get(view.batchId);
+  if (leftSince(turn, el)) return;
   if (!batch) {
     view.batchId = null;
     return render(el);
@@ -505,7 +520,10 @@ async function paintBatch(el) {
   }
 
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...(await contextAfterCatchUp(el, batch, data)), shown: [] };
+  if (leftSince(turn, el)) return;
+  const next = await contextAfterCatchUp(el, batch, data);
+  if (leftSince(turn, el)) return;
+  ctx = { ...next, shown: [] };
   mount();
 }
 
@@ -513,18 +531,26 @@ async function paintBatch(el) {
  * 重讀一次並把畫面接回去。存好一筆、或標記某位處理完之後用。
  *
  * **不重新 mount**：卡片組還開著的時候整個重畫，等於把她捲到的位置洗掉一次。
+ *
+ * 讀回來時她已經不在這一個月了（`leftSince()`）也回 true：手上那一份不換、什麼都不畫。
  */
 async function reload() {
+  const turn = pageTurns;
+  const { el } = ctx;
   const batch = await batchesData.get(view.batchId);
+  if (leftSince(turn, el)) return true;
   if (!batch || !monthRange(batch.targetMonth)) {
     // 這一批在別的裝置上被結束或刪掉了。整頁重來是對的 ——
     // 回傳 true 讓呼叫端知道「別再往下畫了」。
     view.batchId = null;
-    await render(ctx.el);
+    await render(el);
     return true;
   }
   const data = await loadAll(batch.targetMonth);
-  ctx = { ...ctx, ...(await contextAfterCatchUp(ctx.el, batch, data)) };
+  if (leftSince(turn, el)) return true;
+  const next = await contextAfterCatchUp(el, batch, data);
+  if (leftSince(turn, el)) return true;
+  ctx = { ...ctx, ...next };
   return false;
 }
 
@@ -566,6 +592,7 @@ function computeShown() {
 
 function mount() {
   const { el } = ctx;
+  pageTurns += 1;
   deckLayer = null; // 整頁重畫，上一次那一層的節點與紀錄都不在了
   el.innerHTML = '<div data-page></div>';
 

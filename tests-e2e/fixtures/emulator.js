@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { projectIdFor } from '../../public/js/firebase-config.js';
+import { emulatorPortsFor, projectIdFor } from '../../public/js/firebase-config.js';
+import { groupedFrom, portSlotFor } from '../emulator-groups.mjs';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 
 /**
@@ -40,7 +41,23 @@ export const PROJECT_ID = projectIdFor(process.env.TEST_PARALLEL_INDEX);
 export const WORKER_INDEX = process.env.TEST_PARALLEL_INDEX ?? 0;
 
 /**
- * 建帳號／清帳號要打哪一個命名空間。**永遠是 0 號，跟 `PROJECT_ID` 不一樣。**
+ * **一個 worker 一組模擬器嗎**（`E2E_WORKERS` 大於 1，`tests-e2e/emulator-groups.mjs`）。
+ * 沒設 ＝ 以前那樣：一組模擬器、平常的 port。
+ */
+export const GROUPED = groupedFrom(process.env.E2E_WORKERS);
+
+/**
+ * 這個 worker 連第幾組模擬器，**原封不動地**傳給瀏覽器那側（`fixtures/app.js` 的
+ * `context.addInitScript()`，只有 `GROUPED` 時才塞）。一組模擬器時是 `null` ＝ 平常的 port。
+ * 兩邊餵給 `emulatorPortsFor()` 的是同一個值 —— 理由同 `WORKER_INDEX`。
+ */
+export const PORT_SLOT = portSlotFor(process.env.E2E_WORKERS, process.env.TEST_PARALLEL_INDEX);
+
+/** 這個 worker 連的那一組模擬器的每一個 port。 */
+export const PORTS = emulatorPortsFor(PORT_SLOT);
+
+/**
+ * 建帳號／清帳號要打哪一個命名空間。**一組模擬器時永遠是 0 號，跟 `PROJECT_ID` 不一樣。**
  *
  * Auth 模擬器的 `getProjectIdByApiKey()` 把 api key 丟掉，一律回
  * `--project` 那個預設專案（firebase-tools 的 `emulator/auth/server.js`）——
@@ -53,10 +70,22 @@ export const WORKER_INDEX = process.env.TEST_PARALLEL_INDEX ?? 0;
  *
  * 這裡寫成 `projectIdFor(0)` 而不是 `PROJECT_ID`：打錯的話會清掉一個空的
  * 命名空間，然後每個 worker 都登不進去。
+ *
+ * **一個 worker 一組模擬器時（`GROUPED`）就是 `PROJECT_ID`**：第 k 組的 Auth 是那一組自己的，
+ * 它的預設專案是 `start-emulators.sh` 給那一組的 `--project` ＝ `projectIdFor(k)`。
  */
-export const AUTH_PROJECT_ID = projectIdFor(0);
-export const AUTH_HOST = 'http://127.0.0.1:9099';
-export const APP_ORIGIN = 'http://127.0.0.1:5000';
+export const AUTH_PROJECT_ID = GROUPED ? PROJECT_ID : projectIdFor(0);
+export const AUTH_HOST = `http://127.0.0.1:${PORTS.auth}`;
+/** Hosting 只開在一組上（一個 worker 一組時是 0 號組），大家共用同一份靜態檔。 */
+export const APP_ORIGIN = `http://127.0.0.1:${emulatorPortsFor(GROUPED ? 0 : null).hosting}`;
+/** Firestore 的 REST 入口（不經過 SDK 直接讀寫，40／41／42 那幾支用）。 */
+export const FIRESTORE_ORIGIN = `http://127.0.0.1:${PORTS.firestore}`;
+export const STORAGE_ORIGIN = `http://127.0.0.1:${PORTS.storage}`;
+/**
+ * 拍照那一支 Function 的網址。模擬器的 Function 只認啟動它的那個專案（`start-emulators.sh` 的
+ * `--project`）＝ 這個 worker 連的那一組的專案，跟 Auth 同一個。
+ */
+export const FUNCTIONS_ORIGIN = `http://127.0.0.1:${PORTS.functions}/${AUTH_PROJECT_ID}`;
 
 const RULES = readFileSync(
   fileURLToPath(new URL('../../firestore.rules', import.meta.url)),
@@ -69,7 +98,7 @@ async function testEnv() {
   if (env) return env;
   env = await initializeTestEnvironment({
     projectId: PROJECT_ID,
-    firestore: { rules: RULES, host: '127.0.0.1', port: 8080 },
+    firestore: { rules: RULES, host: '127.0.0.1', port: PORTS.firestore },
   });
   return env;
 }

@@ -32,7 +32,6 @@ const SPEC_DIR = fromRoot('tests-e2e/specs');
  * 清完一支就整列刪掉 —— 留著 0 等於留一個可以偷偷長回去的位子。
  */
 const PENDING = {
-  '02-examine-chain.spec.js': 12,
   '03-health-and-counts.spec.js': 1,
   '04-journey-a-happy.spec.js': 15,
   '06-time-travel.spec.js': 6,
@@ -40,11 +39,9 @@ const PENDING = {
   '08-ux-audit.spec.js': 12,
   '09-sheet-and-import.spec.js': 4,
   '10-offline.spec.js': 7,
-  '11-todo-drawer.spec.js': 5,
   '12-ask-by-month.spec.js': 5,
   '14-clinical-alert.spec.js': 3,
   '15-playbook.spec.js': 3,
-  '16-record-task.spec.js': 1,
   '17-settings-fields.spec.js': 10,
   '18-memo-paste-and-emoji.spec.js': 5,
   '21-pool-assignment.spec.js': 10,

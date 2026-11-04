@@ -27,6 +27,8 @@ try {
     await page.goto(pathToFileURL(resolve(file)).href);
     const out = join(outDir, `${tag}.png`);
     await page.screenshot({ path: out, fullPage: false });
+    // 整頁那一張看底下那幾張小表（一張只看得到最上面）
+    await page.screenshot({ path: join(outDir, `${tag}-整頁.png`), fullPage: true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     console.log(`${tag}：${resolve(out)}　橫向捲動 ${overflow ? '有（要修）' : '沒有'}　錯誤 ${errors.length}`);
     for (const e of errors) console.log(`  ! ${e}`);

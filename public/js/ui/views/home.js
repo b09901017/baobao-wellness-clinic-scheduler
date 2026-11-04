@@ -1168,6 +1168,8 @@ function openWhoDrawer(ctx, customerId, waiting, toClose) {
     staff: {},
     bookings: new Map(),
     sheet: null,
+    // 讀 `visits` 那一趟（`loadWhoDetails()`）。「詳情」先等它
+    loading: null,
   };
   whoDrawer = d;
 
@@ -1175,7 +1177,9 @@ function openWhoDrawer(ctx, customerId, waiting, toClose) {
     title: row.name,
     note: whoNote(),
     body: whoBodyHtml(ctx),
-    onMount: () => wireWhoDrawer(ctx),
+    // 接在 onMount 給的那一個元素上：`openSheet()` 回傳之前就叫第一次，那時候 `d.sheet` 還是 null ——
+    // 以前讀 `whoDrawer.sheet.el`，第一次直接 return，要等細節讀回來重畫才接上（她那一下點擊被吃掉，E2E `11` 的 D6）
+    onMount: (el) => wireWhoDrawer(ctx, el),
     onClose: () => { if (whoDrawer === d) whoDrawer = null; },
   });
 
@@ -1236,10 +1240,7 @@ function whoBodyHtml(ctx) {
       </div>` : ''}`;
 }
 
-function wireWhoDrawer(ctx) {
-  const el = whoDrawer?.sheet?.el;
-  if (!el) return;
-
+function wireWhoDrawer(ctx, el) {
   el.querySelectorAll('[data-task]').forEach((btn) =>
     btn.addEventListener('click', () => toggleWhoTask(ctx, btn.dataset.task)),
   );
@@ -1268,29 +1269,9 @@ async function loadWhoDetails(ctx) {
   const d = whoDrawer;
   if (!d) return;
 
-  const ids = d.tasks.map((t) => t.visitId).filter(Boolean);
-
-  try {
-    // 課程、器材與品項是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
-    // 四個畫面共用同一支 `visitReadHtml()`，少帶的話這一頁會寫「復能」
-    // 而日曆上寫「SIS(60)」。**三份都要帶**：少了品項那一段點滴這一頁會寫
-    // 「營養點滴」而別頁寫「雪」。
-    const [visits, rooms, staff, courses, equipment, ivProducts] = await Promise.all([
-      ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
-      config.listAll('rooms'),
-      config.listAll('staff'),
-      config.listAll('courses', { includeDeleted: true }),
-      config.listAll('equipment', { includeDeleted: true }),
-      config.listAll('ivProducts', { includeDeleted: true }),
-    ]);
-    if (whoDrawer !== d) return;   // 她已經關掉、或換了一位
-    d.visits = visits;
-    d.rooms = byId(rooms);
-    d.staff = byId(staff);
-    d.master = { courses, equipment, ivProducts };
-  } catch {
-    return;
-  }
+  // 「詳情」按得比這一份早就等它（`openWhoVisit()`，同任務那一頁的 `taskVisitsLoading`）
+  d.loading = loadWhoVisits(d);
+  if (!(await d.loading)) return;
 
   // 「約二返」那幾列各自約了沒。一位客戶讀一次，不是一列讀一次。
   const mine = d.tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.visitId);
@@ -1319,6 +1300,33 @@ async function loadWhoDetails(ctx) {
   d.sheet.update(whoBodyHtml(ctx));
 }
 
+/** 那幾列的那一天與讀取卡片要的主檔。讀到了回 true；讀不到、或她已經關掉／換了一位回 false。 */
+async function loadWhoVisits(d) {
+  const ids = d.tasks.map((t) => t.visitId).filter(Boolean);
+  try {
+    // 課程、器材與品項是給讀取卡片上「那一段叫什麼」用的（`domain/naming.js`）——
+    // 四個畫面共用同一支 `visitReadHtml()`，少帶的話這一頁會寫「復能」
+    // 而日曆上寫「SIS(60)」。**三份都要帶**：少了品項那一段點滴這一頁會寫
+    // 「營養點滴」而別頁寫「雪」。
+    const [visits, rooms, staff, courses, equipment, ivProducts] = await Promise.all([
+      ids.length ? visitsData.getMany(ids) : Promise.resolve(new Map()),
+      config.listAll('rooms'),
+      config.listAll('staff'),
+      config.listAll('courses', { includeDeleted: true }),
+      config.listAll('equipment', { includeDeleted: true }),
+      config.listAll('ivProducts', { includeDeleted: true }),
+    ]);
+    if (whoDrawer !== d) return false;   // 她已經關掉、或換了一位
+    d.visits = visits;
+    d.rooms = byId(rooms);
+    d.staff = byId(staff);
+    d.master = { courses, equipment, ivProducts };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 抽屜裡那顆「詳情 ›」。**唯讀，沒有鉛筆**（ADR-0056）。
  *
@@ -1330,13 +1338,17 @@ async function loadWhoDetails(ctx) {
  * 一天只有一段時 `focusFor()` 直接解成那一段 —— 一張只有一列的目錄
  * 是講不通的。
  */
-function openWhoVisit(visitId, taskId = null) {
+async function openWhoVisit(visitId, taskId = null) {
   const d = whoDrawer;
-  const visit = d?.visits?.get(visitId);
+  if (!d) return;
+  // 那一天還在讀就等它讀完（同任務那一頁，issue 11）：抽屜一打開就按的那一下，以前講「還在讀，等一下再按一次」
+  await d.loading;
+  if (whoDrawer !== d) return;   // 等的時候她關掉了、或換了一位
+  const visit = d.visits?.get(visitId);
   if (!visit) {
-    toast.info(d?.visits
+    toast.info(d.visits
       ? '找不到這一天的來訪，可能已經刪掉了'
-      : '那一天的資料還在讀，等一下再按一次');
+      : '讀不到那一天的資料，等一下再按一次');
     return;
   }
 

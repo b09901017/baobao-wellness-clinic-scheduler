@@ -10,11 +10,13 @@
 import { test, expect } from '../fixtures/app.js';
 import { customer, masterDocs } from '../fixtures/data.js';
 import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
-import { PROJECT_ID, allowUser } from '../fixtures/emulator.js';
+import {
+  FIRESTORE_ORIGIN, PROJECT_ID, STORAGE_ORIGIN, allowUser,
+} from '../fixtures/emulator.js';
 
 const BUCKET = `${PROJECT_ID}.firebasestorage.app`;
-const STORAGE = `http://127.0.0.1:9199/v0/b/${BUCKET}/o`;
-const DOCS = `http://127.0.0.1:8080/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const STORAGE = `${STORAGE_ORIGIN}/v0/b/${BUCKET}/o`;
+const DOCS = `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const OWNER = { Authorization: 'Bearer owner' };
 const OLD_PHOTO = 'treatmentSheets/cust-wang/s-old/1000.jpg';
 

@@ -3,7 +3,9 @@
 //
 //   node assemble.mjs <抄字資料夾> --month 2026-10 --out <abovee.json> [--verify <逐像素結果.json>]
 //
-// - 截圖的順序＝檔名排序（她照時間截，檔名是日期）。順序有意義：兩張重疊的那幾列靠它對齊。
+// - 截圖的順序＝抄本的檔名排序。順序有意義：兩張重疊的那幾列靠它對齊。她的檔名是日期（`14.png`、`14-15.png`），
+//   直接排會排錯（`14-15` 排在 `14` 前面），所以抄本一律加兩位數序號：`07_14.tsv`、`08_14-15.tsv`（transcribe.md）。
+// - **兩張一模一樣**（同一頁截了兩次）：後面那一張不算，記在 `meta.duplicates`。
 // - **兩張重疊的列**：上一張最後 k 列跟下一張最前 k 列每一格都一樣 → 下一張那 k 列不要（印出來）。
 //   只認「頭尾相接」那一種，不去重別的 —— 同一個人同一個時間兩門課是兩列，長得很像但都是真的。
 // - 檢查：日期由早到晚、時段的格式、同一個病歷號只對一個名字、還有沒有 `??`。檢查只講、不改 —— 改是看了截圖之後的事。
@@ -73,11 +75,22 @@ export function assemble(files, { month, verify = null, from = null, to = null, 
   const rowsPerShot = {};
   const rows = [];
   const meta = { from: null, to: null, page: null };
+  // 兩張抄出來一模一樣：同一頁截了兩次（2026-11-04 那一批有兩張）。多半是原本要截下一頁 —— 那一頁就少了，
+  // 比對那一步拿 `duplicates` 去講「這一張後面可能少截一頁」（`reconcile.mjs` 的 `gaps`）
+  const duplicates = [];
+  const kept = [];
   let prev = [];
   for (const { file, text } of files) {
     const t = parseTsv(text, file);
     problems.push(...t.problems);
     const shot = t.shot || basename(file).replace(/\.tsv$/, '.png');
+    const twin = t.rows.length ? kept.find((k) => k.rows.length === t.rows.length && k.rows.every((r, i) => sameRow(r, t.rows[i]))) : null;
+    if (twin) {
+      duplicates.push({ shot, sameAs: twin.shot });
+      notes.push(`${shot}：跟 ${twin.shot} 一模一樣（同一頁截了兩次），只算一次 —— ${twin.shot} 後面那一頁可能沒截到`);
+      continue;
+    }
+    kept.push({ shot, rows: t.rows });
     shots.push(shot);
     // 這張抄了幾列（去掉重疊之前）—— 逐像素驗證照它切列
     rowsPerShot[shot] = t.rows.length;
@@ -163,7 +176,7 @@ export function assemble(files, { month, verify = null, from = null, to = null, 
   if (complete === false) problems.push(`Abovee 上寫共 ${total} 筆，抄出來 ${rows.length} 列 —— 少截了或重複了`);
 
   return {
-    meta: { month, shots, rowsPerShot, from: meta.from, to: meta.to, page: meta.page, total: Number.isFinite(total) ? total : null, complete, pixel },
+    meta: { month, shots, rowsPerShot, duplicates, from: meta.from, to: meta.to, page: meta.page, total: Number.isFinite(total) ? total : null, complete, pixel },
     problems, notes, rows,
   };
 }
@@ -187,6 +200,7 @@ if (isMain) {
   const out = assemble(files, { month: opt.month, verify, from: opt.from ?? null, to: opt.to ?? null, complete: opt.complete === 'yes' });
   mkdirSync(dirname(resolve(opt.out)), { recursive: true });
   writeFileSync(opt.out, JSON.stringify(out, null, 1));
+  if (out.meta.duplicates.length) console.log(`另有 ${out.meta.duplicates.length} 張跟別張一模一樣（同一頁截了兩次），沒有重複算`);
   console.log(`${out.meta.shots.length} 張、${out.rows.length} 列；Abovee 上的總筆數：${out.meta.total ?? '沒拍到'}${
     out.meta.complete ? (out.meta.total ? '（拍齊了）' : '（她說整個月都截了）') : '（沒拍齊：只信第一列到最後一列之間，頭尾那兩天不算次數）'}`);
   if (out.meta.pixel) console.log(`逐像素：${out.meta.pixel.ok}/${out.meta.pixel.cells} 格吻合，${out.meta.pixel.rowsOk}/${out.meta.pixel.rows} 列全部吻合`);

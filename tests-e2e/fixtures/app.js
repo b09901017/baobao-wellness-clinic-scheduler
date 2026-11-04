@@ -15,7 +15,7 @@ import { test as base, expect } from '@playwright/test';
 
 import {
   clearFirestore, seedDocs, ensureUser, allowUser, readDoc, readAll,
-  APP_ORIGIN, PROJECT_ID, WORKER_INDEX,
+  APP_ORIGIN, GROUPED, PORTS, PORT_SLOT, PROJECT_ID, WORKER_INDEX,
 } from './emulator.js';
 import { TODAY } from './data.js';
 
@@ -124,7 +124,8 @@ const BENIGN = [
   // 「Failed to load resource」—— 那一句只有 `location().url` 認得出來。
   // 畫面有沒有把原因講對，由拍照那幾支 spec 自己斷言（例如「AI 暫停中」）。
   // 範圍只有那一支的網址。
-  /^http:\/\/127\.0\.0\.1:5001\/[^/]+\/asia-east1\/extract$/,
+  // port 不寫死：一個 worker 一組模擬器時每組的 Functions 不在 5001（`emulatorPortsFor()`）
+  /^http:\/\/127\.0\.0\.1:\d+\/[^/]+\/asia-east1\/extract$/,
 ];
 
 /**
@@ -161,6 +162,9 @@ export const test = base.extend({
    */
   context: async ({ context }, use) => {
     await context.addInitScript((w) => { window.__E2E_WORKER = w; }, WORKER_INDEX);
+    // 一個 worker 一組模擬器時，再告訴它連第幾組（`emulatorPortsFor()`）。
+    // **只有開了才塞**：沒塞的分頁連平常的 port，`E2E_WORKERS` 沒設時跟以前一個位元都不差。
+    if (GROUPED) await context.addInitScript((s) => { window.__E2E_PORT_SLOT = s; }, PORT_SLOT);
     await use(context);
   },
 
@@ -297,9 +301,19 @@ export const test = base.extend({
        * 不是照著規則在這裡再推論一次。
        */
       async sameNamespace() {
-        const seen = await page.evaluate(
-          () => import('/js/firebase-config.js').then((m) => m.firebaseConfig.projectId),
+        const { seen, ports } = await page.evaluate(
+          () => import('/js/firebase-config.js')
+            .then((m) => ({ seen: m.firebaseConfig.projectId, ports: m.emulatorPorts })),
         );
+        // 一個 worker 一組模擬器時還要連對那一組：連到別組的話種子塞在第 k 組、app 讀第 j 組，
+        // 症狀一樣是畫面全空（或連不上），而且看不出是哪一行
+        if (JSON.stringify(ports) !== JSON.stringify(PORTS)) {
+          throw new Error(
+            `app 跟種子不在同一組模擬器：app 連的是 ${JSON.stringify(ports)}，`
+            + `種子打的是 ${JSON.stringify(PORTS)}（第 ${WORKER_INDEX} 號 worker、組號 ${PORT_SLOT}）。`
+            + '先檢查 E2E_WORKERS 與 __E2E_PORT_SLOT 的 addInitScript。',
+          );
+        }
         if (seen !== PROJECT_ID) {
           throw new Error(
             `app 跟種子不在同一個模擬器命名空間：app 讀的是 ${seen}，`

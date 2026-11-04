@@ -85,3 +85,6 @@ graphify-out/
 
 # agent 的 worktree（`.claude/worktrees/`）是另一個 git repo，不進版控
 .claude/worktrees/
+
+# 一個 worker 一組模擬器時每一組的設定檔（tests-e2e/emulator-groups.mjs 產的）
+/firebase.e2e-group-*.json

@@ -10,6 +10,7 @@
 import { test, expect } from '../fixtures/app.js';
 import { customer, entitlement, masterDocs, slot, visit } from '../fixtures/data.js';
 import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
+import { FIRESTORE_ORIGIN } from '../fixtures/emulator.js';
 import { counts } from '../../public/js/domain/entitlements.js';
 
 const MONTH = '2026-09';
@@ -313,9 +314,10 @@ test('S5 健檢與接著它的二返，照片都寫課程完成：存完沒有�
   expect(report).toEqual([]);
 });
 
-test('S6 同一張照片把今天結掉、又有一段新的：記成同一次來訪（10/16 她：一天一次）', async ({ app, page }) => {
+/** S6、S7：今天 10:00 那一段照片上已經完成，15:00 是新的一段（假抄字 `aboveeList-same-day`）。 */
+function seedSameDay() {
   const base = { confirmedAt: null, cancelledAt: null, statusAt: null, cancelReason: null, released: null };
-  await app.seed([
+  return [
     ...masterDocs(),
     customer({ id: 'cust-wang', name: '王小明', marks: [{ text: '病歷號 1234', color: 'grey' }] }),
     entitlement('cust-wang', { id: 'w-pool', ...POOL3, bookedCount: 1 }),
@@ -327,7 +329,11 @@ test('S6 同一張照片把今天結掉、又有一段新的：記成同一次�
       data: { targetMonth: MONTH, status: 'active', cursor: null, lastDeviceHint: null,
         queue: [{ customerId: 'cust-wang', customerName: '', state: 'pending', skippedReason: null }] },
     },
-  ]);
+  ];
+}
+
+test('S6 同一張照片把今天結掉、又有一段新的：記成同一次來訪（10/16 她：一天一次）', async ({ app, page }) => {
+  await app.seed(seedSameDay());
   await app.signIn('/');
   await photograph(app, page, 'aboveeList-same-day');
 
@@ -348,4 +354,52 @@ test('S6 同一張照片把今天結掉、又有一段新的：記成同一次�
   await app.go('/customers/cust-wang');
   await page.locator('[data-toggle-visits]').click();
   await expect(page.locator('.link-list [data-visit]', { hasText: '8/29' })).toHaveCount(1);
+});
+
+/** 扣住讀某一個集合的那幾個請求（WebChannel 的 POST 內文裡有它的名字），`release()` 才放。 */
+async function holdReadsOf(page, collectionId) {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const pattern = `${FIRESTORE_ORIGIN}/**`;
+  const needle = `"collectionId":"${collectionId}"`;
+  await page.route(pattern, async (route) => {
+    let body = '';
+    try { body = decodeURIComponent(route.request().postData() ?? ''); } catch { /* 不是表單 */ }
+    if (body.includes(needle)) await gate;
+    await route.continue().catch(() => {});
+  });
+  return { release, done: () => page.unroute(pattern) };
+}
+
+/**
+ * 2026-11-04 雲端 VM 上 S6（與 85 的 Y1）在機器忙的時候丟了 pageerror「Cannot set properties of null (setting 'innerHTML')」：
+ * 記好之後壓表那一頁重讀一次（`reload()`），還沒回來她就換頁了 —— 換頁先來一下 popstate，那一個月那一層把舊的那一頁
+ * 畫回選月份（`leaveMonth()`），重讀回來 `paintPage()` 找 `[data-page]` 找不到。這一支把那一趟重讀扣住，換了頁才放。
+ */
+test('S7 記好之後壓表重讀還沒回來就換頁 → 回來的那一趟不畫、不丟錯；再進那一個月照常', async ({ app, page }) => {
+  await app.seed(seedSameDay());
+  await app.signIn('/');
+  await photograph(app, page, 'aboveeList-same-day');
+  await view(page, 'result');
+  await expect(page.locator('[data-abl-save]')).toHaveText('記錄 1 段、改 1 段');
+
+  // 記好之後那一趟重讀扣住。認它讀的「這個月的行事備註」：記錄那一下不讀它
+  const hold = await holdReadsOf(page, 'events');
+  await page.locator('[data-abl-save]').click();
+  await app.ok();
+  await app.saved();
+  await expect(page.locator('.abl')).toHaveCount(0);
+
+  // 換頁：舊的那一頁被畫回選月份、離開文件 —— 扣住的那一趟回來時，那一格已經不是那一個月了
+  const oldView = await page.locator('#view').elementHandle();
+  await page.evaluate(() => { window.location.hash = '#/customers/cust-wang'; });
+  await expect.poll(() => oldView.evaluate((n) => !n.isConnected && !n.querySelector('[data-page]'))).toBe(true);
+
+  hold.release();
+  // 再進同一個月：讀的跟扣住的那一趟是同幾份，那一趟先回來
+  await app.go('/schedule');
+  await page.locator(`[data-month="${MONTH}"]`).click();
+  await app.settled();
+  await hold.done();
+  await expect(page.locator('[data-wall]')).toContainText('王小明');
 });
