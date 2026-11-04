@@ -163,13 +163,25 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
 
 // ---------- 先畫殼（issue 07）----------
 
-/** 登入那一側（Auth 模擬器）的每一個請求都慢一點：手機上那一段是先載 iframe、再換 token（spec 第三節）。 */
-async function slowAuth(context, ms = 2500) {
-  await context.route(`${AUTH_HOST}/**`, async (route) => {
-    await new Promise((r) => { setTimeout(r, ms); });
-    await route.continue();
+/**
+ * 那一側的每一個請求都扣住，回傳的那一支叫了才放。
+ *
+ * **扣住，不是慢幾秒**（2026-11-04）：以前是每一個請求晚 2.5 秒回，再在這段時間裡斷言「還沒回來」——
+ * 那幾秒是從請求送出去算的，而斷言是在 `page.reload()` 回來之後才問：頁面的 load 等得比較久（閒著的雲端 VM 上 P8）、
+ * 或手機裡那一份讀得比較慢（忙的 VM 上 P10：雲端先回來，快取那一份根本不畫），那幾秒就在斷言之前用完了。
+ */
+async function hold(context, origin) {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await context.route(`${origin}/**`, async (route) => {
+    await gate;
+    await route.continue().catch(() => {});
   });
+  return release;
 }
+
+/** 登入那一側（Auth 模擬器）扣住：手機上那一段是先載 iframe、再換 token（spec 第三節）。 */
+const holdAuth = (context) => hold(context, AUTH_HOST);
 
 /** 這一頁有沒有出現過底下那一排（開機前就盯著，閃一下也算）。 */
 async function watchNav(page) {
@@ -184,10 +196,11 @@ async function watchNav(page) {
 test('P5 這一台上次通過了 → 重新整理時登入還沒回來，殼就在了；確認之後照常', async ({ app, page, context }) => {
   await app.seed(seed());
   await app.signIn('/customers');
-  await slowAuth(context);
+  const authBack = await holdAuth(context);
   await page.reload();
   await expect(page.locator('.app__nav'), '殼先畫出來').toBeVisible({ timeout: 10_000 });
   expect(await page.locator('#root').getAttribute('data-access'), '這時候登入還沒確認').toBeNull();
+  authBack();
   await expect(page.locator('#root[data-access="allowed"]')).toBeVisible({ timeout: 30_000 });
   await app.settled();
   await expect(page.locator('#view')).toContainText('客戶A');
@@ -231,27 +244,27 @@ test('P7 登出 → 重新打開直接是登入頁，沒有先閃一下殼', asy
 test('P8 登入還在確認時就寫入（整批都是新增的那種）→ 稽核記的是她，不是 unknown', async ({ app, page, context }) => {
   await app.seed(seed());
   await app.signIn('/customers');
-  await slowAuth(context);
+  const authBack = await holdAuth(context);
   await page.reload();
   await expect(page.locator('.app__nav')).toBeVisible({ timeout: 10_000 });
   expect(await page.locator('#root').getAttribute('data-access'), '這時候登入還沒確認').toBeNull();
 
-  // 畫面上每一個新增的入口都要先讀資料（讀取排隊等登入），所以直接叫隨手記那一支 —— 它整批都是 create、不先讀任何東西
-  const id = await page.evaluate(() => import('/js/data/notes.js')
-    .then((notes) => notes.create({ text: '登入還沒回來時記的' })));
+  // 畫面上每一個新增的入口都要先讀資料（讀取排隊等登入），所以直接叫隨手記那一支 —— 它整批都是 create、不先讀任何東西。
+  // 先叫、不等它（它等登入回答了才寫），叫了才放登入
+  await page.evaluate(() => import('/js/data/notes.js').then((notes) => {
+    window.__noteId = notes.create({ text: '登入還沒回來時記的' });
+  }));
+  expect(await page.locator('#root').getAttribute('data-access'), '寫的那一下登入還沒確認').toBeNull();
+  authBack();
+  const id = await page.evaluate(() => window.__noteId);
   const audit = (await app.readAll('audit')).find((a) => a.targetPath === `notes/${id}`);
   expect(audit?.actor, '稽核記的是她（Rules 也只收她的 uid）').toBe(app.uid);
 });
 
 // ---------- 首頁先用手機裡的畫（issue 08）----------
 
-/** 雲端（Firestore 模擬器）的每一個請求都慢一點。只讀手機裡的那一份不經過網路，不受影響 */
-async function slowCloud(context, ms = 2500) {
-  await context.route(`${FIRESTORE_ORIGIN}/**`, async (route) => {
-    await new Promise((r) => { setTimeout(r, ms); });
-    await route.continue().catch(() => {});
-  });
-}
+/** 雲端（Firestore 模擬器）扣住（見 `hold()`）。只讀手機裡的那一份不經過網路，不受影響 */
+const holdCloud = (context) => hold(context, FIRESTORE_ORIGIN);
 
 const twoNotesToday = () => [
   ...seed(),
@@ -265,7 +278,7 @@ test('P9 首頁先用手機裡的畫：雲端還沒回來數字就在了；一�
   await app.signIn('/');
   await expect(todayTile(page)).toHaveText('2');
 
-  await slowCloud(context);
+  const cloudBack = await holdCloud(context);
   await page.reload();
   await expect(page.locator('#view[data-home-data="cache"]'), '先用手機裡的畫').toBeVisible({ timeout: 15_000 });
   await expect(todayTile(page)).toHaveText('2');
@@ -273,6 +286,7 @@ test('P9 首頁先用手機裡的畫：雲端還沒回來數字就在了；一�
   // ADR-0158：只拿來畫的那一下不可以讓接下來的存檔被擋成「讀不完整」
   expect(await page.evaluate(() => import('/js/data/repo.js').then((r) => r.cacheReads())), '快取先畫那一下不算').toBe(0);
 
+  cloudBack();
   await expect(page.locator('#view[data-home-data="server"]'), '雲端回來了').toBeVisible({ timeout: 30_000 });
   expect(await tile.evaluate((n) => n.isConnected), '一樣的話首頁一個節點都不換（不閃）').toBe(true);
   await expect(todayTile(page)).toHaveText('2');
@@ -286,10 +300,11 @@ test('P10 別的地方勾掉一件 → 重新打開先畫舊的數字，雲端�
   // 別台勾掉了一件（這一台的快取不知道）
   await app.seed([note({ id: 'n-1', text: '今天的第一件', date: TODAY, done: true, doneAt: `${TODAY}T03:00:00.000Z` })]);
 
-  await slowCloud(context);
+  const cloudBack = await holdCloud(context);
   await page.reload();
   await expect(page.locator('#view[data-home-data="cache"]')).toBeVisible({ timeout: 15_000 });
   await expect(todayTile(page), '先畫手機裡的（舊的）').toHaveText('2');
+  cloudBack();
   await expect(page.locator('#view[data-home-data="server"]')).toBeVisible({ timeout: 30_000 });
   await expect(todayTile(page), '雲端回來換成新的').toHaveText('1');
 });
@@ -299,12 +314,13 @@ test('P12 首頁先用手機裡的畫好、雲端還沒回來就換頁 → 下�
   await app.signIn('/');
   await expect(todayTile(page)).toHaveText('2');
 
-  await slowCloud(context);
+  const cloudBack = await holdCloud(context);
   await page.reload();
   await expect(page.locator('#view[data-home-data="cache"]')).toBeVisible({ timeout: 15_000 });
   // 換頁時 `#view` 是複製出來的新節點（`shell.js` 的 `freshView()`）—— 屬性照抄的話這一格跟過去，
   // 首頁那一次已經畫進離開文件的節點、永遠不會換成「雲端」，`settled()` 等到逾時
   await page.locator('.app__nav a[href="#/customers"]').click();
+  cloudBack();
   await expect(page.locator('#view')).toContainText('客戶A', { timeout: 30_000 });
   expect(await page.locator('#view').getAttribute('data-home-data'), '上一頁的記號沒跟過來').toBeNull();
 });
