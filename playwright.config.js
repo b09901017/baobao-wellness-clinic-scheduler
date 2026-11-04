@@ -53,7 +53,7 @@ export default defineConfig({
   //
   // **2026-11-04 起可以一個 worker 一整組模擬器**（`E2E_WORKERS=N`，見 `tests-e2e/emulator-groups.mjs`）：
   // 搶的那一顆 Java 行程一人一顆，客廳 e2e-speed 10/29 的實驗 2／3 個 worker 都全過。
-  // **沒設就是 1**（家裡的筆電不能長時間滿載，10/2 過熱斷電過）；模擬器也要用同一個值開
+  // **沒設就是 1**（CI；她家裡與 VM 在 Claude 的設定裡設 2，見 CLAUDE.md）；模擬器也要用同一個值開
   // （`E2E_WORKERS=N npm run emulators`），對不上時 `app.sameNamespace()` 大聲講。
   workers: WORKERS,
   // **1 次重試**：headed 模式下長時間跑會把 Windows 的桌面堆疊吃光
