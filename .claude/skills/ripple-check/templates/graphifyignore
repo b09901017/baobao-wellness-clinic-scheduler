@@ -14,9 +14,7 @@ keys/
 *.pem
 *-sa.json
 
-# .local：預設不進圖，只放回目錄、research/、產生資料的程式（每個檔寫在 .local/README.md）
+# .local：先整個擋住，放回哪幾份由 .local 自己的 .graphifyignore 決定（範本 local-graphifyignore，在私人 repo 裡）。
+# 私人檔的檔名不出現在公開 repo；沒有那一份（雲端、別人 clone）就一份都不進。
 !.local/
 .local/*
-!.local/README.md
-!.local/research/
-# !.local/<產生資料的程式>

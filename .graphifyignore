@@ -15,7 +15,8 @@ keys/
 *-sa.json
 排課系統備份-*.json
 
-# .local：整個不進圖（範本會放回 README.md、research/，這裡不放）。
+# .local：先整個擋住，放回哪幾份由 .local 自己的 .graphifyignore 決定（那一份在私人 repo 裡）。
 # 裡面有真實客戶的姓名與健康資訊，而 graphify 讀檔不經過 .local/references/redact.mjs ——
-# 進了圖，查詢的結果就會把真名印出來。
-.local/
+# 所以只放回目錄、知識庫這種一個真實值都沒有的。沒有那一份（雲端、別人 clone）就一份都不進。
+!.local/
+.local/*
