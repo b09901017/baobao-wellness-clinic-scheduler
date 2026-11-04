@@ -221,4 +221,4 @@
 - **E2E 量「按了之後東西有沒有跑走」之前，先等進場動畫播完**（10/19）：元素還在動，Playwright 判「不穩」、重試時自己 scroll into view ——
   橫向的那一疊被它捲走，量到的是它捲的。等的是 `el.getAnimations({ subtree: true })` 的 `finished`，不是「x 兩次一樣」（動畫可能在 y 上）。
   分辨的方法：`DEBUG=pw:api` 看有沒有「element is not stable → retrying → scrolling into view」，再掛勾 `scrollIntoView`／`scrollTo`／`scrollLeft` 看 app 有沒有叫
-- **平行的 subagent**：這個環境的 subagent 寫不了 `.md` 報告檔（主控代存）；撞到用量上限會中斷，用 SendMessage 接回去；同時只准一組模擬器＋一個瀏覽器（她的筆電會過熱）
+- **平行的 subagent**：這個環境的 subagent 寫不了 `.md` 報告檔（主控代存）；撞到用量上限會中斷，用 SendMessage 接回去；同時只准一個 subagent 跑 E2E（一次 E2E 照 `E2E_WORKERS` 就開 2 組模擬器＋2 個瀏覽器；她的筆電長時間跑滿會過熱）
