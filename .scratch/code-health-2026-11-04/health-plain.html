@@ -1,0 +1,375 @@
+<title>排課系統健檢白話版</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* 版面：體檢報告單 —— 最上面一句話結論、一排燈號、一張總表，往下每一項一張檢驗單 */
+  :root {
+    --bg: #f3f6f5;
+    --paper: #ffffff;
+    --ink: #1d2a2a;
+    --muted: #5d6b6a;
+    --line: #d5dfdd;
+    --accent: #1f6f6a;
+    --accent-soft: #e2efed;
+    --red: #b4372b;
+    --red-soft: #f8e4e1;
+    --amber: #a26200;
+    --amber-soft: #fbefd9;
+    --doc: #4b5aa8;
+    --doc-soft: #e6e9f7;
+    --grey: #6f7b7a;
+    --grey-soft: #eceff0;
+    --code-bg: #eef3f2;
+    --font-display: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --r: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111817; --paper: #18211f; --ink: #e3ecea; --muted: #9db0ad; --line: #2c3a38;
+      --accent: #6cc3b9; --accent-soft: #1d3330;
+      --red: #ff8a7a; --red-soft: #3a1f1c; --amber: #f2b45a; --amber-soft: #3a2c15;
+      --doc: #a6b2f5; --doc-soft: #232945; --grey: #a3b0ae; --grey-soft: #222b2a; --code-bg: #1f2a28;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111817; --paper: #18211f; --ink: #e3ecea; --muted: #9db0ad; --line: #2c3a38;
+    --accent: #6cc3b9; --accent-soft: #1d3330;
+    --red: #ff8a7a; --red-soft: #3a1f1c; --amber: #f2b45a; --amber-soft: #3a2c15;
+    --doc: #a6b2f5; --doc-soft: #232945; --grey: #a3b0ae; --grey-soft: #222b2a; --code-bg: #1f2a28;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 64px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 28px; }
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.35; margin: 0; }
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.3rem; }
+  h3 { font-size: 1.08rem; }
+  p { margin: 0; }
+  code, .mono { font-family: var(--font-mono); font-size: .86em; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; word-break: break-all; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .eyebrow { font-size: .78rem; letter-spacing: .12em; color: var(--muted); font-weight: 500; }
+  .lead {
+    background: var(--paper); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 20px; display: grid; gap: 12px;
+  }
+  .lead .big { font-size: 1.15rem; font-weight: 500; }
+  .calm { color: var(--accent); font-weight: 700; }
+
+  /* 燈號那一排 */
+  .lights { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 560px) { .lights { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .light { border-radius: var(--r); padding: 12px; display: grid; gap: 2px; border: 1px solid var(--line); background: var(--paper); }
+  .light .n { font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .light .t { font-size: .85rem; color: var(--muted); }
+  .light.red .n { color: var(--red); }
+  .light.amber .n { color: var(--amber); }
+  .light.doc .n { color: var(--doc); }
+  .light.grey .n { color: var(--grey); }
+
+  /* 總表 */
+  .table-wrap { overflow-x: auto; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .92rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: .8rem; letter-spacing: .06em; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  .pill { display: inline-block; font-size: .78rem; padding: 1px 9px; border-radius: 999px; font-weight: 500; white-space: nowrap; }
+  .pill.red { background: var(--red-soft); color: var(--red); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.doc { background: var(--doc-soft); color: var(--doc); }
+  .pill.grey { background: var(--grey-soft); color: var(--grey); }
+
+  /* 每一項的檢驗單 */
+  .item { background: var(--paper); border: 1px solid var(--line); border-left-width: 5px; border-radius: var(--r); padding: 18px; display: grid; gap: 14px; }
+  .item.red { border-left-color: var(--red); }
+  .item.amber { border-left-color: var(--amber); }
+  .item.doc { border-left-color: var(--doc); }
+  .item.grey { border-left-color: var(--grey); }
+  .item header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .item header .no { font-family: var(--font-mono); color: var(--muted); font-size: .9rem; }
+  .kv { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 6px 12px; }
+  @media (max-width: 480px) { .kv { grid-template-columns: minmax(0, 1fr); } .kv dt { margin-top: 6px; } }
+  .kv dt { color: var(--muted); font-size: .88rem; }
+  .kv dd { margin: 0; min-width: 0; }
+
+  .steps { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
+  .steps li::marker { color: var(--accent); font-weight: 700; }
+  .path { font-weight: 500; }
+  .path b { color: var(--accent); }
+  .expect { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; }
+  .expect strong { color: var(--accent); }
+
+  /* 兩台裝置的時間線 */
+  .lanes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .lane-head { font-size: .82rem; color: var(--muted); font-weight: 500; text-align: center; padding-bottom: 2px; border-bottom: 2px solid var(--line); }
+  .ev { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .9rem; background: var(--bg); }
+  .ev .tm { font-family: var(--font-mono); font-size: .78rem; color: var(--muted); display: block; }
+  .ev.bad { border-color: var(--red); background: var(--red-soft); }
+  .gap { visibility: hidden; }
+  .result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .box { border-radius: 8px; padding: 10px 12px; text-align: center; border: 1px solid var(--line); }
+  .box .v { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .box.wrong { background: var(--red-soft); border-color: var(--red); }
+  .box.wrong .v { color: var(--red); }
+  .box.right .v { color: var(--accent); }
+  .box .l { font-size: .82rem; color: var(--muted); }
+
+  /* 文件 vs 畫面 */
+  .vs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  @media (max-width: 520px) { .vs { grid-template-columns: minmax(0, 1fr); } }
+  .vs > div { border-radius: 8px; padding: 10px 12px; font-size: .92rem; display: grid; gap: 4px; }
+  .vs .said { background: var(--doc-soft); }
+  .vs .real { background: var(--accent-soft); }
+  .vs .h { font-size: .78rem; letter-spacing: .08em; color: var(--muted); font-weight: 500; }
+
+  /* 準備 */
+  .prep { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 12px; }
+  .warn { border-left: 4px solid var(--amber); background: var(--amber-soft); padding: 10px 12px; border-radius: 6px; font-size: .93rem; }
+  .cmd { display: flex; gap: 8px; align-items: stretch; }
+  .cmd pre { margin: 0; flex: 1; min-width: 0; overflow-x: auto; background: var(--code-bg); border-radius: 8px; padding: 10px 12px; font-family: var(--font-mono); font-size: .84rem; line-height: 1.55; }
+  .copy { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 8px; padding: 0 12px; font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap; }
+  .copy:hover { border-color: var(--accent); color: var(--accent); }
+
+  .small { font-size: .88rem; color: var(--muted); }
+  .ok-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; font-size: .93rem; }
+  .note { font-size: .9rem; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+
+  <header style="display:grid; gap:8px">
+    <div class="eyebrow">程式碼健檢・2026-11-04・develop 分支・只看沒改</div>
+    <h1>排課系統健檢白話版</h1>
+  </header>
+
+  <section class="lead" aria-label="一句話結論">
+    <p class="big"><span class="calm">整體很穩，不用緊張。</span>沒有任何一件會把資料刪掉，也沒有一件要今天處理。</p>
+    <p>真正會把數字算錯的只有一件，而且要<strong>兩台裝置同時改同一位客戶</strong>才會發生。另外兩件是<strong>按鈕還在跑的時候再按一次，會多出一筆</strong>。兩份說明文件沒跟上現在的畫面。其餘都是小事。</p>
+    <p class="small">安全規則（誰讀得到、誰寫得進去）查過了，沒有漏洞。單元測試 5349 個通過，另外 4 個因為這台機器沒裝套件跑不起來，不是程式壞了。</p>
+  </section>
+
+  <section class="lights" aria-label="燈號">
+    <div class="light red"><span class="n">1</span><span class="t">會算錯次數</span></div>
+    <div class="light amber"><span class="n">3</span><span class="t">連按或舊資料會寫錯</span></div>
+    <div class="light doc"><span class="n">2</span><span class="t">說明文件沒跟上</span></div>
+    <div class="light grey"><span class="n">3</span><span class="t">小事，順手修就好</span></div>
+  </section>
+
+  <section style="display:grid; gap:12px" aria-labelledby="t-all">
+    <h2 id="t-all">先看這張就好</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>一句話</th><th>嚴重</th><th>多常遇到</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>兩台同時改同一位客戶，額度上的「已排」會少算一次</td><td><span class="pill red">中</span></td><td>少，要兩台裝置一起動</td></tr>
+          <tr><td class="num">2</td><td>資料健檢「補上二返額度」還在跑時再按一次，會多一筆二返</td><td><span class="pill amber">中低</span></td><td>少，要網路慢又連按</td></tr>
+          <tr><td class="num">3</td><td>資料健檢「重算次數」寫的是掃描那一刻的數字，中間有變就寫回舊的</td><td><span class="pill amber">低中</span></td><td>少，要掃完之後在別台改過</td></tr>
+          <tr><td class="num">4</td><td>營養品「記交付」連按，交付紀錄會重複一行</td><td><span class="pill amber">低</span></td><td>少</td></tr>
+          <tr><td class="num">5</td><td>常見問題裡有一段還在講已經拿掉的按鈕</td><td><span class="pill doc">文件</span></td><td>翻到那一題才會碰到</td></tr>
+          <tr><td class="num">6</td><td>邊界測試清單有三條叫你找不存在的東西，還有編號重複</td><td><span class="pill doc">文件</span></td><td>照清單點的時候</td></tr>
+          <tr><td class="num">7–9</td><td>部署順序、規則註解、一支小腳本的日期</td><td><span class="pill grey">小事</span></td><td>幾乎不會</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="prep" aria-labelledby="t-prep">
+    <h2 id="t-prep">要自己重現的話，先做一次準備</h2>
+    <div class="warn"><strong>只在本機模擬器上點，不要在 staging 或正式站上試。</strong>第 1、2 條會真的寫進資料，staging 上是真客戶的複本。</div>
+    <p>開兩個終端機，各貼一行：</p>
+    <div class="cmd"><pre id="c1">npm run emulators</pre><button class="copy" type="button" data-copy="c1">複製</button></div>
+    <div class="cmd"><pre id="c2">FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm run seed:staging -- --project demo-scheduler --yes</pre><button class="copy" type="button" data-copy="c2">複製</button></div>
+    <p>瀏覽器打開 <code>http://127.0.0.1:5000</code>，先到 <span class="path">設定 → <b>資料健檢</b></span> 跑一次，<strong>應該一條都沒有</strong>。這樣之後冒出來的那一條，就一定是重現出來的。</p>
+    <p class="note">說實話：下面的步驟是我照程式碼推出來的，這次沒有開模擬器實際點過一遍。第 1 條的數字錯誤我有用程式實際算過（寫進去 2，應該是 3）。照著點遇到對不上的地方，跟我說就好。</p>
+  </section>
+
+  <!-- 1 -->
+  <article class="item red" aria-labelledby="t1">
+    <header><span class="no">#1</span><h3 id="t1">兩台同時改同一位客戶，次數會少算一次</h3><span class="pill red">中</span></header>
+    <dl class="kv">
+      <dt>發生什麼</dt>
+      <dd>在日曆打開「新增來訪」（或「改這一段」）之後，畫面記住的是<strong>打開那一刻</strong>這位客戶有哪些來訪。按存檔時，它用這份舊名單去算額度剩幾次。中間如果用另一台加了一段，這一段就被漏算。</dd>
+      <dt>比喻</dt>
+      <dd>像你拿著早上印的名單去對帳。中午別人加了一位，你不知道，結帳時就少算一位。</dd>
+      <dt>會看到</dt>
+      <dd>客戶卡片和壓表上的「剩 N 次」多了一次。資料健檢會抓到，按「修正」就回來。如果兩段剛好排在<strong>同一天</strong>，還會多出「同一天兩筆來訪」。</dd>
+      <dt>為什麼別處沒事</dt>
+      <dd>壓表、日曆長按、批次取消、拍 Abovee 都是在<strong>按下去那一刻</strong>重讀一次。只有來訪編輯器偷懶沒重讀。</dd>
+      <dt>位置</dt>
+      <dd><code>ui/views/visitEditor.js:1643</code>（<code>refreshCustomerVisits</code>）</dd>
+    </dl>
+
+    <div style="display:grid; gap:8px" aria-label="兩台裝置的時間線">
+      <div class="lanes">
+        <div class="lane-head">分頁 A（當成 iPad）</div>
+        <div class="lane-head">分頁 B（當成手機）</div>
+        <div class="ev"><span class="tm">10:00</span>打開「新增來訪」，選客戶A，<strong>先不要存</strong></div>
+        <div class="ev gap" aria-hidden="true">.</div>
+        <div class="ev gap" aria-hidden="true">.</div>
+        <div class="ev"><span class="tm">10:02</span>替客戶A排另一天，扣<strong>同一筆</strong>額度，存好</div>
+        <div class="ev bad"><span class="tm">10:05</span>回來按存。用的還是 10:00 那份名單</div>
+        <div class="ev gap" aria-hidden="true">.</div>
+      </div>
+      <div class="result">
+        <div class="box wrong"><div class="v">2</div><div class="l">額度上記的「已排」</div></div>
+        <div class="box right"><div class="v">3</div><div class="l">實際排了幾次</div></div>
+      </div>
+    </div>
+
+    <div style="display:grid; gap:8px">
+      <h3 style="font-size:1rem">怎麼重現（開兩個分頁就行）</h3>
+      <ol class="steps">
+        <li>分頁 A：<span class="path">日曆 → 點<b>下週三</b> → 右上 <b>＋</b> → <b>新增來訪</b> → 選<b>客戶A</b></span>。選一筆還有剩的額度，記住是哪一筆。<strong>不要按存。</strong></li>
+        <li>開分頁 B（同一個網址）：<span class="path">日曆 → 點<b>下週五</b> → <b>＋</b> → <b>新增來訪</b> → 選<b>客戶A</b></span>，選<strong>同一筆</strong>額度，存好。</li>
+        <li>回分頁 A，按存（中途問「先看一下」或「壓好表了嗎」都按下一步）。</li>
+        <li><span class="path">設定 → <b>資料健檢</b></span>。</li>
+      </ol>
+      <p class="expect"><strong>看到這個就是重現了：</strong>「次數對帳」那一項出現客戶A，寫著「計數欄位是…已排未上 N，從來訪重算是…已排未上 N+1」。<br>加碼：第 2 步也選<strong>下週三</strong>的話，「同一天有兩筆來訪」那一項也會出現客戶A。</p>
+    </div>
+  </article>
+
+  <!-- 2 -->
+  <article class="item amber" aria-labelledby="t2">
+    <header><span class="no">#2</span><h3 id="t2">資料健檢的「補上二返額度」連按，會多出一筆</h3><span class="pill amber">中低</span></header>
+    <dl class="kv">
+      <dt>發生什麼</dt>
+      <dd>資料健檢的修正按鈕在寫入期間<strong>沒有鎖住</strong>。「補上二返額度」每按一次就產生一個全新的編號，所以第二次不是蓋掉第一次，而是<strong>又建一筆</strong>。</dd>
+      <dt>會看到</dt>
+      <dd>客戶身上出現兩筆一樣的二返額度，二返次數變成兩倍。「器材提醒詞補進警示名單」也會多一個重複的字。</dd>
+      <dt>小矛盾</dt>
+      <dd>同一支檔案裡「補課程」「補器材」特地用固定編號，註解寫著「隨機生的話會再建出第二台」。這兩種卻沒照做。</dd>
+      <dt>位置</dt>
+      <dd><code>ui/views/health.js:806</code>（沒有防連按）、<code>data/health.js:503</code>（每次新編號）</dd>
+    </dl>
+    <div style="display:grid; gap:8px">
+      <h3 style="font-size:1rem">怎麼重現</h3>
+      <ol class="steps">
+        <li>先做出一個要補的狀況：<span class="path">客戶 → 找一位額度裡有<b>健檢</b>的假客戶 → 點那一筆<b>二返</b>額度 → <b>刪除這筆額度</b></span>。</li>
+        <li>瀏覽器開開發者工具 → Network → 把速度調成 <b>Slow 3G</b>（本機太快，不調慢來不及連按）。</li>
+        <li><span class="path">設定 → 資料健檢 → 「二返額度」那一列 → <b>補上二返額度</b> → <b>修正</b></span>。</li>
+        <li>畫面還顯示「修正中…」的時候，<strong>再按一次</strong>同一顆 <b>補上二返額度</b> → 再按 <b>修正</b>。</li>
+        <li>回到那位客戶的詳情頁。</li>
+      </ol>
+      <p class="expect"><strong>看到這個就是重現了：</strong>額度裡有兩筆二返，次數都一樣。</p>
+    </div>
+  </article>
+
+  <!-- 3 -->
+  <article class="item amber" aria-labelledby="t3">
+    <header><span class="no">#3</span><h3 id="t3">資料健檢「重算次數」寫的是掃描當時的數字</h3><span class="pill amber">低中</span></header>
+    <dl class="kv">
+      <dt>發生什麼</dt>
+      <dd>掃描那一刻算好的數字，按「修正」時直接寫進去，不會重算。掃完之後在別台替那位客戶排了一段，再回來按修正，就把舊數字寫回去了。同一頁的其他幾種修正都有「先檢查有沒有被改過」，只有這種沒有。</dd>
+      <dt>位置</dt>
+      <dd><code>data/health.js:484</code></dd>
+    </dl>
+    <div style="display:grid; gap:8px">
+      <h3 style="font-size:1rem">怎麼重現</h3>
+      <ol class="steps">
+        <li>照第 1 條做到資料健檢出現「次數對帳」那一列，<strong>先不要按修正</strong>。</li>
+        <li>另一個分頁替同一位客戶、同一筆額度再排一段，存好。</li>
+        <li>回到資料健檢那一頁直接按 <b>修正</b>，再按一次「重新掃描」。</li>
+      </ol>
+      <p class="expect"><strong>看到這個就是重現了：</strong>剛修好的那一列又出現，差一次。</p>
+    </div>
+  </article>
+
+  <!-- 4 -->
+  <article class="item amber" aria-labelledby="t4">
+    <header><span class="no">#4</span><h3 id="t4">營養品「記交付」連按，紀錄會多一行</h3><span class="pill amber">低</span></header>
+    <dl class="kv">
+      <dt>發生什麼</dt>
+      <dd>按鈕沒有防連按，兩次用的都是同一份舊資料，同一次交付被記兩行。「給了沒」的判斷不會錯，只是試算表上可能看到重複的一行。</dd>
+      <dt>位置</dt>
+      <dd><code>ui/views/customerDetail.js:1395</code>、<code>data/notes.js:132</code></dd>
+      <dt>重現</dt>
+      <dd>網路調成 Slow 3G，在客戶詳情營養品那一包「記交付」連按兩次，再看試算表報表的交付那一欄。</dd>
+    </dl>
+  </article>
+
+  <!-- 5 -->
+  <article class="item doc" aria-labelledby="t5">
+    <header><span class="no">#5</span><h3 id="t5">常見問題有一題還在講舊畫面</h3><span class="pill doc">文件</span></header>
+    <p>那一題叫「我點的是其中一段，為什麼跳出來三段？」（<code>docs/常見問題.md:1030-1046</code>）。</p>
+    <div class="vs">
+      <div class="said"><span class="h">文件說</span>卡片底下有「這一天還有另外 2 段 —— 看全部」。長按的按鈕會動到<strong>整天</strong>，選單抬頭寫「這一天共 3 段」。</div>
+      <div class="real"><span class="h">畫面其實</span>沒有「看全部」那一行。長按的每一顆<strong>只動那一段</strong>，抬頭只寫「日期・狀態・第 N 段」。</div>
+    </div>
+    <p class="small">重現：日曆找一天同一位客戶有三段的，長按其中一段，看選單最上面那一行。</p>
+  </article>
+
+  <!-- 6 -->
+  <article class="item doc" aria-labelledby="t6">
+    <header><span class="no">#6</span><h3 id="t6">邊界測試清單叫你找不存在的東西</h3><span class="pill doc">文件</span></header>
+    <dl class="kv">
+      <dt>C10-3</dt><dd>叫你按「看全部」，那一行已經沒有了。</dd>
+      <dt>C10-4</dt><dd>叫你看「這一天共 3 段」，已經沒有了。</dd>
+      <dt>C10-6</dt><dd>說客戶詳情、待辦、進度追蹤「照舊畫整筆」，但同一份清單的 C12-9 說兩段以上會先列目錄。兩條互相矛盾，畫面是 C12-9 那樣。</dd>
+      <dt>編號重複</dt><dd>C12-8、9、10、14、15 都各出現兩次（第 391–395 行和第 396–403 行）。</dd>
+    </dl>
+    <p class="small">位置：<code>docs/邊界測試清單.md:352-355</code>、<code>:391-403</code></p>
+  </article>
+
+  <!-- 7–9 -->
+  <article class="item grey" aria-labelledby="t7">
+    <header><span class="no">#7–9</span><h3 id="t7">小事</h3><span class="pill grey">順手修</span></header>
+    <dl class="kv">
+      <dt>部署順序</dt><dd>自動部署先上新畫面，才推資料庫規則。規則那一步失敗的話，正式站會停在「畫面新、規則舊」。<code>.github/workflows/deploy.yml:178</code></dd>
+      <dt>規則的註解</dt><dd>註解說「這一條讓資料刪不掉」，其實它只檢查有沒有更新時間。真正擋刪除的是另外那幾行，資料是安全的，只是註解講錯了。<code>firestore.rules:24</code></dd>
+      <dt>小腳本的日期</dt><dd>整理客戶時間那支 skill 的腳本用的是格林威治時間。半夜 0 點到早上 8 點跑的話，「今天」會變成昨天。<code>.claude/skills/customer-availability-sheet/scripts/history.mjs:92</code></dd>
+      <dt>備份</dt><dd>匯出備份不含「AI 每月上限、暫停」那兩格。還原之後會回到預設的 10 美元、沒暫停。</dd>
+    </dl>
+  </article>
+
+  <section class="prep" aria-labelledby="t-ok">
+    <h2 id="t-ok">查過、沒問題的部分</h2>
+    <ul class="ok-list">
+      <li>資料庫和照片的安全規則：沒登入、不在白名單的人讀不到，客戶填的表單只能送一次</li>
+      <li>拍照辨識那支程式：有白名單、有每月上限，而且是先扣額度才叫 AI</li>
+      <li>次數的算法只有一份，試算表、客戶卡片、資料健檢算的是同一套</li>
+      <li>來訪狀態的規則：我讓程式亂按 3000 輪，整天的狀態都跟每一段對得上</li>
+      <li>CLAUDE.md 提到的 530 個函式名一個一個找過，都還在（只有兩個是本來就說要刪掉的）</li>
+      <li>每個查詢都有建好索引；備份和還原的資料種類一致</li>
+    </ul>
+    <p class="note">建議的順序：先修 #1，再修 #2，兩份文件一起改。其餘的等哪天順手。這次什麼都還沒動，你說要做再開始。</p>
+  </section>
+
+</div>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const el = document.getElementById(btn.dataset.copy);
+      const text = el.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '已複製';
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        btn.textContent = '已選取，按複製';
+      }
+      setTimeout(() => { btn.textContent = '複製'; }, 1800);
+    });
+  });
+</script>
