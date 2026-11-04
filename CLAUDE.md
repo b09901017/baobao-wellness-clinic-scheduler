@@ -54,7 +54,7 @@ staging 上被點過 —— 只有急件這樣做。
 
 日常驗收 `npm run verify`（單元測試 ＋ 這次改動相關的那幾支 E2E）。**不要每次全跑 E2E** —— 本機 10/14 量的是 47 支就 34 分鐘，而她在等、電腦會熱。全量交給 CI（`gh workflow run e2e-full.yml --ref <分支>`，六台）與上線前。
 
-「這次改動」是**上一次 verify 全綠之後動過的**，而且只跑跟 develop 也不一樣的那幾支（`scripts/e2e-changes.mjs`，2026-10-16 以前是整條分支，一輪後段每次都幾乎全跑）。要整條分支重驗一次：`node scripts/e2e.mjs --related --base develop`。
+「這次改動」是**上一次 verify 全綠之後動過的**，而且只跑跟 develop 也不一樣的那幾支（`scripts/e2e-changes.mjs`，2026-10-16 以前是整條分支，一輪後段每次都幾乎全跑）。**比的是 GitHub 上那一份**（先 `git fetch` 再比 `origin/develop`，2026-11-04；本機的 `develop` 不會自己跟上）。要整條分支重驗一次：`node scripts/e2e.mjs --related --base origin/develop`。
 
 哪幾支算「相關」只寫在 `tests-e2e/related.js`，新增一支 spec 要登記進去、**新增一個被追蹤的檔案也要**（`tests/e2e-related.test.js` 盯著；只被別人 import 的進 `FOLLOWS`）。`pick()` 認不出來的檔案**一律退回全跑** —— 漏列的代價是多跑幾支，不是安靜地少跑一支。**`ui/views.js` 只多了一頁的登記**（一行都沒刪、加的只有 `import * as X from './views/…'` 與完整的 `register()`）時，交給 `pick()` 之前換成那一頁、加上網址撞得到的既有那幾頁（`scripts/e2e-changes.mjs` 的 `narrowViews()`，2026-10-19）；其餘照舊全跑。**`app.css` 每一條動到的規則都只指著某一個元件的 class**（`.abl-*`、`.giftfold*`…，那一組 class 與畫得出它的檔案只寫在 `related.js` 的 `CSS_SCOPES`）時，只挑看 CSS 而且摸得到那個元件的那幾支（`narrowCss()`，2026-11-03；比的是規則不是行，搬位置、混著共用 class、`@keyframes` 照舊整份）。**新的一組 class 被別的檔案也拿去用，要加進那一組的 `owners`**（`tests/e2e-css-scopes.test.js` 掃 `public/` 盯著）。
 

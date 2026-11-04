@@ -167,7 +167,12 @@
 10/19 找到：staging-polish 那一輪從頭到尾本機 `develop` 都停在 `cd71d34`；PR #164 合進去之後開下一支，`verify` 說「動了 154 個檔案 → 全跑」，
 對齊之後是 7 個檔案、9 支。
 
-> `verify` 說全跑、而這一次只改了一兩個檔案？先 `git log -1 develop` 對一下 `origin/develop`，舊了就 `git branch -f develop origin/develop`（不在 develop 上時）。
+11/2 雲端 VM 上同一個坑（VM 的本機 `develop` 也停在舊的那一格，挑了 48 支）；11/4 家裡這台的本機 `develop` 也落後 `origin/develop` 29 個。
+**11/4 修了**：沒帶 `--base` 時 `scripts/e2e.mjs` 先 `git fetch -q origin develop`（限時 8 秒、不問帳密，抓不到不擋），
+有 `origin/develop` 就比它、沒有才退回本機的 `develop`，畫面第一行講用的是哪一份（`e2e-changes.mjs` 的 `defaultBase()`）。
+自己帶 `--base` 的不抓 —— 整條分支重驗一次寫 `--base origin/develop`，不要寫 `--base develop`。
+
+> `verify` 說全跑、而這一次只改了一兩個檔案？看第一行比的是不是 `origin/develop`、是不是剛抓的；自己帶了 `--base` 的話，帶的是不是那一份舊的本機 `develop`？
 
 ---
 
@@ -182,6 +187,21 @@
   commit 之後 CI 的 `shell-version` 紅了，develop 沒有部署。**而且只看了全量 E2E 那一條就說「CI 全綠」**：PR 上的 `test` 是另一條 workflow。
 
 > 要挑 E2E 時問的是 `related.js` 的 `pick()` 不是自己的記憶嗎？新增了檔案，`git add` 之後有沒有再跑一次 `shell:snapshot` 與 `npm test`？說「CI 綠」之前看的是 `gh pr checks` 的每一條嗎？
+
+---
+
+## 十四、雲端 VM（Remote Control）上的兩個坑
+
+在外面用手機叫 VM 上的 Claude 時才會遇到，家裡的終端機、桌面 app、VS Code 都沒有：
+
+- **背景指令 30 分鐘就被停**：Remote Control 開的對話算官方說的「沒人看著的 session」，`run_in_background` 預設 30 分鐘、
+  帶 `timeout` 最多 2 小時（`7200000`）（https://code.claude.com/docs/en/tools-reference#time-limit-for-background-commands ）。
+  11/2 exam-not-mine 在 VM 上跑 `--related`，模擬器在 E2E `67` 之前被停（`.scratch/exam-not-mine/HANDOFF.md` 有記）—— 看起來像 E2E 壞了，其實是時間到了。
+  **不要用 `BASH_DEFAULT_TIMEOUT_MS` 拉長**：它也是前景指令的預設，拉長之後卡住的前景指令也跟著等那麼久。
+- **`pkill -f "firebase.*emulators"` 把自己那個 shell 砍掉**（exit 144）：`-f` 比的是整條命令列，而跑這一行的 shell 自己的命令列裡就有那串字；
+  pkill 只排除它自己，不排除叫它的 shell（https://man7.org/linux/man-pages/man1/pkill.1.html ）。停模擬器照 port 停：Linux 用 `fuser -k <port>/tcp`。
+
+> 這一條背景指令在 VM 上會不會跑超過 30 分鐘？要的話帶 `timeout`（最多 2 小時），再長就拆或丟 CI。要停一個程序，比的那串字會不會也出現在我自己這一行指令裡？
 
 ---
 
