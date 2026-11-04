@@ -225,6 +225,8 @@
 
 ## 查的方法（給之後做健檢或驗證的 session）
 
+- **歷次全庫健檢放在哪**：2026-08-25 `.scratch/code-audit-2026-08-25/`、2026-09-23 `.scratch/prelaunch-audit-2026-09-23/`、
+  **2026-11-04 `.scratch/code-health-2026-11-04/`（只記錄、還沒修；入口是那裡的 `README.md`，查過沒事的與這次的查法在 `NOTES.md`）**
 - **測試全綠不代表沒事**：掃原始碼的測試只看得到它認得的寫法（save-guards 只掃 `withSaveState`；E2E U8 量按鈕外框，量不到被 `overflow` 裁掉的感應範圍 —— 要用 `elementFromPoint` 量）
 - **零成本的真資料語料**：`.local/references/abovee-m5-m10/擷取/abovee-m5-m10.json`（Abovee 353 列，逐像素驗證過）、`.local/references/ai-exam/result-*.json`（模型真的吐出來的抄字）。拿來餵翻譯層，不用再叫模型。腳本只印數字
 - **正式站的主檔是舊一代的種子**：要測「上線那天」就用 `git show <舊 commit>:public/js/domain/seed.js` 造主檔，不要拿現在的種子
