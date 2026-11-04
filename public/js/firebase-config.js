@@ -49,6 +49,45 @@ export function projectIdFor(worker) {
  */
 const emulatorWorker = () => globalThis.__E2E_WORKER ?? 0;
 
+/** 平常那一組模擬器的 port（`firebase.json` 的 `emulators` 那一段，加上 firebase-tools 的預設值）。 */
+const EMULATOR_PORTS = {
+  auth: 9099, firestore: 8080, functions: 5001, hosting: 5000, storage: 9199,
+  hub: 4400, logging: 4500, websocket: 9150, ui: 4000,
+};
+
+/** 一個 worker 一組模擬器時，最多幾組。位移是 `20000 + 10k`，k 到 9 為止各組的 port 都不會撞在一起。 */
+export const MAX_EMULATOR_SLOTS = 10;
+
+/**
+ * 第 k 組模擬器的每一個 port。**這是全站唯一的推導**，跟 `projectIdFor()` 同一個理由：
+ * app（`data/firebase.js` 那幾支）、E2E fixture、`start-emulators.sh`（經 `tests-e2e/emulator-config.mjs`
+ * 寫每一組的設定檔）三邊都呼叫它，`tests/env.test.js` 盯著。
+ *
+ * **組號沒給（`undefined`、`null`、空字串）＝ 平常那一組** —— 手動開 app、`E2E_WORKERS` 沒設的 E2E
+ * 走的都是這條，所以預設的行為一個 port 都沒變。組號 k（0..9）＝ 每個 port 加 `20000 + 10k`：
+ * **連 0 號組都避開平常的 port**，平常那一組開著的時候也跑得起來。
+ * 其餘的輸入（負數、小數、10 以上、不是數字）丟例外：猜一組出來，就是連到一個沒有人開的 port，
+ * 而症狀是登入按鈕等不到、看不出是這一行。
+ *
+ * @param {number|string|null|undefined} slot
+ * @returns {{ auth: number, firestore: number, functions: number, hosting: number, storage: number,
+ *   hub: number, logging: number, websocket: number, ui: number }}
+ */
+export function emulatorPortsFor(slot) {
+  if (slot === undefined || slot === null || String(slot).trim() === '') return { ...EMULATOR_PORTS };
+  const k = Number(slot);
+  if (!Number.isInteger(k) || k < 0 || k >= MAX_EMULATOR_SLOTS) {
+    throw new Error(`模擬器的組號要是 0～${MAX_EMULATOR_SLOTS - 1}，拿到的是 ${String(slot)}`);
+  }
+  return Object.fromEntries(Object.entries(EMULATOR_PORTS).map(([name, port]) => [name, port + 20000 + 10 * k]));
+}
+
+/**
+ * 這個分頁連第幾組模擬器。E2E 只有在一個 worker 一組（`E2E_WORKERS` 大於 1）時才用
+ * `context.addInitScript()` 塞 `__E2E_PORT_SLOT`；沒塞就是平常那一組。
+ */
+export const emulatorPorts = emulatorPortsFor(globalThis.__E2E_PORT_SLOT);
+
 /**
  * 環境是**照網址挑的，不是照 build 挑**。
  *

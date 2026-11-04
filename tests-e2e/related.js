@@ -24,6 +24,8 @@ export const CORE = ['00-smoke'];
 export const GLOBAL = [
   'tests-e2e/fixtures/',
   'playwright.config.js',
+  // 幾個 worker、每個 worker 連哪一組模擬器（fixture 與 playwright.config.js 都讀它）
+  'tests-e2e/emulator-groups.mjs',
   'public/index.html',
   'public/js/app.js',
   'public/js/ui/shell.js',

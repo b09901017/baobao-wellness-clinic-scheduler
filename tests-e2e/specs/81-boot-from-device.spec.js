@@ -16,6 +16,7 @@
 // 換了 VERSION 時清掉哪幾格、留哪幾格在 `tests/sw-cache.test.js`（Playwright 攔不到瀏覽器去比對 sw.js 的那一下）
 
 import { test, expect } from '../fixtures/app.js';
+import { APP_ORIGIN, AUTH_HOST, FIRESTORE_ORIGIN } from '../fixtures/emulator.js';
 import { masterDocs, customer, note, TODAY } from '../fixtures/data.js';
 
 const seed = () => [...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })];
@@ -38,13 +39,13 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     const fromPage = [];
     context.on('request', (r) => {
       const url = new URL(r.url());
-      if (url.origin !== 'http://127.0.0.1:5000' || !/\.(js|css|html)$|\/$/.test(url.pathname)) return;
+      if (url.origin !== APP_ORIGIN || !/\.(js|css|html)$|\/$/.test(url.pathname)) return;
       // service worker 自己去抓的（快取裡沒有才會）
       if (r.serviceWorker()) viaNetwork.push(url.pathname);
     });
     page.on('response', (res) => {
       const url = new URL(res.url());
-      if (url.origin === 'http://127.0.0.1:5000' && /\.js$/.test(url.pathname)) {
+      if (url.origin === APP_ORIGIN && /\.js$/.test(url.pathname)) {
         fromPage.push({ path: url.pathname, sw: res.fromServiceWorker() });
       }
     });
@@ -74,7 +75,7 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     await app.signIn('/');
     await controlled(page);
 
-    await page.goto('http://127.0.0.1:5000/form.html');
+    await page.goto(`${APP_ORIGIN}/form.html`);
     await expect(page).toHaveTitle('不方便的時間');
     await expect(page.locator('.app__nav')).toHaveCount(0);
   });
@@ -118,7 +119,8 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
     // 所以換一個網址註冊同一支 sw.js —— 網址不一樣，瀏覽器就當成新的一版、在背景裝。
     // 新的那一版的 index.html 多一個記號（它裝的時候 service worker 自己去抓，這一下攔得到）。
     // 換了 VERSION 之後「舊的程式檔清掉、SDK 那一格留著」在 `tests/sw-cache.test.js` 跑 sw.js 本身
-    await context.route(/127\.0\.0\.1:5000\/(index\.html)?(\?.*)?$/, async (route) => {
+    // 認 app 的 origin（`APP_ORIGIN`）不寫死 port：一個 worker 一組模擬器時 Hosting 不在 5000
+    await context.route((url) => url.origin === APP_ORIGIN && /^\/(index\.html)?$/.test(url.pathname), async (route) => {
       const res = await route.fetch();
       const body = (await res.text()).replace('<title>', '<meta name="e2e-version" content="new" /><title>');
       await route.fulfill({ response: res, body });
@@ -163,7 +165,7 @@ test.describe('程式檔先用手機裡的（要 service worker）', () => {
 
 /** 登入那一側（Auth 模擬器）的每一個請求都慢一點：手機上那一段是先載 iframe、再換 token（spec 第三節）。 */
 async function slowAuth(context, ms = 2500) {
-  await context.route('http://127.0.0.1:9099/**', async (route) => {
+  await context.route(`${AUTH_HOST}/**`, async (route) => {
     await new Promise((r) => { setTimeout(r, ms); });
     await route.continue();
   });
@@ -220,7 +222,7 @@ test('P7 登出 → 重新打開直接是登入頁，沒有先閃一下殼', asy
   await page.close();
   const fresh = await context.newPage();
   await watchNav(fresh);
-  await fresh.goto('http://127.0.0.1:5000/');
+  await fresh.goto(`${APP_ORIGIN}/`);
   await expect(fresh.locator('[data-signin]')).toBeVisible({ timeout: 30_000 });
   expect(await fresh.evaluate(() => window.__sawNav), '一下都沒畫殼').toBe(false);
   await fresh.close();
@@ -245,7 +247,7 @@ test('P8 登入還在確認時就寫入（整批都是新增的那種）→ 稽�
 
 /** 雲端（Firestore 模擬器）的每一個請求都慢一點。只讀手機裡的那一份不經過網路，不受影響 */
 async function slowCloud(context, ms = 2500) {
-  await context.route('http://127.0.0.1:8080/**', async (route) => {
+  await context.route(`${FIRESTORE_ORIGIN}/**`, async (route) => {
     await new Promise((r) => { setTimeout(r, ms); });
     await route.continue().catch(() => {});
   });

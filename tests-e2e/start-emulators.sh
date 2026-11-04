@@ -13,10 +13,10 @@
 # 以前三邊各寫一份字串，對不上時 fixture 塞進 A、app 讀 B，每個 E2E 都是
 # 「畫面空的」而且沒有任何錯誤訊息。`tests/env.test.js` 會真的跑一次這條路。
 #
-# 這裡帶 0 ＝ 預設的那一份。**平行跑的時候不必開 N 個模擬器**：Firestore
-# 模擬器本來就一顆裝得下多個 projectId，worker 1 以後那幾份是第一次被寫到時
-# 自己長出來的。Auth 那側分不了專案（見 fixtures/emulator.js 的
-# AUTH_PROJECT_ID），而那不影響隔離 —— 要隔離的是 Firestore。
+# 這裡帶 0 ＝ 預設的那一份。Firestore 模擬器本來就一顆裝得下多個 projectId，
+# 但幾個 worker 共用一顆時搶的是那一顆 Java 行程（2026-09-09 三個 worker 紅 10 支），
+# 所以**平行跑的時候一個 worker 開一整組**：`E2E_WORKERS=N`，見最後那一段與
+# `tests-e2e/emulator-groups.mjs`。沒設就是以前那樣：一組、平常的 port。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -39,6 +39,50 @@ if [ ! -d functions/node_modules ]; then
   npm --prefix functions ci --no-audit --no-fund
 fi
 
-exec npx firebase emulators:start \
-  --only auth,firestore,functions,hosting,storage \
-  --project "$PROJECT"
+# **一個 worker 一組模擬器**（`E2E_WORKERS=N`，N 大於 1；跑 E2E 時要帶同一個值）。
+# 沒設或是 1 ＝ 底下 exec 那一條，跟以前一個字都不差。
+WORKERS="$(node tests-e2e/emulator-groups.mjs workers)"
+if [ "$WORKERS" -le 1 ]; then
+  exec npx firebase emulators:start \
+    --only auth,firestore,functions,hosting,storage \
+    --project "$PROJECT"
+fi
+
+# 第 k 組：port 是 `emulatorPortsFor(k)`（平常那一組的 port 一個都不用 —— 平常那一組開著也跑得起來）、
+# 專案是 `projectIdFor(k)`、Hosting 只開在 0 號組。設定檔寫在專案根目錄（`firebase.json` 裡的相對路徑
+# 照它算），**每組從自己的資料夾啟動**（`*-debug.log` 寫在啟動的資料夾，才不會兩組寫同一個檔）。
+# **一組起好再開下一組**：同時開兩組會兩組都卡住、一個字都不印（客廳 e2e-speed 的 pitfalls.md）。
+# 收掉（Ctrl+C、出錯）一律照那幾組的 port 停 —— 平常那一組的 port 不碰。
+stop_groups() {
+  node tests-e2e/emulator-groups.mjs stop || true
+}
+trap stop_groups EXIT
+trap 'exit 130' INT TERM
+
+for k in $(seq 0 $((WORKERS - 1))); do
+  CONFIG="$(node tests-e2e/emulator-groups.mjs config "$k")"
+  ONLY="$(node tests-e2e/emulator-groups.mjs only "$k")"
+  GROUP_PROJECT="$(node tests-e2e/project-id.mjs "$k")"
+  DIR=".artifacts/emulators/group-$k"
+  mkdir -p "$DIR"
+  LOG="$DIR/emulators.log"
+  echo "開第 $k 組模擬器（$GROUP_PROJECT：$ONLY）…"
+  ( cd "$DIR" && exec npx firebase emulators:start --only "$ONLY" --project "$GROUP_PROJECT" --config "$CONFIG" ) \
+    > "$LOG" 2>&1 &
+  PID=$!
+  # 等它講「All emulators ready」。三分鐘還沒好、或行程自己結束了，就把 log 的尾巴印出來停下
+  READY=""
+  for _ in $(seq 1 180); do
+    if grep -q "All emulators ready" "$LOG" 2>/dev/null; then READY=1; break; fi
+    if ! kill -0 "$PID" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  if [ -z "$READY" ]; then
+    echo "第 $k 組模擬器沒起來，log 的最後幾行（$LOG）：" >&2
+    tail -n 30 "$LOG" >&2
+    exit 1
+  fi
+done
+
+echo "$WORKERS 組模擬器都起好了。跑 E2E 時帶同一個值：E2E_WORKERS=$WORKERS npm run test:e2e …（Ctrl+C 收掉全部組）"
+wait

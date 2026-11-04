@@ -10,13 +10,13 @@
 import { test, expect } from '../fixtures/app.js';
 import { customer, entitlement, masterDocs } from '../fixtures/data.js';
 import { fakePhoto, queueAi } from '../fixtures/ai/index.js';
-import { PROJECT_ID, allowUser } from '../fixtures/emulator.js';
+import { FIRESTORE_ORIGIN, PROJECT_ID, allowUser } from '../fixtures/emulator.js';
 import { dayKey } from '../../functions/lib/guard.js';
 
 // Function 記帳用真的時鐘（同 38）
 test.use({ today: dayKey(new Date()) });
 
-const DOCS = `http://127.0.0.1:8080/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const DOCS = `${FIRESTORE_ORIGIN}/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 const OWNER = { Authorization: 'Bearer owner' };
 
 /**
