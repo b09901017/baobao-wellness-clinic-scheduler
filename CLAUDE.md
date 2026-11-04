@@ -70,7 +70,7 @@ E2E 裡**不要用 `page.waitForTimeout()`**，等 locator 的狀態：`app.laye
 
 ## 容易漏掉的連動
 
-動到已經存在、別處在用的程式碼之前，以及修完 bug 之後，照 `ripple-check` skill 查牽連、找同一個形狀的缺陷（CodeGraph、ast-grep；文件與決定查 graphify 的圖）。這張表是查完之後要回來對的那一份。**`.local/` 不進任何一張圖**（`.graphifyignore`、`codegraph.json`：裡面有真名，工具讀檔不經過 `redact.mjs`）；skill 的 `private-index-check.mjs` 會印 `.local` 的檔名，這個專案要跑一律接 `| node .local/references/redact.mjs`。
+動到已經存在、別處在用的程式碼之前，以及修完 bug 之後，照 `ripple-check` skill 查牽連、找同一個形狀的缺陷（CodeGraph、ast-grep；文件與決定查 graphify 的圖）。這張表是查完之後要回來對的那一份。**`.local/` 的資料不進任何一張圖**（裡面有真名，工具讀檔不經過 `redact.mjs`）：CodeGraph 整個不讀（`codegraph.json`）；graphify 只讀 `.local/.graphifyignore`（在私人 repo 裡）放回的那幾份 —— 目錄、知識庫、`references/` 的目錄、挑過的記憶，一個真實值都沒有的（2026-11-04 她要的：讓查圖的時候知道手上有哪些真資料）。放回一份、更新圖之前跑 `private-graph-check.mjs`（印出被過濾網遮掉的那幾行，遮過才印）。skill 的 `private-index-check.mjs` 會印 `.local` 的檔名，這個專案要跑一律接 `| node .local/references/redact.mjs`。
 
 | 改了這個 | 一定要一起檢查 |
 |---|---|
