@@ -1,6 +1,6 @@
 // `--related` 要拿哪一份「動了哪些檔案」去挑 spec。`scripts/e2e.mjs` 用它。
 //
-// 以前只有一種：**跟 develop 比**（整條分支的差異）。一輪做到後段，那份差異
+// 以前只有一種：**跟 develop 比**（整條分支的差異；沒帶 `--base` 時是 GitHub 上那一份，見 `defaultBase()`）。一輪做到後段，那份差異
 // 幾乎碰遍了壓表、日曆、來訪編輯器、`visits.js` —— 2026-10-16 拿最近 14 輪的 merge
 // 重播，收尾時選到的是 50～69／69 支，等於每一次 verify 都在全跑（本機半小時以上）。
 //
@@ -19,7 +19,7 @@
 //   - 沒有紀錄、或那個 tree 已經被 `git gc` 收掉了（沒被參照的物件兩週後才收）
 //   - `tests-e2e/related.js` 在上一次全綠之後改過 —— 對照表改了，就代表上一次
 //     「這一支摸不到那個檔案」的判斷可能不準
-//   - 自己帶了 `--base`（要整條分支重驗一次：`--base develop`）
+//   - 自己帶了 `--base`（要整條分支重驗一次：`--base origin/develop`）
 //
 // **記錄只在「每一支該跑的都跑了而且全綠」時寫**：`--related` 與不帶 filter 的全跑。
 // 自己點名的（`node scripts/e2e.mjs 05 20`）與 `--smoke` 不寫 —— 它們沒跑到的那幾支
@@ -41,15 +41,29 @@ const MAPPING = 'tests-e2e/related.js';
  * 底下幾乎都是中文檔名 —— 對不上任何一條規則，於是每次都退回全跑，
  * 而畫面上只會寫「沒有登記在 related.js」，看起來像對照表漏了。
  */
-const git = (args, { cwd, env } = {}) => spawnSync(
+const git = (args, { cwd, env, timeout } = {}) => spawnSync(
   // maxBuffer：`git show` 整份 app.css（30 萬字元，預設的 1MB 再長一點就裝不下）
-  'git', ['-c', 'core.quotepath=false', ...args], { encoding: 'utf8', cwd, env, maxBuffer: 64 * 1024 * 1024 },
+  'git', ['-c', 'core.quotepath=false', ...args], { encoding: 'utf8', cwd, env, timeout, maxBuffer: 64 * 1024 * 1024 },
 );
 const lines = (r) => (r.status === 0 ? r.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : null);
 
 export function repoRoot(cwd = process.cwd()) {
   const r = git(['rev-parse', '--show-toplevel'], { cwd });
   return r.status === 0 ? r.stdout.trim() : cwd;
+}
+
+/**
+ * 沒帶 `--base` 時拿哪一份 develop 比。**不是本機的 `develop`**：`git fetch` 只移動 `origin/develop`，
+ * 一直待在功能分支上的話本機那一份停在開分支那一格，每一次都拿整輪的差異在挑（lessons 十二）。
+ * 先抓一次 GitHub 上的（限時、不問帳密 —— 抓不到不擋，照用手上那一份），有 `origin/develop` 就比它，
+ * 連它都沒有才退回本機的 `develop`。`fetched` 給畫面講「這一份是不是剛抓的」。
+ */
+export function defaultBase(root, { timeoutMs = 8000 } = {}) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+  const fetch = git(['fetch', '-q', 'origin', 'develop'], { cwd: root, env, timeout: timeoutMs });
+  const remote = git(['rev-parse', '--verify', '--quiet', 'origin/develop'], { cwd: root });
+  if (remote.status === 0) return { ref: 'origin/develop', fetched: fetch.status === 0 };
+  return { ref: 'develop', fetched: false };
 }
 
 /**

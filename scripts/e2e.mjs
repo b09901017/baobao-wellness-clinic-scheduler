@@ -6,7 +6,7 @@
 //
 //   node scripts/e2e.mjs                 全部，無頭
 //   node scripts/e2e.mjs --related       只跑上一次全綠之後動過、而且跟 develop 不一樣的那幾支
-//   node scripts/e2e.mjs --related --base develop   整條分支重驗一次（不看上一次全綠）
+//   node scripts/e2e.mjs --related --base origin/develop   整條分支重驗一次（不看上一次全綠）
 //   node scripts/e2e.mjs --smoke         只跑 00-smoke
 //   node scripts/e2e.mjs --watch         headed + slowMo（要親眼看的時候）
 //   node scripts/e2e.mjs 05 20           自己指定（Playwright 的檔名 filter）
@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process';
 
 import { pick } from '../tests-e2e/related.js';
 import {
-  changedFiles, combine, filesBetween, greenSide, mergeBase, readStamp, recordsGreen, repoRoot, snapshotTree,
+  changedFiles, combine, defaultBase, filesBetween, greenSide, mergeBase, readStamp, recordsGreen, repoRoot, snapshotTree,
   stampTime, withNarrowed, writeStamp,
 } from './e2e-changes.mjs';
 
@@ -36,7 +36,6 @@ const DRY = has('--dry');
 const RELATED = has('--related');
 const SMOKE = has('--smoke');
 const EXPLICIT_BASE = has('--base') ? valueOf('--base', null) : null;
-const BASE = EXPLICIT_BASE ?? 'develop';
 
 /** 把 flag 與它們的值剝掉，剩下的當成 Playwright 的 filter。 */
 const passthrough = (() => {
@@ -61,6 +60,15 @@ let filters = passthrough;
 if (SMOKE) {
   filters = ['00-smoke'];
 } else if (RELATED) {
+  // 沒帶 `--base`：先抓一次 GitHub 上的 develop 再比（本機那一份不會自己跟上，lessons 十二）
+  const auto = EXPLICIT_BASE ? null : defaultBase(ROOT);
+  const BASE = EXPLICIT_BASE ?? auto.ref;
+  if (auto?.ref === 'origin/develop') {
+    console.log(auto.fetched ? '跟 GitHub 上最新的 develop（origin/develop）比。'
+      : '⚠  抓不到 GitHub 上最新的 develop，用這台上次抓到的 origin/develop 比。');
+  } else if (auto) {
+    console.log('⚠  沒有 origin/develop，用本機的 develop 比（它不會自己跟上 GitHub）。');
+  }
   const { ref, files } = changedFiles(BASE, ROOT);
   if (ref !== BASE) console.log(`⚠  找不到 ${BASE}，改跟 ${ref} 比。`);
   // `views.js` 只多了一頁的登記 → 換成那一頁（`narrowViews()`）；`app.css` 只動到某一個元件的
