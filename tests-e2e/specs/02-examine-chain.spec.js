@@ -54,7 +54,9 @@ async function closeExam(app, page) {
   await app.tickAll();
   await expect(page.locator('[data-apply]')).toBeEnabled();
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(1800);
+  // 抽屜等寫完才收起來（`applyClose()` 先讀那位客戶的全部來訪才寫）—— 固定等 1.8 秒的話，忙的機器上讀到的是還沒寫的
+  await expect(page.locator('[data-apply]'), '寫完了、抽屜收起來').toHaveCount(0);
+  await app.saved();
 }
 
 test('J-D1 結案 examine → 長出「追蹤健檢報告」，死線是 examine 日 + 21 天', async ({ app, page }) => {
@@ -91,7 +93,7 @@ test('J-D2 勾掉「追蹤健檢報告」→ 同一刻長出「約二返」，�
   await page.locator('[data-mark]').click();
   await expect(app.dialog()).toBeVisible();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   const tasks = await app.readAll('tasks');
   const booking = tasks.find((t) => t.kind === '約二返' && !t.deletedAt);
@@ -121,14 +123,14 @@ test('J-D5 二返約好了、報告還沒寄 → **寄報告那一張要留著**
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   // 再把「約二返」勾掉（她去約了）
   await app.go(`/todo/${encodeURIComponent('約二返')}`);
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   const tasks = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
   const send = tasks.find((t) => t.kind === '寄報告給醫師');
@@ -147,17 +149,17 @@ test('J-D3 把報告那一張「拿回來」→ 退回上一站，約二返收�
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   // 再從「已完成」那一格點回來
   await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
   await page.locator('[data-task-tab="done"]').click();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-task-tab="done"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-untick]').first().click();
   // 2026-09-04 起拿回鏈上那兩種會先問一句（它真的會收掉別的張）
   await expect(app.dialog()).toBeVisible();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   const tasks = (await app.readAll('tasks')).filter((t) => !t.deletedAt);
   const report = tasks.find((t) => t.kind === '追蹤健檢報告');
@@ -184,24 +186,24 @@ test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且�
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   // 她去約了，把「約二返」也勾掉
   await app.go(`/todo/${encodeURIComponent('約二返')}`);
   await page.locator('[data-task]').first().check();
   await page.locator('[data-mark]').click();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   // 這時候才發現按錯了，把報告那一張拿回來
   await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
   await page.locator('[data-task-tab="done"]').click();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-task-tab="done"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-untick]').first().click();
   // 2026-09-04 起拿回鏈上那兩種會先問一句（它真的會收掉別的張）
   await expect(app.dialog()).toBeVisible();
   await app.ok();
-  await page.waitForTimeout(2000);
+  await app.saved();
 
   const all = await app.readAll('tasks');
   const report = all.find((t) => t.kind === '追蹤健檢報告');
@@ -214,7 +216,7 @@ test('J-D6 約二返勾掉了，再把報告拿回來 → 報告還在，而且�
   // 點回來的，而那個分頁的選擇是留著的（首頁的模組狀態）。
   await app.go(`/todo/${encodeURIComponent('追蹤健檢報告')}`);
   await page.locator('[data-task-tab="open"]').click();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-task-tab="open"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#view')).toContainText('客戶B');
   await expect(page.locator('[data-task]')).toHaveCount(1);
 });

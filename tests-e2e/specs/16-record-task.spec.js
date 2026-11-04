@@ -62,7 +62,9 @@ async function closeToday(app, page, visitId) {
   await app.tickAll();
   await expect(page.locator('[data-apply]')).toBeEnabled();
   await page.locator('[data-apply]').click();
-  await page.waitForTimeout(1800);
+  // 抽屜等寫完才收起來（`applyClose()` 先讀那位客戶的全部來訪才寫）—— 固定等 1.8 秒的話，忙的機器上讀到的是還沒寫的
+  await expect(page.locator('[data-apply]'), '寫完了、抽屜收起來').toHaveCount(0);
+  await app.saved();
 }
 
 const live = async (app) => (await app.readAll('tasks')).filter((t) => !t.deletedAt);

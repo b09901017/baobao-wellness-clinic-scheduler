@@ -12,6 +12,7 @@
 //   4. 那顆數字＝任務＋跟客人確認時間＋簽療程單（她 2026-09-02 決定的三種相加）
 
 import { test, expect } from '../fixtures/app.js';
+import { FIRESTORE_ORIGIN } from '../fixtures/emulator.js';
 import {
   masterDocs, customer, entitlement, visit, slot, task, TODAY, addDays,
 } from '../fixtures/data.js';
@@ -71,7 +72,7 @@ function seedMixed() {
 async function openByCustomer(app, page) {
   await app.go('/');
   await page.locator('[data-tab="who"]').click();
-  await page.waitForTimeout(300);
+  await expect(page.locator('[data-tab="who"]')).toHaveAttribute('aria-pressed', 'true');
 }
 
 const drawer = (page) => page.locator('.drawer-backdrop .drawer');
@@ -122,8 +123,7 @@ test('D3 抽屜裡勾一筆 → 那一列劃掉，底下那張卡片的數字跟
   // 勾掉的**不會消失** —— 她會勾錯，看得到才點得回來
   await expect(drawer(page).locator('[data-task="task-a-examine"]'))
     .toHaveClass(/note--done/);
-
-  await page.waitForTimeout(1500);
+  await app.saved();
 
   // 底層跟著更新：4 → 3
   await expect(page.locator('[data-who="cust-a"] .badge')).toHaveText('3');
@@ -134,7 +134,7 @@ test('D3 抽屜裡勾一筆 → 那一列劃掉，底下那張卡片的數字跟
 
   // 點回來
   await drawer(page).locator('[data-task="task-a-examine"]').click();
-  await page.waitForTimeout(1500);
+  await app.saved();
   await expect(page.locator('[data-who="cust-a"] .badge')).toHaveText('4');
   expect((await app.readDoc('tasks', 'task-a-examine')).done).toBe(false);
 });
@@ -180,7 +180,7 @@ test('D4 勾掉「追蹤健檢報告」→ 抽屜裡當場多一張「約二返�
   await expect(drawer(page)).toContainText('追蹤健檢報告');
 
   await drawer(page).locator('[data-task="task-b-report"]').click();
-  await page.waitForTimeout(2500);
+  await app.saved();
 
   // **同一張抽屜裡**看得到下一站，不用關掉再打開
   await expect(drawer(page)).toContainText('約二返');
@@ -193,6 +193,66 @@ test('D4 勾掉「追蹤健檢報告」→ 抽屜裡當場多一張「約二返�
   expect(booking.dueDate, '死線 = 勾掉那天 + 7').toBe(addDays(TODAY, 7));
 });
 
+/**
+ * 2026-11-04 雲端 VM 上 D3、D4 怎樣都紅（CI 綠）：抽屜**第一次**掛上的那一下，勾選框沒有接上點擊 ——
+ * `openSheet()` 在回傳之前就叫 `onMount`，那時候 `whoDrawer.sheet` 還是 null，接線的那一支直接 return；
+ * 要等「那一天・哪一場」那幾份讀回來、重畫一次才接上。抽屜滑進來要 340ms，讀得比這慢（VM 上的模擬器、
+ * 訊號差的手機）她點下去的那一下就被吃掉；那幾份讀失敗的話整張抽屜一直勾不掉。
+ * 這一支把那幾份扣住，抽屜一停好就勾。
+ */
+test('D6 抽屜剛打開、那幾列的細節還沒讀回來就勾 → 照樣劃掉、寫得進去', async ({ app, page }) => {
+  await app.seed(seedMixed());
+  await app.signIn('/');
+  await openByCustomer(app, page);
+
+  // 雲端扣著：抽屜打開時去讀的那幾份（那一天、診間、人員、課程…）回不來，勾下去之後才放
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route(`${FIRESTORE_ORIGIN}/**`, async (route) => {
+    await gate;
+    await route.continue().catch(() => {});
+  });
+
+  await page.locator('[data-who="cust-a"]').click();
+  await expect(drawer(page)).toBeVisible();
+  await drawer(page).locator('[data-task="task-a-examine"]').click();
+  await expect(drawer(page).locator('[data-task="task-a-examine"]'), '畫面先動（樂觀更新）')
+    .toHaveClass(/note--done/);
+
+  release();
+  await app.saved();
+  await page.unroute(`${FIRESTORE_ORIGIN}/**`);
+  await expect(drawer(page).locator('[data-task="task-a-examine"]'), '細節讀回來重畫之後還是劃掉的')
+    .toHaveClass(/note--done/);
+  expect((await app.readDoc('tasks', 'task-a-examine')).done, '資料庫也寫進去').toBe(true);
+});
+
+/**
+ * 同一個時機的另一顆：「詳情」。29 的 S2、S2b 在忙的 VM 上紅的就是這一下（點下去沒有反應）。
+ * 接上點擊之後，那一天還沒讀回來時以前講「還在讀，等一下再按一次」—— 任務那一頁早就改成先等它（issue 11），抽屜沒跟上。
+ */
+test('D7 抽屜剛打開、那一天還沒讀回來就按「詳情」→ 讀回來就打開那一天，不叫她再按一次', async ({ app, page }) => {
+  await app.seed(seedMixed());
+  await app.signIn('/');
+  await openByCustomer(app, page);
+
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route(`${FIRESTORE_ORIGIN}/**`, async (route) => {
+    await gate;
+    await route.continue().catch(() => {});
+  });
+
+  await page.locator('[data-who="cust-a"]').click();
+  await expect(drawer(page)).toBeVisible();
+  await drawer(page).locator('[data-task-visit="visit-a-pending"]').first().click();
+  release();
+  await app.layer('.popcard');
+  await page.unroute(`${FIRESTORE_ORIGIN}/**`);
+  await expect(page.locator('.popcard')).toContainText('客戶A');
+  await expect(page.locator('#toast'), '不叫她再按一次').not.toContainText('再按一次');
+});
+
 test('D5 抽屜吃返回鍵：關掉的是抽屜，不是這一頁', async ({ app, page }) => {
   await app.seed(seedMixed());
   await app.signIn('/');
@@ -202,7 +262,6 @@ test('D5 抽屜吃返回鍵：關掉的是抽屜，不是這一頁', async ({ ap
   await expect(drawer(page)).toBeVisible();
 
   await page.goBack();
-  await page.waitForTimeout(500);
 
   await expect(drawer(page)).toHaveCount(0);
   // 還在待辦中心，而且還在「依客戶」那一格
