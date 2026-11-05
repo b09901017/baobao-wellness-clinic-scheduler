@@ -3,6 +3,15 @@
 Status: todo
 Blocked by: 01（資料健檢鏈上那兩項另外要 02、03）
 
+## 先看：試算表那一輪合了沒（她 11/5）
+
+試算表變快那一輪（`claude/sheet-speed`，自己的 worktree）正在改 `sheetReport.js`、`sheetSync.js`、`sheetPushTiming.js`、`readonly-report.gs`、`tests/sheet-fingerprint.test.js`。
+這一支要改的 `syncBundle()`／`customerReport()`（`sheetReport.js`）與 `ui/views/report.js` 跟它撞。**動工前 `git fetch`**：
+
+- `claude/sheet-speed` 合進 develop 了 → `git rebase origin/develop` 再做
+- 還沒合 → 先做這一支裡不碰試算表的部分（名單排除、資料健檢、月底對帳），**試算表那一塊最後做**，或問她要不要等
+- **永遠不改** `sheetSync.js`、`sheetPushTiming.js`、`.gs`
+
 ## 動工前先讀
 
 - ADR-0172 決定一最後一點（名單與找人的地方）、Consequences
