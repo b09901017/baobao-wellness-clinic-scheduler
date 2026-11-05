@@ -242,7 +242,7 @@ function doPost(e) {
       return reply({
         ok: true,
         sheets: result.sheets,
-        // 沒變、只改了第三列產生時間的那幾頁（ADR-0161）
+        // 沒變、只改了產生時間那一列的那幾頁（ADR-0161）
         kept: result.kept,
         // 跳過的要講出來，不然她會以為推好了而那幾位其實沒更新
         skipped: result.skipped,
@@ -292,7 +292,7 @@ var PROTECT_NOTE = '由 app 產生，請勿手動編輯';
 
 /**
  * 畫整包。**沒變的那幾頁不重畫**（ADR-0161）：app 每一頁附一個指紋（那一頁會畫出來的每一樣），
- * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改第三列的產生時間。
+ * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改產生時間那一列（`STAMP_ROW`）。
  * 指紋只記在這一側：她有手機與 iPad 兩台，各記各的會安靜地錯（8/27 那一支不照做的理由）。
  *
  * 每畫好一頁就上鎖、記下指紋 —— Apps Script 一次最多跑 6 分鐘，逾時的話下一次推送從沒畫完的那一頁接著做。
@@ -1249,7 +1249,7 @@ CANVAS_FORMATS.forEach(function (pair) {
 });
 
 /**
- * 草稿紙寫上去。順序：值 → 格式 → 合併 → 框線 → 欄寬 → 列高 → 凍結。
+ * 草稿紙寫上去。順序：數字格式 → 值 → 備註 → 其餘格式 → 合併 → 框線 → 欄寬 → 列高 → 格線 → 凍結。
  * 值先寫、再合併（合併區除了左上角都是 ''）：寫進已經合併的範圍 Google 會怎樣，替身驗不出來，就不要走那條路。
  * 凍結最後（凍結線不能穿過合併儲存格，合併要先在）。
  */
@@ -1457,7 +1457,7 @@ function banding(sheet, top, rowCount, width) {
 function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
   var width = fullWidth || matrixWidth;
   var all = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), headerRow), width);
-  // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的 14 號、第 3 列與註記列的 9 號都蓋掉了
+  // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的大字、產生時間那一列與二返註記的 9 號都蓋掉了
   all.setFontFamily(STYLE.font).fillFontSize(STYLE.bodySize);
   if (rowCount) {
     sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
