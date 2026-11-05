@@ -1801,6 +1801,12 @@ function afterPhoto(customerId, groups, items, ctx) {
 }
 
 /**
+ * 二返簽不簽得成（`cannotClose()`）要的課程主檔：**給了才認得一次性客人的那一對**（ADR-0172，03）——
+ * 一次性的二返接的那一次一次性健檢還沒做完，照片寫課程完成時照樣擋。這一支裡四個 guard／`cannotClose()` 都拿它。
+ */
+const chainCoursesOf = (ctx) => Object.fromEntries((ctx.master?.courses ?? []).map((c) => [c.id, c]));
+
+/**
  * 讀照片那一下：照片要把哪一段二返／n返 改成已完成、接的那一次健檢**記完之後**還是沒做完的（`cannotClose()`，ADR-0145）→
  * 不改、對不上（`closeBlocked`，`mismatchSay()` 講 `closeBlockSay()` 那一句）。spec：「簽不成已完成 → 只提醒」。
  * 她之後拿掉健檢那一列的勾：寫的時候 `applyPhotoStatus()` 的 guard 再擋一次（`missed`）。
@@ -1815,7 +1821,7 @@ function gateStatusChanges(items, ctx) {
     const entitlements = ctx.entitlementsBy?.[customerId] ?? [];
     for (const i of wanted.filter((x) => x.customerId === customerId)) {
       const visit = visits.find((v) => v.id === i.existing.visitId);
-      const why = visit ? cannotClose(visit, i.existing.slotIndex, [], { entitlements, visits }) : null;
+      const why = visit ? cannotClose(visit, i.existing.slotIndex, [], { entitlements, visits, coursesById: chainCoursesOf(ctx) }) : null;
       if (why) blocked.set(i.key, why);
     }
   }
@@ -2023,7 +2029,9 @@ function checkMoves(items, ctx) {
   for (const item of wanted) {
     const visit = (ctx.visitsBy?.[item.customerId] ?? []).find((v) => v?.id === item.existing.visitId);
     if (!visit) continue;
-    const guard = { entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: afterPhoto(item.customerId, groups, items, ctx) };
+    const guard = {
+      entitlements: ctx.entitlementsBy?.[item.customerId] ?? [], visits: afterPhoto(item.customerId, groups, items, ctx), coursesById: chainCoursesOf(ctx),
+    };
     // 扣法勾著的話先套（staging-polish 16）：不然拿舊的時長去驗撞期與重疊
     const charged = item.adoptCharge ? applyPhotoCharge(visit, [item], ctx).visit : visit;
     const { visit: after, blocked } = applyPhotoMove(charged, [item], { guard });
@@ -2804,7 +2812,7 @@ function blockedInGroups(groups, items, ctx) {
       // 記完之後的樣子（`afterPhoto()`）：接的那一次健檢可能這一次才從照片改成已完成（04）
       visits ??= afterPhoto(g.customerId, groups, items, ctx);
       const visit = visits.find((v) => v.id === plannedId(g)) ?? g.visit;
-      const why = cannotClose(visit, index, [], { entitlements, visits });
+      const why = cannotClose(visit, index, [], { entitlements, visits, coursesById: chainCoursesOf(ctx) });
       if (why) out.set(item.key, why);
     }
   }
@@ -2897,7 +2905,7 @@ export function photoDayPlan(items, ctx, { at = new Date().toISOString() } = {})
   const touched = new Map();
   const missed = [];
   for (const customerId of new Set(changes.map((i) => i.customerId))) {
-    const guard = { entitlements: ctx.entitlementsBy?.[customerId] ?? [], visits: afterPhoto(customerId, [], list, ctx) };
+    const guard = { entitlements: ctx.entitlementsBy?.[customerId] ?? [], visits: afterPhoto(customerId, [], list, ctx), coursesById: chainCoursesOf(ctx) };
     visitsBy[customerId] = (ctx.visitsBy?.[customerId] ?? []).map((v) => {
       const mine = changes.filter((i) => i.customerId === customerId && i.existing.visitId === v?.id);
       if (!mine.length) return v;

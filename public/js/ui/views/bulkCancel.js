@@ -632,7 +632,7 @@ async function run() {
     customer: { id: state.customerId, name: first?.customerName ?? null },
     visits: ctx.visits,
     cancels: [...byVisit.values()],
-    chain: await visitsData.chainInputs(state.customerId, coursesById),
+    chain: await visitsData.chainInputs(state.customerId, coursesById, ctx.visits),
     coursesById,
   })) said.add(line);
 

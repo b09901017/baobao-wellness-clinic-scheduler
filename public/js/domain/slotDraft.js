@@ -18,7 +18,7 @@ import {
   sameDayVisitFor, settle, slotCancelReasonOf, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
 import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse, EXAM_NOT_MINE_LABEL } from './masterData.js';
-import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH } from './nthFollowup.js';
+import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH, isOneTimeExamVisit } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 import { isFollowupCourse } from './followups.js';
 
@@ -46,6 +46,7 @@ import { isFollowupCourse } from './followups.js';
  * @param {boolean} [picks.oneTime] 一次性客人的段（ADR-0172）：課程是她按的那一門（`picks.courseId`；要選器材的照器材重推，
  *   同送的／體驗那一條），**不扣任何一筆額度、不是送的／體驗**（同時給了 `entitlementId`／`giftCourseId` 也一律不看），最後帶 `oneTime: true`。
  *   跟 `examNotMine` 可以同時給：兩格都寫，課程與返數照「健檢不是我排的」那一條。跟 `isNth` 一起給是一次性的 n返（接他的一次性健檢）。
+ *   **n返 接的那一次是一次性的健檢時，沒給這一格也標**（轉成我的客戶之後的人，03）—— 接一般健檢的 n返 照舊沒有這一格。
  *   **一次性的二返**一定要接一次健檢（`followupForVisitId`）或是「健檢不是我排的」—— 沒有額度可以照位置配，一般二返那條「沒接只提醒」不適用。
  *   只認 `true`；沒給（或 `false`）的段一個字都不變，而且身上沒有 `oneTime` 這一格
  * @param {string|null} [picks.courseId] 一次性的段按的那一門課（只有 `oneTime` 讀它）
@@ -149,6 +150,9 @@ export function slotFromPicks(picks, ctx) {
   }
 
   const ivProduct = course.requiresIvProduct ? (ivProducts.find((p) => p.id === ivProductId) ?? null) : null;
+  // **接在一次性健檢上的 n返 也標一次性**（ADR-0172，03）：那一串是一次性那一次的 —— 轉成我的客戶之後按「＋ n返」接那一次也是。
+  // 三個入口（來訪編輯器、壓表、拍 Abovee）都經過這裡，不各判一次；`validateVisit()` 擋接一次性健檢卻沒標的
+  const nthOnGuestExam = nthPath && isOneTimeExamVisit(visits.find((v) => v.id === followupForVisitId) ?? null, entitlements, coursesById);
   const begins = NEW_SLOT_STATUSES.includes(status) ? status : INITIAL_STATUS;
 
   const slot = {
@@ -187,7 +191,7 @@ export function slotFromPicks(picks, ctx) {
       : {}),
     ...(notMine ? { examNotMine: true } : {}),
     // 一次性的段（ADR-0172）。只有這幾段有 —— 一般的段沒有這一格
-    ...(guest ? { oneTime: true } : {}),
+    ...(guest || nthOnGuestExam ? { oneTime: true } : {}),
     note,
     // **新的一段一定自己寫狀態**（CLAUDE.md「新增一個會建立時段的入口」）：不寫的話
     // 併進一筆已確認的來訪時，它會繼承整筆的狀態，被靜默標成談定了。

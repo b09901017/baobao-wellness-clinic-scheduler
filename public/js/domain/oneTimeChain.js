@@ -39,6 +39,17 @@ export const isOneTimeEntitlementId = (id) => typeof id === 'string' && id.start
 const examIdFor = (courseId) => `${ONE_TIME_ID_PREFIX}exam:${courseId}`;
 const followupIdFor = (courseId) => `${ONE_TIME_ID_PREFIX}followup:${courseId}`;
 
+/**
+ * 這幾筆來訪裡有沒有任何一段標一次性。**讀之前的閘門**（03）：確認框、簽療程單抽屜在叫鏈之前先問「這位有沒有真的二返額度」，
+ * 沒有就不讀任務與全部來訪 —— 一次性客人沒有額度，那一道要多認這一條才會讀。
+ * 刻意比「算得出那一對」寬（接在別天健檢上的一次性二返，手上只有這一筆時也算）：多讀一次任務，不會講錯；少讀就一句都不講。
+ *
+ * @param {object[]} visits
+ */
+export function hasOneTimeSlots(visits = []) {
+  return (visits ?? []).some((v) => (v?.slots ?? []).some(isOneTimeSlot));
+}
+
 /** 這門課是健檢（自己有 `followupCourseId`，同 `followups.js` 的 `followupCourseIdOf()`）。 */
 const isExamCourse = (course) => Boolean(course?.followupCourseId);
 

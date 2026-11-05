@@ -38,6 +38,7 @@ import {
   HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, doneBuckets, bucketCount, BUCKETS,
 } from '../../domain/todoFlow.js';
 import { clinicalTerms } from '../../domain/masterData.js';
+import { hasOneTimeSlots } from '../../domain/oneTimeChain.js';
 import { slotName } from '../../domain/naming.js';
 import * as playbooksData from '../../data/playbooks.js';
 import { hintForVisits } from '../components/playbookHint.js';
@@ -3500,7 +3501,7 @@ async function applyConfirm(ctx) {
       customer: { id: opened.customerId, name: visits[0]?.customerName ?? null },
       visits: customerVisits,
       cancels: visits.filter((v) => askedIn(v).length).map((v) => ({ visit: v, at: askedIn(v) })),
-      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
+      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}, customerVisits),
       coursesById: ctx.coursesById ?? {},
     })) said.add(line);
     const ok = await confirmAction({
@@ -3570,7 +3571,7 @@ async function applyConfirm(ctx) {
       visits: customerVisits,
       cancels: touched.map((v) => ({ visit: v, at: askedIn(v).filter((i) => rejected.has(`${v.id}:${i}`)) }))
         .filter((c) => c.at.length),
-      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}),
+      chain: await visitsData.chainInputs(opened.customerId, ctx.coursesById ?? {}, customerVisits),
       coursesById: ctx.coursesById ?? {},
     }));
   }
@@ -3715,14 +3716,16 @@ async function openCloseDrawer(ctx, visitId) {
   if (!visit?.customerId || ctx.entitlements?.length) return;
   try {
     const entitlements = await customersData.listEntitlements(visit.customerId);
-    // 沒有配得到二返的健檢就不可能有那一句 —— 大多數人到這裡為止，不多讀那兩份
-    const chained = pairsOf(entitlements, ctx.coursesById).some((p) => p.followup);
+    // 沒有配得到二返的健檢就不可能有那一句 —— 大多數人到這裡為止，不多讀那兩份。
+    // **一次性客人沒有額度**（ADR-0172，03）：這一天有一次性的段就照樣讀（他的健檢那一串用一對只在算的時候才有的額度）——
+    // 不讀的話全部來訪是空的，一次性的二返接的健檢還沒做完，抽屜上的 ✓ 照樣按得下去
+    const chained = pairsOf(entitlements, ctx.coursesById).some((p) => p.followup) || hasOneTimeSlots([visit]);
     // 任務連清掉的一起讀（ADR-0106）：跟存檔時 `followupOps()` 比對的是同一份（`chainInputs()`）。
     // **讀到快取就當讀不到**（ADR-0158，段四審查）：少講那幾句，不講錯的 —— 真的存的那一下拿伺服器那一份寫
     const [customerVisits, chain] = chained
       ? await Promise.all([
         visitsData.listWhole(visit.customerId),
-        visitsData.chainInputs(visit.customerId, ctx.coursesById),
+        visitsData.chainInputs(visit.customerId, ctx.coursesById, [visit]),
       ])
       : [[], null];
     if (chained && !chain) return;
@@ -3962,7 +3965,11 @@ function wirePicks(el, { parse, keys, repaint }) {
  * 「二返接的那一次健檢做完了沒」要的那兩份（`cannotClose()`）：這位客戶的額度、全部來訪 ——
  * 抽屜打開時補讀的那一份（`openCloseDrawer()`）。還沒讀到就是空的：不知道就不擋，存的那一下會重讀再問一次（`applyClose()`）。
  */
-const closeGuard = (ctx) => ({ entitlements: ctx.entitlements ?? [], visits: ctx.customerVisits ?? [] });
+const closeGuard = (ctx) => ({
+  entitlements: ctx.entitlements ?? [], visits: ctx.customerVisits ?? [],
+  // 課程主檔：一次性的二返接的那一次一次性健檢才認得出來（ADR-0172，`cannotClose()`）
+  coursesById: ctx.coursesById ?? {},
+});
 
 /** 抽屜上按了什麼 → `closeVisit()` 收的那一份（逐段 `true`／`false`／`null`）。 */
 function picksOf(visit) {
@@ -4044,7 +4051,8 @@ async function applyClose(ctx) {
   // 二返接的那一次健檢做完了沒，拿剛讀回來的全部來訪再問一次（ADR-0145）—— 抽屜畫的時候那兩份可能還沒讀到
   const entitlements = ctx.entitlements?.length ? ctx.entitlements
     : await customersData.listEntitlements(visit.customerId).catch(() => []);
-  const guard = { entitlements, visits: customerVisits };
+  // **跟抽屜那一列同一份 guard 的形狀**（`closeGuard()`）：少了課程主檔，一次性的二返在這一下照樣存成做了（ADR-0172，03）
+  const guard = { entitlements, visits: customerVisits, coursesById: ctx.coursesById ?? {} };
   const blocked = closeBlocks(fresh, picksOf(fresh), guard);
   const picks = picksOf(fresh).map((p, i) => (blocked.has(i) ? null : p));
   if (!picks.some((p) => p === true || p === false)) {

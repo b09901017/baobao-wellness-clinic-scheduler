@@ -43,7 +43,7 @@
 
 import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
 // 一次性客人的 n返 接他的一次性健檢（ADR-0172）：找健檢的那兩支吃投影過的那一份。n返 自己**不填**那一對的 id
-import { withOneTimeChain } from './oneTimeChain.js';
+import { withOneTimeChain, isOneTimeEntitlementId } from './oneTimeChain.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -173,6 +173,23 @@ export function courseIdForNth(examVisit, entitlements = [], coursesById = {}) {
     if (followupId) return followupId;
   }
   return null;
+}
+
+/**
+ * 這一次健檢是不是一次性客人的那一次（ADR-0172，03）：`courseIdForNth()` 認出健檢的**同一段**是一次性的段。
+ * 接在它後面的 n返 也標一次性（`slotDraft.js` 的 `slotFromPicks()` 一處判、`validateVisit()` 擋沒標的）——
+ * 跟「轉成我的客戶之後，還欠的那一場二返照舊標一次性」同一個理由：那一串是一次性那一次的（她第 6 題）。
+ *
+ * @returns {boolean}
+ */
+export function isOneTimeExamVisit(examVisit, entitlements = [], coursesById = {}) {
+  if (!examVisit) return false;
+  const chain = withOneTimeChain({ entitlements, visits: [examVisit], coursesById });
+  const byId = new Map((chain.entitlements ?? []).map((e) => [e.id, e]));
+  for (const slot of chain.visits[0]?.slots ?? []) {
+    if (followupCourseIdOf(coursesById[byId.get(slot.entitlementId)?.courseId])) return isOneTimeEntitlementId(slot.entitlementId);
+  }
+  return false;
 }
 
 // ---------- 某一次健檢底下有哪幾返 ----------

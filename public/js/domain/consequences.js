@@ -34,8 +34,10 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer, hasFollowupChain,
 } from './followups.js';
+// 一次性客人的那一對（ADR-0172 決定三，03）：這一支裡**先問「有沒有真的二返額度」就收手**的那幾處，改在投影裡問
+import { withOneTimeChain, originalOf } from './oneTimeChain.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
@@ -335,12 +337,15 @@ export function notRelinkedSay(relink, errors = [], { unread = false } = {}) {
 export function strandedOnNewExamLines({
   visit, added = null, entitlements = [], coursesById = {}, customerVisits = [], offer = null,
 }) {
-  const examIds = examEntitlementIds(entitlements, coursesById);
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
-  // 新的健檢記成未到、已取消（拍 Abovee 照照片的狀態記，abovee-status-follows-photo 06）接不上 —— 不講「要接到這一次」
-  if (!fresh.some((i) => PICKABLE_EXAM.has(slotStatus(visit, visit?.slots?.[i])) && examIds.has(visit.slots[i].entitlementId))) return [];
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
+  // 新加的那一段是不是健檢：在一次性客人的那一對裡認（一次性的健檢沒有額度，ADR-0172）。一般客人就是原本那兩份
+  const chain = withOneTimeChain({ entitlements, visits: [...others, visit], coursesById });
+  const examIds = examEntitlementIds(chain.entitlements, coursesById);
+  const newSlots = chain.visits.at(-1)?.slots ?? [];
+  // 新的健檢記成未到、已取消（拍 Abovee 照照片的狀態記，abovee-status-follows-photo 06）接不上 —— 不講「要接到這一次」
+  if (!fresh.some((i) => PICKABLE_EXAM.has(slotStatus(visit, visit?.slots?.[i])) && examIds.has(newSlots[i]?.entitlementId))) return [];
   return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, slotIndex, exam, status }) => {
     const name = followupName(slot, coursesById);
     const offered = Boolean(offer) && offer.visitId === v.id && offer.slotIndex === slotIndex;
@@ -796,7 +801,8 @@ export function closeConsequences({
   visit, picks: asked = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
 }) {
   const lines = [];
-  const blocked = closeBlocks(visit, asked, { entitlements, visits });
+  // 給課程主檔：一次性的二返接的那一次一次性健檢才認得出來（ADR-0172，`cannotClose()`）
+  const blocked = closeBlocks(visit, asked, { entitlements, visits, coursesById });
   const picks = asked.map((p, i) => (blocked.has(i) ? null : p));
   const open = slotsToClose(visit).map(({ index }) => index);
   const done = open.filter((i) => picks[i] === true);
@@ -875,7 +881,8 @@ export function closeBlockSay({ examDate, status }) {
  * @returns {string[]}
  */
 export function followupBookingLines({ customer, visits = [], chain = null, coursesById = {} }) {
-  if (!chain || !pairsOf(chain.entitlements ?? [], coursesById).some((p) => p.followup)) return [];
+  // 真的一對、或一次性客人的那一對（`hasFollowupChain()`，03）—— 以前只問真的，一次性客人一句都不講
+  if (!chain || !hasFollowupChain({ entitlements: chain.entitlements ?? [], visits, coursesById })) return [];
   const plan = syncFollowupTasks({
     customer, entitlements: chain.entitlements, visits, tasks: chain.tasks ?? [], coursesById,
   });
@@ -903,8 +910,10 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
  * @returns {string[]}
  */
 export function strandedFollowupLines({ before = [], after = [], entitlements = [], coursesById = {}, verb = '取消' }) {
-  const examIds = examEntitlementIds(entitlements, coursesById);
-  const was = new Map((before ?? []).filter(Boolean).map((v) => [v.id, v]));
+  // 「那一次本來接得上」在一次性客人的那一對裡問（一次性的健檢沒有額度，ADR-0172，03）。一般客人就是原本那兩份
+  const was0 = withOneTimeChain({ entitlements, visits: (before ?? []).filter(Boolean), coursesById });
+  const examIds = examEntitlementIds(was0.entitlements, coursesById);
+  const was = new Map(was0.visits.map((v) => [v.id, v]));
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   return strandedFollowups(entitlements, coursesById, (after ?? []).filter(Boolean))
     .filter(({ exam }) => PICKABLE_EXAM.has(examStatusIn(was.get(exam.id), examIds)))
@@ -1046,10 +1055,9 @@ export function chainSavedSay(chain) {
  * 死線的天數不影響長不長，所以不用讀設定。
  */
 function chainAfterClose(visit, picks, { entitlements, coursesById, visits, tasks }) {
-  // 沒有配得到二返的健檢額度就不可能有鏈（同 `followupOps()` 的提前結束）
-  if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
-
   const all = [...(visits ?? []).filter((v) => v.id !== visit?.id), closeVisit(visit, picks)];
+  // 沒有配得到二返的健檢就不可能有鏈（同 `followupOps()` 的提前結束）—— 真的一對、或一次性客人的那一對（03）
+  if (!hasFollowupChain({ entitlements, visits: all, coursesById })) return null;
   const { create, remove } = syncFollowupTasks({
     customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
     entitlements,
@@ -1138,13 +1146,18 @@ export function untickConsequences({ task, preview } = {}) {
  */
 function bookedFollowupFor(task, preview) {
   if (!task?.visitId) return null;
-  const exam = (preview.visits ?? []).find((v) => v.id === task.visitId);
+  // 一次性客人的健檢與二返在那一對裡認（ADR-0172，03）；回去的是她資料裡的那一份（`originalOf()`）
+  const given = preview.visits ?? [];
+  const chain = withOneTimeChain({ entitlements: preview.entitlements ?? [], visits: given, coursesById: preview.coursesById ?? {} });
+  const back = originalOf(given, chain.visits);
+  const exam = chain.visits.find((v) => v.id === task.visitId);
   if (!exam) return null;
 
-  for (const pair of pairsOf(preview.entitlements ?? [], preview.coursesById ?? {})) {
+  for (const pair of pairsOf(chain.entitlements, preview.coursesById ?? {})) {
     if (!pair.followup) continue;
     if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
-    return bookingForExam(task.visitId, pair.followup.id, preview.visits ?? []);
+    const hit = bookingForExam(task.visitId, pair.followup.id, chain.visits);
+    return hit ? { visit: back.visit(hit.visit), slot: back.slot(hit.visit, hit.slot) } : null;
   }
   return null;
 }

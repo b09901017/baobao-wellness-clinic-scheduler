@@ -2366,7 +2366,7 @@ async function addSlot() {
   const chainSaid = selected.customerId ? followupBookingLines({
     customer: { id: selected.customerId, name: selected.customerName ?? null },
     visits: [...customerVisits.filter((v) => v.id !== visit.id), visit],
-    chain: await visitsData.chainInputs(selected.customerId, coursesById),
+    chain: await visitsData.chainInputs(selected.customerId, coursesById, [...customerVisits, visit]),
     coursesById,
   }) : [];
 

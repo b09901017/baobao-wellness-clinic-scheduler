@@ -27,7 +27,7 @@ import { slotName, fullNameOf } from './naming.js';
 // 一次性客人的那一對額度（ADR-0172 決定三）：只有「二返接哪一次健檢」那幾道吃投影
 import { withOneTimeChain } from './oneTimeChain.js';
 import {
-  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
+  isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit, isOneTimeExamVisit,
   followupsOfExam, secondFollowupIds, examChoicesForNth, MIN_NTH, MAX_NTH,
 } from './nthFollowup.js';
 
@@ -1877,6 +1877,12 @@ function visitErrors(visit, {
       // n返 沒有額度可以比，所以改問「那一筆是不是一次健檢」—— 每一次都驗（那是資料對不對）。
       else if (nth && !isExamVisit(exam, examIds)) {
         errors.push(`${at}：指定的那一天沒有健檢`);
+      }
+      // **n返 標不標一次性跟它接的那一次健檢一樣**（ADR-0172，03）：那一串是一次性那一次的。組時段的那一支（`slotFromPicks()`）
+      // 照這一條標；這裡擋繞過去的 —— 沒標的會被試算表畫成「三返（不算次數）」、指著一天沒畫出來的日期
+      else if (nth && isOneTimeExamVisit(exam, link.entitlements, coursesById) !== guest) {
+        errors.push(guest ? `${at}：一次性的 n返 只接一次性的健檢`
+          : `${at}：接的是一次性那一次的健檢 —— 這一場也要標成一次性`);
       }
       // 接得上哪幾次跟二返同一條（`PICKABLE_EXAM`，ADR-0145：排著的與做完的；以前只准做完的）、
       // **也只驗新接上的連結**：以前 n返 每一次都驗，放寬之後健檢被取消，那一天別段改一個字都存不回去。

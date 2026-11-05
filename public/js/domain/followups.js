@@ -32,6 +32,7 @@ import { seenTasks } from './taskRules.js';
 import { slotStatus, shortStatus, isOpenStatus, isImported } from './visits.js';
 // 一次性客人的那一對額度（ADR-0172 決定三）：鏈的函式進來先套，**規則一個字都不改**。沒有一次性的段時原封不動
 import { withOneTimeChain, originalOf, isOneTimeEntitlementId } from './oneTimeChain.js';
+import { isOneTimeSlot } from './masterData.js';
 
 /**
  * 「約二返」的任務種類。
@@ -124,6 +125,21 @@ export function pairsOf(entitlements = [], coursesById = {}) {
   }
 
   return out;
+}
+
+/**
+ * 這位客戶有沒有健檢那一串：**真的一對、或一次性客人的那一對**（ADR-0172 決定三）。
+ *
+ * 確認框那幾句（`consequences.js` 的 `followupBookingLines()`、簽療程單的鏈）以前先問 `pairsOf(真的)` 有沒有二返就收手 ——
+ * 一次性客人沒有額度，那幾句一句都不講（03）。**這一支是那道閘門唯一的答案**：沒有一次性的段時就是 `pairsOf(真的)`。
+ * `visits` 要是這位客戶的全部來訪（一次性的二返接的那一次健檢要在裡面，才算得出那一對）。
+ *
+ * @param {{entitlements?: object[], visits?: object[], coursesById?: Record<string, object>}} o
+ * @returns {boolean}
+ */
+export function hasFollowupChain({ entitlements = [], visits = [], coursesById = {} } = {}) {
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  return pairsOf(chain.entitlements ?? [], coursesById).some((p) => p.followup);
 }
 
 /**
@@ -579,24 +595,34 @@ export function relinkOffer({ visit, added = null, entitlements = [], coursesByI
   const slots = visit?.slots ?? [];
   const fresh = added ?? slots.map((_, i) => i);
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
-  const stranded = strandedFollowups(entitlements, coursesById, [...others, visit]);
+  const all = [...others, visit];
+  const stranded = strandedFollowups(entitlements, coursesById, all);
   if (stranded.length !== 1) return null;
 
   const [{ visit: held, slot, slotIndex, exam, status }] = stranded;
   if (held === visit || !isOpenStatus(slotStatus(held, slot))) return null;
-  const ent = (entitlements ?? []).find((e) => e && !e.deletedAt && e.id === slot.entitlementId) ?? null;
+  // **在一次性客人的那一對裡比**（ADR-0172，03）：一次性的二返扣著那一對的二返、新加的一次性健檢扣著那一對的健檢。
+  // 沒有一次性的段時那兩份就是傳進來的那兩份（一般客人一個字都沒變）
+  const chain = withOneTimeChain({ entitlements, visits: all, coursesById });
+  const heldSlot = chain.visits[all.indexOf(held)]?.slots?.[slotIndex] ?? slot;
+  const newSlots = chain.visits.at(-1)?.slots ?? slots;
+  const ent = (chain.entitlements ?? []).find((e) => e && !e.deletedAt && e.id === heldSlot.entitlementId) ?? null;
   if (!ent?.followupForEntitlementId) return null;
 
   // 這一次新加的、扣著它配的那一筆健檢額度、還算數的那一段
-  const mine = fresh.map((i) => slots[i])
-    .find((s) => s?.entitlementId === ent.followupForEntitlementId && PICKABLE_EXAM.has(slotStatus(visit, s)));
-  if (!mine) return null;
+  const at = fresh.find((i) => newSlots[i]?.entitlementId === ent.followupForEntitlementId
+    && PICKABLE_EXAM.has(slotStatus(visit, slots[i])));
+  if (at == null) return null;
+  const mine = slots[at];
 
   const ahead = Boolean(held.date && visit.date) && (held.date < visit.date
     || (held.date === visit.date && Boolean(slot.startsAt && mine.startsAt) && slot.startsAt < mine.startsAt));
   return {
-    visitId: held.id, slotIndex, date: held.date, entitlementId: ent.id,
+    // `entitlementId` 是她資料裡那一段扣的（一次性的二返是 null —— 那一對的 id 不出這一支）；一次性的那一場多一格 `guestSlot`。
+    // `relinkSlot()` 拿這兩格認「那一段沒被改過」。一般客人回的形狀一個字都沒變
+    visitId: held.id, slotIndex, date: held.date, entitlementId: slot.entitlementId ?? null,
     fromVisitId: exam.id, fromDate: exam.date, fromStatus: status, ahead,
+    ...(isOneTimeSlot(slot) ? { guestSlot: true } : {}),
   };
 }
 
@@ -616,7 +642,9 @@ export function relinkSlot(visits = [], offer = null, toVisitId = null) {
   if (!offer || !toVisitId) return null;
   const visit = (visits ?? []).find((v) => v && !v.deletedAt && v.id === offer.visitId) ?? null;
   const slot = visit?.slots?.[offer.slotIndex];
-  if (!slot || slot.entitlementId !== offer.entitlementId || slot.followupForVisitId !== offer.fromVisitId) return null;
+  if (!slot || (slot.entitlementId ?? null) !== (offer.entitlementId ?? null) || slot.followupForVisitId !== offer.fromVisitId) return null;
+  // 一次性的那一場（ADR-0172）：在別的地方被改成一般的段（或反過來）就不是她在確認框上看到的那一場
+  if (isOneTimeSlot(slot) !== (offer.guestSlot === true)) return null;
   if (!isOpenStatus(slotStatus(visit, slot))) return null;
   return {
     ...visit,

@@ -1526,7 +1526,7 @@ async function submit(ctx, draft) {
   const switched = !rebooked && ctx.stored ? chargeSwitchConsequences({
     before: ctx.stored, after: toSave, coursesById,
     entitlements, customerVisits, master: all, sheetSyncOn: isConfigured(ctx.settings),
-    customer, chain: flipsMark ? await visitsData.chainInputs(customer.id, coursesById) : null,
+    customer, chain: flipsMark ? await visitsData.chainInputs(customer.id, coursesById, [...(customerVisits ?? []), toSave]) : null,
   }) : null;
   if (switched && !await confirmAction({ title: switched.title, consequences: switched.lines, confirmLabel: switched.confirmLabel })) return;
 
@@ -1695,7 +1695,7 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
       customerVisits: ctx.customerVisits,
       // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
-      chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all)),
+      chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all), [...(ctx.customerVisits ?? []), draft]),
     }),
     confirmLabel: '取消這一段',
     danger: true,

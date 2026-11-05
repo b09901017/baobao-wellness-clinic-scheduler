@@ -1157,7 +1157,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const known = [...new Set(p.writes.map((w) => w.visit.id).filter(Boolean))];
     const [tasksByVisit, chainBy] = await Promise.all([
       Promise.all(known.map(async (id) => [id, await tasksData.listByVisitForSync(id).catch(() => [])])).then(Object.fromEntries),
-      Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById)])).then(Object.fromEntries),
+      // 這一位的來訪連這一次要記的一起給：一次性客人沒有額度，有一次性的段才讀那兩份（ADR-0172，03）
+      Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById,
+        [...(ctx.visitsBy?.[id] ?? []), ...(p.after?.[id] ?? [])])])).then(Object.fromEntries),
     ]);
     if (closed) return;
     for (const id of people) {
