@@ -532,8 +532,9 @@ export function aboveeConsequences({
   for (const g of groups) {
     const added = addedIn(g);
     for (const i of added) {
-      // 帶標記的三返只講「健檢不是你排的」那一句（兩句講的是同一件事）
-      const label = isExamNotMine(g.visit?.slots?.[i]) ? null : nthLabel(nthOf(g.visit?.slots?.[i]));
+      // 帶標記的三返只講「健檢不是你排的」那一句（兩句講的是同一件事）；一次性的段不講次數（段五審查 R10）
+      const s = g.visit?.slots?.[i];
+      const label = isExamNotMine(s) || isOneTimeSlot(s) ? null : nthLabel(nthOf(s));
       if (label) nths.add(label);
     }
     for (const name of giftNames(g.visit, coursesById, added)) free.add(name);
@@ -630,8 +631,8 @@ function nthLabels(visit, added = null) {
   const slots = visit?.slots ?? [];
   const seen = new Set();
   for (const slot of (added ?? slots.map((_, at) => at)).map((i) => slots[i])) {
-    // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）
-    if (isExamNotMine(slot)) continue;
+    // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）；一次性的段本來就沒有數字可以講（段五審查 R10）
+    if (isExamNotMine(slot) || isOneTimeSlot(slot)) continue;
     const label = nthLabel(nthOf(slot));
     if (label) seen.add(label);
   }
@@ -1584,8 +1585,8 @@ export function toMyCustomerConsequences({ visits = [], entitlements = [], cours
   const slots = live.reduce((n, v) => n + liveSlots(v).filter(isOneTimeSlot).length, 0);
   const owedTotal = oneTimeOwed({ entitlements, visits: (visits ?? []).filter((v) => v && !v.deletedAt), coursesById }).reduce((n, r) => n + r.owed, 0);
   return [
-    '會出現在客戶清單上，也會進壓表、問這輪的時間、試算表的名單',
-    '他身上還沒有任何額度 —— 要先加購，才排得進壓表',
+    // 只講真的會發生的（ADR-0070，段五審查 R6）：沒有額度不會進壓表那一批、不會被列進問時間
+    '會出現在客戶清單與試算表上；他身上還沒有任何額度 —— 加購之後才會進壓表、問這輪的時間',
     ...(slots ? [`當一次性客人時記的 ${slots} 段照舊算一次性：不扣之後買的額度、不進試算表`] : []),
     ...(owedTotal ? [`那時候做的健檢還欠 ${owedTotal} 場二返 —— 之後約的那一場照舊不扣、接回那一次`] : []),
     '轉了就不能轉回一次性客人',

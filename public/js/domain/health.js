@@ -23,7 +23,7 @@ import { contraindicationTerms } from './contraindications.js';
 import { SEED, seedData } from './seed.js';
 import {
   clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
-  isUncounted, trialMinutesOf, giftKindOf, isOneTime,
+  isUncounted, trialMinutesOf, giftKindOf, isOneTime, isOneTimeSlot,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import {
@@ -2328,7 +2328,8 @@ function checkEecpTrialCourse(ctx) {
   }
 
   const moved = (slot) => {
-    const giftKind = giftKindOf(slot, coursesById) ?? 'trial';
+    // 一次性的段不是送的也不是體驗（ADR-0172，段五審查 R11）：只換課程與時長
+    const giftKind = isOneTimeSlot(slot) ? null : (giftKindOf(slot, coursesById) ?? 'trial');
     return {
       ...slot,
       courseId: eecp.id,

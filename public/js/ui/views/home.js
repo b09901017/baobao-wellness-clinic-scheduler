@@ -38,7 +38,8 @@ import {
   groupByStage, nextStage, isRetired, RETIRED_KINDS, groupByDoneDay, taskLine, taskSlots,
   HOME_ROWS, NON_TASK_ROWS, rowLabel, rowView, homeLoaders, todoBuckets, doneBuckets, bucketCount, BUCKETS,
 } from '../../domain/todoFlow.js';
-import { clinicalTerms } from '../../domain/masterData.js';
+import { clinicalTerms, isOneTimeSlot } from '../../domain/masterData.js';
+import { followupGoesToCalendar } from '../../domain/nthFollowup.js';
 import { hasOneTimeSlots } from '../../domain/oneTimeChain.js';
 import { slotName } from '../../domain/naming.js';
 import * as playbooksData from '../../data/playbooks.js';
@@ -1263,16 +1264,37 @@ function wireWhoDrawer(ctx, el) {
 
 /**
  * 一次性客人的「約二返」那一顆換成「去日曆排」（ADR-0172，過目 5）：他不在壓表上，「去壓表」是死路。
- * 那一列畫的時候還不知道他是不是一次性客人（任務身上只有 `customerId`），所以畫完再讀一次客戶、只換那幾顆的字；
- * 按下去走哪一條由 `bookFollowup()` 自己再問一次（字還沒換過來就按下去也走對）。
+ * **轉成我的客戶之後、接的是他當一次性客人時的健檢也一樣**（段五審查 R3）—— 判斷只有 `followupGoesToCalendar()`，
+ * 按下去那一支（`bookFollowup()`）問同一支，兩邊講同一種話。
+ * 那一列畫的時候還不知道是哪一種（任務身上只有 `customerId`），所以畫完再讀一次、只換那幾顆的字；
+ * 字還沒換過來就按下去也走對。讀不到就照舊「去壓表」（少換一個字，不是少一頁）。
  */
 async function labelGuestBookings(root, tasks = []) {
-  const ids = new Set(tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.customerId && !t.done).map((t) => t.customerId));
-  if (!ids.size) return;
+  const mine = tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.customerId && !t.done);
+  if (!mine.length) return;
   const customers = await customersData.list().catch(() => []);
-  const guests = new Set(customers.filter((c) => ids.has(c.id) && isOneTime(c)).map((c) => c.id));
-  for (const t of tasks) {
-    if (!guests.has(t.customerId)) continue;
+  const who = new Map(customers.map((c) => [c.id, c]));
+  // 一般客戶：接的那一次健檢上有一次性的段，才要再讀額度與課程問清楚（轉成我的客戶之前做的那一次）
+  const regular = mine.filter((t) => t.visitId && !isOneTime(who.get(t.customerId)));
+  const exams = regular.length ? await visitsData.getMany(regular.map((t) => t.visitId)).catch(() => new Map()) : new Map();
+  const maybe = regular.filter((t) => (exams.get(t.visitId)?.slots ?? []).some(isOneTimeSlot));
+  let coursesById = {};
+  const entsBy = new Map();
+  if (maybe.length) {
+    try {
+      const ownerIds = [...new Set(maybe.map((t) => t.customerId))];
+      const [courses, ...ents] = await Promise.all([
+        config.listAll('courses', { includeDeleted: true }),
+        ...ownerIds.map((id) => customersData.listEntitlements(id)),
+      ]);
+      coursesById = byId(courses);
+      ownerIds.forEach((id, i) => entsBy.set(id, ents[i]));
+    } catch {
+      return;
+    }
+  }
+  for (const t of mine) {
+    if (!followupGoesToCalendar(who.get(t.customerId) ?? null, exams.get(t.visitId) ?? null, entsBy.get(t.customerId) ?? [], coursesById)) continue;
     for (const btn of root.querySelectorAll(`[data-book-followup="${t.id}"], [data-who-book="${t.id}"]`)) {
       btn.textContent = '去日曆排';
       btn.dataset.guest = 'true';
@@ -2709,12 +2731,17 @@ async function bookFollowup(ctx, taskId) {
   const t = ctx.open.find((x) => x.id === taskId);
   if (!t?.customerId) return;
 
-  // 一次性客人不在壓表上（ADR-0172，過目 5）：帶她去日曆新增、他已經選好（`leaveFor()`，同日曆長按「去簽療程單」那一套）
-  const owner = await customersData.get(t.customerId).catch(() => null);
-  if (isOneTime(owner)) {
+  // 一次性客人不在壓表上（ADR-0172，過目 5）；**轉成我的客戶之後、接的是一次性那一次的健檢也是**（段五審查 R3：
+  // 還沒加購壓表那一批沒有他，加購了壓表上也沒有配那一次的二返額度）—— 判斷只有 `followupGoesToCalendar()`，換字那一支共用。
+  // 帶她去日曆新增、他已經選好（`leaveFor()`，同日曆長按「去簽療程單」那一套）
+  const toCalendar = async () => {
     await whenSettled();
     leaveFor('calendar/new', { customerId: t.customerId, date: ctx.today });
     go('/calendar');
+  };
+  const owner = await customersData.get(t.customerId).catch(() => null);
+  if (isOneTime(owner)) {
+    await toCalendar();
     return;
   }
 
@@ -2727,6 +2754,11 @@ async function bookFollowup(ctx, taskId) {
     const visits = await visitsData.listByCustomer(t.customerId);
     const exam = visits.find((v) => v.id === t.visitId) ?? null;
     const coursesById = byId(courses);
+
+    if (followupGoesToCalendar(owner, exam, entitlements, coursesById)) {
+      await toCalendar();
+      return;
+    }
 
     for (const pair of pairsOf(entitlements, coursesById)) {
       if (!pair.followup || !exam) continue;

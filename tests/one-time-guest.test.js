@@ -315,7 +315,7 @@ describe('validateVisit：一次性的段只放過那一種形狀', () => {
   test('一次性又扣了額度 → 擋，講額度', () => {
     const ents = [{ id: 'ent-exam', type: 'single', label: '8萬健檢', courseId: 'course-checkup', totalQty: 1 }];
     const errs = errorsOf(oneTimeSlot({ entitlementId: 'ent-exam' }), { entitlements: ents });
-    assert.ok(errs.some((e) => /一次性.*不扣任何次數.*額度/.test(e)), errs.join('\n'));
+    assert.ok(errs.some((e) => /一次性客人時記的.*不扣次數.*取消這一段、另約一段/.test(e)), errs.join('\n'));
   });
 
   test('一次性又是送的／體驗 → 擋，講送的或體驗', () => {

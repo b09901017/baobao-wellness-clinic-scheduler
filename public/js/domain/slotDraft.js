@@ -151,7 +151,8 @@ export function slotFromPicks(picks, ctx) {
 
   const ivProduct = course.requiresIvProduct ? (ivProducts.find((p) => p.id === ivProductId) ?? null) : null;
   // **接在一次性健檢上的 n返 也標一次性**（ADR-0172，03）：那一串是一次性那一次的 —— 轉成我的客戶之後按「＋ n返」接那一次也是。
-  // 三個入口（來訪編輯器、壓表、拍 Abovee）都經過這裡，不各判一次；`validateVisit()` 擋接一次性健檢卻沒標的
+  // 壓表與拍 Abovee 經過這裡；來訪編輯器的 n返 那一條自己組時段（`readNthSlot()`），在那裡問同一支 `isOneTimeExamVisit()`。
+  // `validateVisit()` 擋接一次性健檢卻沒標的（段五審查 R12）
   const nthOnGuestExam = nthPath && isOneTimeExamVisit(visits.find((v) => v.id === followupForVisitId) ?? null, entitlements, coursesById);
   const begins = NEW_SLOT_STATUSES.includes(status) ? status : INITIAL_STATUS;
 

@@ -27,7 +27,7 @@ import { shortDate } from '../../domain/dates.js';
 import { clinicalTerms, partnerNames } from '../../domain/masterData.js';
 import {
   addOnChanges, addOnTarget, blockersOf, detachPhoto, groupOrderForms, mergeTranscripts,
-  orderDraftFrom, removePhoto, repeatedPhotos, repeatSay, sameNameCustomers, summaryOf,
+  orderDraftFrom, removePhoto, repeatedPhotos, repeatSay, sameNameCustomers, guestSameNameSay, summaryOf,
 } from '../../domain/orderForm.js';
 import { icon } from '../icons.js';
 import { pushLayer } from '../nav.js';
@@ -237,11 +237,14 @@ export function openOrderConfirm({ photos, release, master, existing, entsBy = {
     if (!name) return `<span class="ocard__missing">認不出名字</span>${seenChip(c.seen.name, { photo })}`;
 
     const contact = target ? null : rules.fieldWarnings(contactOf(c.draft), known).contact;
+    // 同名的是一次性客人：不給加購到他（`sameNameCustomers()` 不收），講去名字卡轉成我的客戶（R1）
+    const guest = target ? null : guestSameNameSay(name, known);
     const main = `
       <span class="ocard__line">
         <span class="ocard__main ocard__name">${esc(name)}</span>
         ${seenChip(c.seen.name, { photo })}
         ${contact ? tip(contact, { kind: 'warn' }) : ''}
+        ${guest ? tip(guest, { kind: 'warn' }) : ''}
       </span>`;
     if (c.state === 'done') return main;
 

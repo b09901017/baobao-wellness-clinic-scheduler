@@ -71,7 +71,7 @@ export function inCustomerList(customer, list = 'active') {
  * 新增客戶打到一次性客人的名字時那一句（spec 第 6 題）。**不放連結**：存檔前那一道（`confirmReview()`）只收字串，
  * 所以句子自己指路。
  */
-export const GUEST_SAME_NAME = '有一位同名的一次性客人 —— 要把他轉成妳的客戶，去客戶清單最底下「看一次性客人」點他、按「轉成我的客戶」';
+export const GUEST_SAME_NAME = '有一位同名的一次性客人 —— 要把他轉成你的客戶，去客戶清單最底下「看一次性客人」點他、按「轉成我的客戶」';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -98,6 +98,19 @@ const isBlank = (v) => v == null || String(v).trim() === '';
  * **「列誰」不在這一支裡**（停用的要不要列、沒打字時列不列，每一個框各有各的道理）。
  */
 export const nameHas = (name, query) => normalizeAlias(name).includes(normalizeAlias(query));
+
+/**
+ * 日曆新增「要幫誰排？」底下要不要畫「＋ 新增一次性客人『X』」（ADR-0172 第 4 題、段五審查 R8）：
+ * 打了字、**列出來的沒有一位名字跟打的字一模一樣**（同 `nameHas()` 的比法：空白、全形半形不算）。
+ * 「找不到這個名字」，不是「找不到任何人」—— 一次性客人叫王小、清單上有王小明時，打「王小」照樣給得到那一顆。
+ *
+ * @param {string} query 她打的字
+ * @param {object[]} shown 列出來的那幾位
+ */
+export function offersNewGuest(query, shown = []) {
+  const q = normalizeAlias(query);
+  return Boolean(q) && !(shown ?? []).some((c) => normalizeAlias(c?.name) === q);
+}
 
 /**
  * 客戶清單的搜尋也找病歷號（2026-10-19，ADR-0160）：打幾個數字、這位的病歷號含著那幾個數字就算。

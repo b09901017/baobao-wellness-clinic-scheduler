@@ -44,6 +44,7 @@
 import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
 // 一次性客人的 n返 接他的一次性健檢（ADR-0172）：找健檢的那兩支吃投影過的那一份。n返 自己**不填**那一對的 id
 import { withOneTimeChain, isOneTimeEntitlementId } from './oneTimeChain.js';
+import { isOneTime } from './masterData.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -190,6 +191,24 @@ export function isOneTimeExamVisit(examVisit, entitlements = [], coursesById = {
     if (followupCourseIdOf(coursesById[byId.get(slot.entitlementId)?.courseId])) return isOneTimeEntitlementId(slot.entitlementId);
   }
   return false;
+}
+
+/**
+ * 「約二返」那一張的按鈕帶她去哪裡排（ADR-0172、段五審查 R3）：**日曆**（`true`）或壓表（`false`）。
+ *
+ * - 還是一次性客人 → 日曆（他不在壓表上，過目 5）
+ * - 轉成我的客戶了、但接的那一次是他當一次性客人時的健檢（`isOneTimeExamVisit()`）→ 也是日曆：
+ *   還沒加購的人壓表那一批沒有他；加購了，壓表上也沒有配那一次的真的二返額度 —— 日曆新增有「二返（一次性那一次）」
+ * - 其餘照舊壓表
+ *
+ * 按鈕上的字與按下去走哪一條共用這一支（`home.js`），兩邊才講同一種話。
+ *
+ * @param {object|null} customer 那一位
+ * @param {object|null} examVisit 待辦接的那一次健檢的來訪
+ */
+export function followupGoesToCalendar(customer, examVisit, entitlements = [], coursesById = {}) {
+  if (isOneTime(customer)) return true;
+  return isOneTimeExamVisit(examVisit, entitlements, coursesById);
 }
 
 // ---------- 某一次健檢底下有哪幾返 ----------

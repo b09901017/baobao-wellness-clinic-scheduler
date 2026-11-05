@@ -91,7 +91,7 @@ describe('入口接對了沒（掃原始碼）', () => {
     const fn = body(editor, 'function blankVisit(');
     assert.match(fn, /const guest = isOneTime\(customer\)/);
     assert.match(fn, /const free = first \|\| guest \? null : freeCourseOf\(all\)/);
-    assert.match(body(editor, 'function withNewSlot('), /entitlements\[0\] \|\| guest \? null : freeCourseOf\(all\)/);
+    assert.match(body(editor, 'function withNewSlot('), /const free = first \|\| guest \? null : freeCourseOf\(all\)/);
   });
 
   test('來訪編輯器：一次性客人的那一排是 guestOptions()、一次性的段組時段走 slotFromPicks({ oneTime: true })', () => {

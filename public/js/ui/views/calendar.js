@@ -28,7 +28,7 @@ import * as notesData from '../../data/notes.js';
 import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
-import { nameHas, isOneTime, oneTimeCustomer } from '../../domain/customers.js';
+import { nameHas, isOneTime, oneTimeCustomer, offersNewGuest } from '../../domain/customers.js';
 import { mountGuestForm } from '../components/guestForm.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
@@ -1897,7 +1897,12 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
           .filter((c) => nameHas(c.name, q))
           .slice(0, 40);
 
-        // 打了字、一位都找不到 → 「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（名字帶好）→ 接著排
+        // 打了字、**列出來的沒有一位名字一模一樣**（`offersNewGuest()`，段五審查 R8：打「王小」列出王小明時也給）→
+        // 「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（名字帶好）→ 接著排
+        const newGuestBtn = offersNewGuest(q, rows)
+          ? `<p style="padding: var(--space-2) var(--space-3); margin: 0">
+               <button class="btn btn--sm" type="button" data-new-guest>＋ 新增一次性客人「${esc(q)}」</button></p>`
+          : '';
         box.innerHTML = rows.length
           ? rows.map((c) => `
               <button class="grouprow" type="button" data-pick="${esc(c.id)}">
@@ -1907,10 +1912,8 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
                     ? `<span class="grouprow__note">${esc((c.flags ?? []).join('・'))}</span>` : ''}
                 </span>
                 ${icon('right', { size: 16 })}
-              </button>`).join('')
-          : `<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>
-             ${q ? `<p style="padding: 0 var(--space-3); margin: 0">
-               <button class="btn btn--sm" type="button" data-new-guest>＋ 新增一次性客人「${esc(q)}」</button></p>` : ''}`;
+              </button>`).join('') + newGuestBtn
+          : `<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>${newGuestBtn}`;
 
         box.querySelector('[data-new-guest]')?.addEventListener('click', () =>
           newGuest(el, data, sheet, { name: q, date, backDate, customers }));
@@ -1950,8 +1953,9 @@ function newGuest(el, data, sheet, { name, date, backDate, customers }) {
       try {
         const id = await toast.withSaveState(
           () => customersData.createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] }),
-          // 連點兩下就是兩張同名的名字卡
-          { success: '已建立名字卡', key: 'customer:create-guest' },
+          // 連點兩下就是兩張同名的名字卡。**沒有復原**（段五審查 R4，同拍 Abovee 的 `createGuest()`）：
+          // 接著排的那一張不跟著收，復原之後存得下一段指著刪掉的客戶 —— 建錯了去名字卡那一頁刪
+          { success: '已建立名字卡', key: 'customer:create-guest', undoable: false },
         );
         mountEditor(el, data, sheet, { kind: 'visit', customerId: id, date, backDate });
       } catch {

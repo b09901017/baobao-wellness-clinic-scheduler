@@ -577,7 +577,7 @@ function paintGuestEdit(ctx) {
  */
 async function convertToMine(ctx) {
   const ok = await confirmAction({
-    title: `把「${ctx.customer.name}」轉成妳的客戶？`,
+    title: `把「${ctx.customer.name}」轉成你的客戶？`,
     consequences: toMyCustomerConsequences({
       visits: ctx.visits,
       entitlements: ctx.entitlements,
@@ -588,7 +588,9 @@ async function convertToMine(ctx) {
   if (!ok) return;
   try {
     await toast.withSaveState(() => data.update(ctx.id, rules.toMyCustomer()), {
-      success: '已轉成妳的客戶', key: `customer:to-mine:${ctx.id}`,
+      success: '已轉成你的客戶', key: `customer:to-mine:${ctx.id}`,
+      // 確認框講「轉不回去」：復原會讓那一句變成假話（段五審查 R7，spec 第 6 題不做轉回去）
+      undoable: false,
     });
     reload(ctx);
   } catch {

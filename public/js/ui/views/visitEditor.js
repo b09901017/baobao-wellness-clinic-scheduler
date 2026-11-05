@@ -228,8 +228,9 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
   //
   // **一次性客人不走那個預設**（ADR-0172，issue 06）：他的段不是送的／體驗（`validateVisit()` 擋），
   // 第一段是一段還沒選課的一次性的段 —— 「做什麼」那一排列全部的課，她按一門
+  // **有額度也不拿來當預設**（段五審查 R2）：一次性客人的段一律標一次性，`validateVisit()` 擋扣著真的額度的
   const guest = isOneTime(customer);
-  const first = entitlements[0];
+  const first = guest ? undefined : entitlements[0];
   const free = first || guest ? null : freeCourseOf(all);
   if (first || free || guest) visit.slots.push(blankSlot(first, all, settings, '09:00', free, { guest }));
   return visit;
@@ -329,8 +330,10 @@ function withNewSlot(visit, entitlements, all, settings, guest = false) {
   const last = slots[slots.length - 1];
   const gap = settings.slotGapMin ?? DEFAULT_GAP_MIN;
   const startsAt = last && isValidTime(last.endsAt) ? nextStart(last.endsAt, gap) : '09:00';
-  const free = entitlements[0] || guest ? null : freeCourseOf(all);
-  return { ...visit, slots: [...slots, blankSlot(entitlements[0], all, settings, startsAt, free, { guest })] };
+  // 一次性客人不拿額度當預設（段五審查 R2，同 `blankVisit()`）
+  const first = guest ? undefined : entitlements[0];
+  const free = first || guest ? null : freeCourseOf(all);
+  return { ...visit, slots: [...slots, blankSlot(first, all, settings, startsAt, free, { guest })] };
 }
 
 // ---------- 畫面 ----------

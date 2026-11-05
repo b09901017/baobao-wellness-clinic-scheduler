@@ -512,6 +512,13 @@ describe('資料健檢：「EECP體驗」那一門還在', () => {
     assert.ok(!found.some((f) => f.fix?.kind === 'retireTrialCourse'), '那一門不刪');
   });
 
+  test('一次性的段（ADR-0172）→ 只換課程與時長，不寫成體驗（段五審查 R11）', () => {
+    const v = { id: 'v1', customerId: 'c-a', customerName: '客戶A', date: '2026-10-20', status: 'confirmed',
+      slots: [trialSlot({ oneTime: true, giftKind: null })] };
+    const [slot] = rows(snap({ visits: [v] }))[0].fix.visits[0].slots;
+    assert.deepEqual([slot.courseId, slot.giftKind, slot.oneTime, slot.minutes], ['course-eecp', null, true, 20]);
+  });
+
   test('一段都沒有、也沒有額度 → 一列，只刪那一門', () => {
     const found = rows(snap());
     assert.equal(found.length, 1);

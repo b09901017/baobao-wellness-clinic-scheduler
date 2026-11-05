@@ -1751,8 +1751,10 @@ function visitErrors(visit, {
     if (slot.giftKind != null && !marked && !notMine && !guest) {
       errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
     }
-    // 一次性客人身上一段沒有標記、也沒有額度：程式的錯（組時段漏了那一格），不該發生 —— 擋下來，不要讓它被當成一般的段存進去
-    if (guestCustomer && !guest && !slot.entitlementId) {
+    // 一次性客人身上一段沒有標記：程式的錯（組時段漏了那一格），不該發生 —— 擋下來，不要讓它被當成一般的段存進去。
+    // **扣著真的額度也擋**（段五審查 R2）：哪天有人替他加了一筆額度，扣著它的段存進去，次數在哪一份名單上都看不到。
+    // 轉成我的客戶之後 `isOneTime()` 是 false，不會誤擋
+    if (guestCustomer && !guest) {
       errors.push(`${at}：一次性客人的段要標成一次性`);
     }
     if (notMine) {
@@ -1961,8 +1963,10 @@ function examNotMineErrors(slot, courses = []) {
  */
 function oneTimeErrors(slot, courses = []) {
   const errors = [];
-  if (slot.entitlementId) errors.push('一次性的段不扣任何次數，不可以同時指定額度');
-  if (slot.giftKind != null) errors.push('一次性的段不是送的，也不是體驗');
+  // 會走到這兩句的多半是轉成我的客戶之後、她改以前的段按了真的額度或送的（她第 6 題：以前的照舊算一次性）——
+  // 擋法不變，句子講怎麼辦（段五審查 R5）
+  if (slot.entitlementId) errors.push('這一段是當一次性客人時記的，不扣次數 —— 要扣次數就取消這一段、另約一段');
+  if (slot.giftKind != null) errors.push('這一段是當一次性客人時記的，不是送的也不是體驗 —— 要改就取消這一段、另約一段');
   if (!isNthSlot(slot) && slot.courseId && isFollowupCourse(slot.courseId, courses) && !slot.followupForVisitId) {
     errors.push(`一次性的二返要接一次健檢，或按「${EXAM_NOT_MINE_LABEL}」`);
   }
