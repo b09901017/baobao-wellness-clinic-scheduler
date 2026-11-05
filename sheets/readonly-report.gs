@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 2;
+var LAYOUT_VERSION = 3;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -109,6 +109,40 @@ var COLOR = {
 
 // ---------- 收件口 ----------
 
+// ---------- 每一步花幾秒（.scratch/sheet-push-gaps/issues/05）----------
+//
+// 寫進執行紀錄（Apps Script →「執行作業」→ 點那一次 → 記錄）一行：`計時 {"ms":{…},"drawn":N,"kept":M}`。
+// 重畫比預估的慢（寫少了四分之三、時間只少三分之一），要知道慢在哪一步才決定下一步。
+// **每一步結束時 `SpreadsheetApp.flush()`**：Google 會把寫入排著、等到下一次讀才做，不 flush 的話時間全算到後面那一步。
+// 代價是多幾次 flush，總時間會比不量的時候慢一點點。
+
+/** 執行紀錄裡一定有的那幾步（沒走到的記 0）。 */
+var CLOCK_STEPS = ['總共', '等鎖', '讀', '原始資料', '清空', '排版', '寫值', '格式', '合併', '框線欄寬', '上鎖', '指紋', '改時間', '刪舊頁'];
+var CLOCK = null;
+
+function clockStart() {
+  CLOCK = { start: Date.now(), ms: {}, drawn: 0, kept: 0 };
+  for (var i = 0; i < CLOCK_STEPS.length; i++) CLOCK.ms[CLOCK_STEPS[i]] = 0;
+  return CLOCK.start;
+}
+
+/** 從 `since` 到現在算進 `step`；`flush` 為真先把排著的寫入做完。回現在（給下一步當起點）。 */
+function clockAdd(step, since, flush) {
+  if (flush) SpreadsheetApp.flush();
+  var now = Date.now();
+  if (CLOCK) CLOCK.ms[step] = (CLOCK.ms[step] || 0) + (now - since);
+  return now;
+}
+
+function clockLog(extra) {
+  if (!CLOCK) return;
+  CLOCK.ms['總共'] = Date.now() - CLOCK.start;
+  var out = { ms: CLOCK.ms, drawn: CLOCK.drawn, kept: CLOCK.kept };
+  for (var k in (extra || {})) out[k] = extra[k];
+  console.log('計時 ' + JSON.stringify(out));
+  CLOCK = null;
+}
+
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
@@ -128,15 +162,24 @@ function doPost(e) {
 
     // 一次只讓一個請求進來改表。app 端已經擋過一次，但網頁應用程式的網址
     // 是公開的，這裡再擋一次比較踏實 —— 兩份同時寫會把表寫成一半一半。
+    var lockFrom = clockStart();
     var lock = LockService.getScriptLock();
-    if (!lock.tryLock(30000)) return reply({ ok: false, error: '另一份同步還在進行中' });
+    if (!lock.tryLock(30000)) {
+      clockLog({ busy: true });
+      return reply({ ok: false, error: '另一份同步還在進行中' });
+    }
+    clockAdd('等鎖', lockFrom, false);
 
+    var staleSkip = false;
     try {
       // **拿到鎖之後才比、才記**（ADR-0174）：比較舊的那一包不畫 —— 整份重畫（force）也一樣
       var props = PropertiesService.getDocumentProperties();
       var stored = props.getProperties();
       var dataAt = requestDataAt(body);
-      if (isStaleBundle(dataAt, stored[LAST_DATA_AT])) return reply({ ok: true, stale: true });
+      if (isStaleBundle(dataAt, stored[LAST_DATA_AT])) {
+        staleSkip = true;
+        return reply({ ok: true, stale: true });
+      }
       var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true, stored);
       // 畫完才記（畫到一半逾時不記）。沒帶時間的（舊版 app）照畫、不記
       if (dataAt !== null) props.setProperty(LAST_DATA_AT, String(dataAt));
@@ -149,6 +192,7 @@ function doPost(e) {
         skipped: result.skipped,
       });
     } finally {
+      clockLog(staleSkip ? { stale: true } : null);
       lock.releaseLock();
     }
   } catch (err) {
@@ -202,6 +246,7 @@ var PROTECT_NOTE = '由 app 產生，請勿手動編輯';
  * 大小、鎖、指紋），之後整次推送只看這一份、寫的時候跟著改；寫完又讀只剩每畫好一頁上鎖時問一次「誰能改」。
  */
 function render(ss, bundle, force, stored) {
+  var t = Date.now();
   var props = PropertiesService.getDocumentProperties();
 
   // ---- 先讀完 ----
@@ -235,6 +280,8 @@ function render(ss, bundle, force, stored) {
     if (!inBundle[old.name] && old.name !== DATA_SHEET && isOurs(old.a1)) protectionsOf(old);
   }
 
+  t = clockAdd('讀', t, false);
+
   // ---- 再寫 ----
   stashRawData(ss, bundle, book, data0);
   // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
@@ -246,26 +293,37 @@ function render(ss, bundle, force, stored) {
     protectSheet(dataEntry.sheet, me, dataLock ? dataLock.existing : []);
     dataEntry.protections = null;
   }
+  t = clockAdd('原始資料', t, true);
 
   var made = 0;
   var kept = 0;
   var skipped = [];
   var stamp = stampLine(bundle);
-  for (var i = 0; i < bundle.sheets.length; i++) {
-    var data = bundle.sheets[i];
+  // 沒變的那幾頁先一起改時間（只寫、各在各的分頁，跟重畫的那幾頁誰先誰後畫出來都一樣）—— 才量得出「改時間」花多久
+  var drawList = [];
+  for (var k0 = 0; k0 < bundle.sheets.length; k0++) {
+    var kName = sheetNameFor(bundle.sheets[k0].name);
+    var kEntry = book.byName[kName];
+    if (planFor(kEntry, stored, kName, markOf(bundle.sheets[k0]), force) === 'keep') {
+      kEntry.sheet.getRange(3, 1).setValue(stamp);
+      keep[kName] = true;
+      kept += 1;
+    } else {
+      drawList.push(bundle.sheets[k0]);
+    }
+  }
+  t = clockAdd('改時間', t, true);
+
+  for (var i = 0; i < drawList.length; i++) {
+    var data = drawList[i];
     var name = sheetNameFor(data.name);
     var mark = markOf(data);
-    var entry = book.byName[name];
-    if (planFor(entry, stored, name, mark, force) === 'keep') {
-      entry.sheet.getRange(3, 1).setValue(stamp);
-      keep[name] = true;
-      kept += 1;
-      continue;
-    }
     // 先拿掉舊的指紋：畫到一半逾時的話，下一次不會把半張表當成畫好了
     props.deleteProperty(FP_PREFIX + name);
     delete stored[FP_PREFIX + name];
+    t = clockAdd('指紋', t, false);
     var written = renderCustomer(ss, data, bundle, book);
+    t = Date.now();
     if (written === null) {
       skipped.push(data.name);
       continue;
@@ -277,16 +335,23 @@ function render(ss, bundle, force, stored) {
     drawn.protections = null;
     drawn.a1 = bundle.notice;
     drawn.lastRow = null;
+    t = clockAdd('上鎖', t, true);
     if (mark) {
       props.setProperty(FP_PREFIX + written, mark);
       stored[FP_PREFIX + written] = mark;
     }
+    t = clockAdd('指紋', t, false);
     keep[written] = true;
     made += 1;
   }
 
   removeStaleSheets(ss, keep, book);
   forgetStale(props, keep, stored);
+  clockAdd('刪舊頁', t, true);
+  if (CLOCK) {
+    CLOCK.drawn = made;
+    CLOCK.kept = kept;
+  }
   return { sheets: made, kept: kept, skipped: skipped };
 }
 
@@ -427,6 +492,7 @@ function stashRawData(ss, bundle, book, entry) {
  * 回畫好的分頁名；那一頁是她自己的（認不出來）→ null，這一位這次不畫。
  */
 function renderCustomer(ss, data, bundle, book) {
+  var t = Date.now();
   var name = sheetNameFor(data.name);
   var entry = resetSheet(ss, name, book);
   if (!entry) return null;   // 這張是她自己的，不動它
@@ -446,6 +512,7 @@ function renderCustomer(ss, data, bundle, book) {
       + data.tasks.todo.length + data.tasks.finished.length + 20,
     width,
   );
+  t = clockAdd('清空', t, true);
   noticeRow(sheet, width, bundle);
 
   // 第 2 列：名字大字，右邊接購買名稱與合計
@@ -540,6 +607,7 @@ function renderCustomer(ss, data, bundle, book) {
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
+  clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
   return name;
 }
@@ -909,6 +977,18 @@ CanvasRange.prototype.setBorder = function () {
   return this;
 };
 
+/** 草稿紙才有的：只在還沒設過字級的格子補上（`finish()` 用，issues/05）。 */
+CanvasRange.prototype.fillFontSize = function (value) {
+  var grid = this.canvas.formats.fontSize;
+  for (var r = 0; r < this.rows; r++) {
+    for (var c = 0; c < this.cols; c++) {
+      var row = grid[this.row + r];
+      if (!row || row[this.col + c] === undefined) this.canvas.put(grid, this.row + r, this.col + c, value);
+    }
+  }
+  return this;
+};
+
 CANVAS_FORMATS.forEach(function (pair) {
   var key = pair[1];
   CanvasRange.prototype[pair[0]] = function (value) {
@@ -926,6 +1006,7 @@ CANVAS_FORMATS.forEach(function (pair) {
  * 凍結最後（凍結線不能穿過合併儲存格，合併要先在）。
  */
 function paint(sheet, canvas) {
+  var t = Date.now();
   var rows = 0;
   var cols = 0;
   for (var r = 1; r < canvas.values.length; r++) {
@@ -943,6 +1024,7 @@ function paint(sheet, canvas) {
     }
     sheet.getRange(1, 1, rows, cols).setValues(grid);
   }
+  t = clockAdd('寫值', t, true);
 
   for (var f = 0; f < CANVAS_FORMATS.length; f++) {
     var groups = rectsByValue(canvas.formats[CANVAS_FORMATS[f][1]]);
@@ -951,7 +1033,10 @@ function paint(sheet, canvas) {
     }
   }
 
+  t = clockAdd('格式', t, true);
+
   mergeAll(sheet, canvas.merges);
+  t = clockAdd('合併', t, true);
 
   for (var b = 0; b < canvas.borders.length; b++) {
     var one = canvas.borders[b];
@@ -971,6 +1056,7 @@ function paint(sheet, canvas) {
     sheet.setRowHeights(canvas.heights[h][0], canvas.heights[h][1], canvas.heights[h][2]);
   }
   if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
+  clockAdd('框線欄寬', t, true);
 }
 
 /**
@@ -1084,14 +1170,14 @@ function banding(sheet, top, rowCount, width) {
 function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
   var width = fullWidth || matrixWidth;
   var all = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), headerRow), width);
-  all.setFontFamily(STYLE.font).setFontSize(STYLE.bodySize);
+  // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的 14 號、第 3 列與註記列的 9 號都蓋掉了
+  all.setFontFamily(STYLE.font).fillFontSize(STYLE.bodySize);
   if (rowCount) {
     sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
       .setBorder(true, true, true, true, true, true, COLOR.border,
         SpreadsheetApp.BorderStyle.SOLID);
   }
   sheet.setRowHeights(1, Math.max(sheet.getLastRow(), 1), STYLE.rowHeight);
-  sheet.getRange(1, 1, 1, width).setFontSize(STYLE.bodySize);
 }
 
 /**
