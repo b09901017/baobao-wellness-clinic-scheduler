@@ -81,7 +81,8 @@ function main() {
     if (sheetSyncWired) return;
     sheetSyncWired = true;
     // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
-    // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡沒有寫入要推
+    // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡存的那一筆沒有人聽，
+    // 由它掛上去之後 10 秒的那一次推送補上（那一次讀全部，`sheetSync.wire()`，.scratch/sheet-push-gaps/issues/01）
     sheetSync.wire();
   };
 

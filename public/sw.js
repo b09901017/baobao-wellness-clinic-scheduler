@@ -18,7 +18,7 @@
 // **改了 `public/` 底下的檔案就把 VERSION 加一**，再跑 `npm run shell:snapshot`。
 // 忘了加的話（以前是慢一輪）現在是**永遠停在舊版** —— `tests/shell-version.test.js` 擋著。
 
-const VERSION = 'v230';
+const VERSION = 'v281';
 const CACHE = `shell-${VERSION}`;
 const EXTERNAL = 'external-v1';
 
@@ -182,6 +182,7 @@ const SHELL = [
   '/js/data/legacyImport.js',
   '/js/ui/views/mergeImport.js',
   '/js/data/sheetSync.js',
+  '/js/domain/sheetPushTiming.js',
   '/js/domain/availabilityForm.js',
   '/js/data/formInvites.js',
   '/js/data/formResponses.js',
