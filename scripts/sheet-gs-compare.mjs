@@ -4,7 +4,8 @@
 // **只印數字**（哪一種不一樣、幾格）—— 那一包有真名。
 //
 //   git show 3dd2ee12:sheets/readonly-report.gs > old.gs
-//   node scripts/sheet-gs-compare.mjs old.gs <bundle.json>
+//   node scripts/sheet-gs-compare.mjs old.gs <bundle.json> [--api]
+//   `--api`：新的那一份開著假的 Google Sheets API（issues/07），舊的照舊不開 —— 比「開了 API 畫出來一樣」
 //
 // 排版版號（LAYOUT_VERSION）兩份不一樣是預期的：比文件屬性時把指紋後面那一段版號拿掉。
 import { readFileSync } from 'node:fs';
@@ -12,13 +13,14 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const repo = resolve(import.meta.dirname, '..');
-const [oldPath, bundlePath] = process.argv.slice(2);
+const [oldPath, bundlePath] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const API = process.argv.includes('--api') ? 'on' : 'off';
 const { loadAppsScript, snapshotOf } = await import(pathToFileURL(resolve(repo, 'tests/helpers/appsScriptStub.js')).href);
 const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
 
 /** 同一串推送：第一次（全部畫）→ 都沒變 → 改一頁的指紋（那一頁重畫）→ 整份重畫。每一步之後拍一張。 */
-function shots(source) {
-  const app = loadAppsScript({ source });
+function shots(source, sheetsApi = 'off') {
+  const app = loadAppsScript({ source, sheetsApi });
   const out = [];
   const step = (body) => {
     const reply = app.post(body);
@@ -35,7 +37,7 @@ function shots(source) {
 }
 
 const before = shots(readFileSync(oldPath, 'utf8'));
-const after = shots(null);
+const after = shots(null, API);
 let bad = 0;
 before.forEach((b, i) => {
   const a = after[i];
