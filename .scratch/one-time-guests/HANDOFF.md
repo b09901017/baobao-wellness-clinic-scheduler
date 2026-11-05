@@ -39,7 +39,7 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 - **公開 repo**：真名一律寫客戶A，公司名不寫（寫「一次性員工券」）；commit 訊息、PR 內文推之前自己看一眼
 - **真名掃描要真的有跑**（11/5 段一之後補的）：worktree 只帶得到被追蹤的檔案，`.local/` 本來不在這裡 → `tests/no-secrets.test.js` 一直是 skipped。
   現在 worktree 根目錄有一個目錄連結 `.local` → 主資料夾的 `.local`（`git check-ignore -v .local` 擋得住）。**推之前跑 `node --test tests/no-secrets.test.js`，要 skipped 0**；
-  commit 訊息另外過一次過濾網（`git log origin/develop..HEAD --format=%B` 經 `node .local/references/redact.mjs`，比前後一不一樣、只印「一不一樣」）。
+  commit 訊息另外過一次過濾網（`git log origin/develop..HEAD --format=%B` 經主資料夾那一份過濾網 `node "$(git rev-parse --git-common-dir)/../.local/references/redact.mjs"`（段六拆掉連結之後 `.local/…` 這個相對路徑找不到檔 —— 輸出會整個不見，不要因此拿掉過濾網），比前後一不一樣、只印「一不一樣」；PR 內文也過一次）。
   **不要刪那個連結、不要往裡面寫**（那是她的私人 repo）；收 worktree 時 `git worktree remove` 會把連結留在原地，要另外刪（只刪連結，不會刪到主資料夾那一份）
   —— **段五：這一條跟 `docs/agents/lessons.md` 第十六節衝突**（同一天晚 5 分鐘進 develop：有些刪 worktree 的方式會順著連結刪進主資料夾的 `.local`；
   `tests/helpers/localDir.js` 已經會自己去主資料夾找，連結不需要了）。**段六拆掉它**：`cmd /c rmdir .local`（只拆連結），再跑 `node --test tests/no-secrets.test.js` 要照樣 skipped 0（REVIEW R14）。收 worktree 之前一定要先拆
