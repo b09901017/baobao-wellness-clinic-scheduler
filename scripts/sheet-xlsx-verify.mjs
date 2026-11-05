@@ -46,9 +46,13 @@ try {
   dump = JSON.parse(execFileSync(python, ['-I', resolve(repo, 'scripts/lib/xlsx-dump.py'), resolve(xlsx)], {
     maxBuffer: 512 * 1024 * 1024,
     encoding: 'utf8',
+    // stderr 也收下來（預設會直接印到畫面上：python 的錯誤訊息裡有檔案路徑）
+    stdio: ['ignore', 'pipe', 'pipe'],
   }));
 } catch (err) {
-  console.error(`讀不出那份 .xlsx（要 python ＋ openpyxl）：${String(err.stderr || err.message).split('\n')[0]}`);
+  // 只印例外的種類：訊息與指令裡有檔案的路徑（檔名是試算表的名字）
+  const last = String(err.stderr || '').trim().split('\n').pop() || String(err.code || 'error');
+  console.error(`讀不出那份 .xlsx（要 python ＋ openpyxl）：${last.split(':')[0]}`);
   process.exit(2);
 }
 
@@ -68,9 +72,11 @@ const { loadAppsScript, snapshotOf } = await import(pathToFileURL(resolve(repo, 
 const source = flag('--gs') ? readFileSync(flag('--gs'), 'utf8') : null;
 const app = loadAppsScript({ source });
 const reply = app.post({ token: 'secret', bundle });
-// 回報與錯誤裡可能有分頁名（客戶的名字）：只印數字與「哪一種錯」
-const names = (bundle.sheets || []).map((s) => s.name).filter(Boolean);
-const scrub = (text) => names.reduce((t, n) => t.split(n).join('（某一頁）'), String(text));
+// 回報與錯誤裡可能有分頁名（客戶的名字）：只印數字與「哪一種錯」。
+// 分頁名是 `.gs` 的 `sheetNameFor()` 換過的（斜線之類換成減號、最多 90 個字），原名與換過的都拿掉；替身的錯誤把分頁名包在「」裡，那一段整個拿掉
+const tabName = (name) => String(name || '').replace(/[\\/:*?[\]']/g, '-').trim().slice(0, 90);
+const names = (bundle.sheets || []).flatMap((s) => [s.name, tabName(s.name)]).filter(Boolean).sort((a, b) => b.length - a.length);
+const scrub = (text) => names.reduce((t, n) => t.split(n).join('（某一頁）'), String(text)).replace(/「[^」]*」/g, '「某一頁」');
 if (!reply.ok) {
   console.error(`替身畫不出來：${scrub(reply.error).slice(0, 200)}`);
   process.exit(1);

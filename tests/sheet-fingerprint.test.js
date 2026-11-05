@@ -228,7 +228,7 @@ test('.gs 的程式碼改了，LAYOUT_VERSION 要跟著加一（然後換掉這�
     .replace(/var LAYOUT_VERSION = \d+;/, '')
     .replace(/\s+/g, ' ');
   const hash = createHash('sha256').update(code).digest('hex').slice(0, 12);
-  assert.deepEqual({ version, hash }, { version: 4, hash: '366f9d6049d6' },
+  assert.deepEqual({ version, hash }, { version: 4, hash: 'aee2a3695f6b' },
     '改了 sheets/readonly-report.gs：畫法變了的話 LAYOUT_VERSION 加一；兩種都把這裡換成新的 version 與 hash');
 });
 

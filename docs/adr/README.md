@@ -32,7 +32,7 @@
 | [0088](./0088-the-day-lives-on-the-read-card.md) 整天的那幾顆離開來訪編輯器，搬到讀取卡片上 | 整支被取代：「改這一天」連同整天的狀態卡與危險區收掉 | [0089](./0089-the-day-is-only-a-heading.md) |
 | [0093](./0093-an-imported-visit-grows-no-tasks.md) 已經發生的那一筆匯進來，一張任務都不長 | 有取消掉的段時，取消類的待辦一出生就勾好（其餘照舊） | [0164](./0164-imported-cancelled-slots-settle-their-cancel-task.md) |
 | [0094](./0094-a-room-holds-how-many.md) 一間診間裝得下幾個人 | 拿點滴8 當「一間裝得下兩位」的那個例子 | [0127](./0127-bed-rooms-are-rooms.md) |
-| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) 那一段的記一句會上試算表 | 「記在當天那一列的下面」—— 改成那一格的備註（右上角小黑三角），矩陣不再夾註記列 | [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) |
+| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) 那一段的記一句會上試算表 | 「記在當天那一列的下面」—— 改成那一格的附註（右上角小黑三角），矩陣不再夾註記列 | [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | 「一次確認整天」與「visitsToClose() 不改」兩句 | [0110](./0110-both-todo-drawers-decide-some-slots.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | issue 14「整筆也要准」的那一層交集 | [0111](./0111-a-no-show-only-goes-back-to-closing.md) |
 | [0104](./0104-many-slots-from-one-photo.md) 照片一次記很多段 —— 確認層就是第一道、存檔前只問一次、直接標成壓完 | 第 2、3、4（壓完）、6 點 —— 拍 Abovee 照片上的狀態為準 | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |

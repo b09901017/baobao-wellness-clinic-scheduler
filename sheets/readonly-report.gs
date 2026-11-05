@@ -695,7 +695,7 @@ function renderCustomer(ss, data, bundle, book) {
 
   // 一筆額度一列。**器材與記一句不再多一列**（2026-11-05，issues/11，ADR-0175）：
   // 「這一天用了哪一台」併進那一格的字（「✓ IN」，格式 4 的 `equipmentNotes`），
-  // 「那一段記了什麼」寫進那一格的備註（右上角小黑三角，格式 5 的 `slotNotes`）—— 資料一個字都沒變，這裡畫的時候併。
+  // 「那一段記了什麼」寫進那一格的附註（Google 的 note，右上角小黑三角，格式 5 的 `slotNotes`）—— 資料一個字都沒變，這裡畫的時候併。
   //
   // **照「做最多的在上面」畫**（她 11/5，issues/10）：`n` 照舊是 `data.rows` 裡原本的位置 —— 兩份註記的 `rowIndex` 指的是它，
   // 所以器材與記一句跟著它那一筆額度走。
@@ -705,11 +705,11 @@ function renderCustomer(ss, data, bundle, book) {
   for (var o = 0; o < order.length; o++) {
     var n = order[o];
     var one = data.rows[n];
-    var used = cellsByDate(equipmentNoteAt(data, n), one.marks.length);
+    var equipmentByDate = cellsByDate(equipmentNoteAt(data, n), one.marks.length);
     var marks = [];
-    for (var m = 0; m < one.marks.length; m++) marks.push(markWithEquipment(one.marks[m], used[m]));
+    for (var m = 0; m < one.marks.length; m++) marks.push(markWithEquipment(one.marks[m], equipmentByDate[m]));
     rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(marks));
-    meta.push({ row: one, said: cellsByDate(noteRowAt(data.slotNotes, n), one.marks.length) });
+    meta.push({ row: one, slotNotesByDate: cellsByDate(noteRowAt(data.slotNotes, n), one.marks.length) });
   }
 
   var top = MATRIX_HEADER_ROW + 1;
@@ -723,9 +723,9 @@ function renderCustomer(ss, data, bundle, book) {
 
     for (var i = 0; i < meta.length; i++) {
       var r = meta[i].row;
-      // 記一句：那一格的備註（全文、換行照留；表外的丟掉 —— `cellsByDate()` 只收得到日期欄以內的）
-      for (var s2 = 0; s2 < meta[i].said.length; s2++) {
-        if (meta[i].said[s2]) sheet.getRange(top + i, COL.FIRST_DATE + s2).setNote(meta[i].said[s2]);
+      // 記一句：那一格的附註（全文、換行照留；表外的丟掉 —— `cellsByDate()` 只收得到日期欄以內的）
+      for (var s2 = 0; s2 < meta[i].slotNotesByDate.length; s2++) {
+        if (meta[i].slotNotesByDate[s2]) sheet.getRange(top + i, COL.FIRST_DATE + s2).setNote(meta[i].slotNotesByDate[s2]);
       }
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
@@ -745,9 +745,9 @@ function renderCustomer(ss, data, bundle, book) {
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
   after = renderFollowupNotes(sheet, data, after, matrixWidth);
-  after = renderPurchases(sheet, data, after, width);
-  after = renderProducts(sheet, data, after, width);
-  after = renderNotes(sheet, data, after + 1, width);
+  after = renderPurchases(sheet, data, after);
+  after = renderProducts(sheet, data, after);
+  after = renderNotes(sheet, data, after + 1);
   renderTasks(sheet, data, after, width);
 
   sheet.setColumnWidth(COL.LABEL, STYLE.labelWidth);
@@ -786,11 +786,11 @@ function rowOrder(rows) {
     if (r.extra === true || typeof r.total !== 'number') extras.push(i);
     else counted.push(i);
   }
-  var used = function (i) {
+  var doneAndBooked = function (i) {
     var r = rows[i];
     return (typeof r.done === 'number' ? r.done : 0) + (typeof r.booked === 'number' ? r.booked : 0);
   };
-  counted.sort(function (a, b) { return used(b) - used(a) || a - b; });
+  counted.sort(function (a, b) { return doneAndBooked(b) - doneAndBooked(a) || a - b; });
   return counted.concat(extras);
 }
 
@@ -878,7 +878,7 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
  * **一筆都沒有就整段不畫** —— 大部分客戶不買，而一個永遠空著的區塊只是在
  * 每次看報表時提醒她那件事不存在。
  */
-function renderProducts(sheet, data, top, width) {
+function renderProducts(sheet, data, top) {
   var rows = data.products || [];
   if (!rows.length) return top;
   var lines = [];
@@ -889,7 +889,7 @@ function renderProducts(sheet, data, top, width) {
     // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
     colours.push(rows[i].done ? null : COLOR.booked);
   }
-  return noteBlock(sheet, top + 1, width, '營養品', lines, colours);
+  return noteBlock(sheet, top + 1, '營養品', lines, colours);
 }
 
 /**
@@ -928,11 +928,11 @@ function thousands(n) {
  *
  * 底下再接來訪紀錄：那天幾點、哪一間、誰做的、用了什麼，舊表從來記不住的東西。
  */
-function renderNotes(sheet, data, top, width) {
+function renderNotes(sheet, data, top) {
   var row = top;
 
-  var said = noteLinesOf(data);
-  row = noteBlock(sheet, row, width, '備註', said.lines, said.colours);
+  var marks = noteLinesOf(data);
+  row = noteBlock(sheet, row, '備註', marks.lines, marks.colours);
 
   // **日期自己一行，底下一段一行、前面是那一段的狀態**（格式 6）。她 2026-09-24：
   // 「第一段會接在日期後面，然後下面的不會，能不能就是第一行是日期，然後換行後在寫每一段，
@@ -963,7 +963,7 @@ function renderNotes(sheet, data, top, width) {
       ].filter(function (x) { return x != null && x !== ''; }).join('　') });
     }
   }
-  var end = noteBlock(sheet, row, width, '來訪紀錄', lines.map(function (l) { return l.text; }));
+  var end = noteBlock(sheet, row, '來訪紀錄', lines.map(function (l) { return l.text; }));
   for (var k = 0; k < lines.length; k++) {
     if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, FROZEN_COLS).setFontWeight('bold');
   }
@@ -1013,11 +1013,11 @@ function logLineCount(data) {
  * 那一行在 app 組好（`purchaseLines()`，跟 app 的「買過什麼」那一頁同一支算），這裡一個字都不組。
  * **一筆都沒有就整段不畫**（同營養品）。
  */
-function renderPurchases(sheet, data, top, width) {
+function renderPurchases(sheet, data, top) {
   var lines = data.purchases || [];
   if (!lines.length) return top;
   // noteBlock 底下留了一列空白，營養品那一區自己會再空一列 —— 退一列，中間只空一列
-  return noteBlock(sheet, top + 1, width, '買過什麼', lines) - 1;
+  return noteBlock(sheet, top + 1, '買過什麼', lines) - 1;
 }
 
 /**
@@ -1078,10 +1078,13 @@ function emptyLine(sheet, row, col) {
 
 /**
  * 一塊：抬頭一列、底下一行一列。**每一列只合併到剩餘那一欄**（`FROZEN_COLS`，凍結線不能穿過合併，issues/09），
- * 長的折行、那一列由 `finish()` 照字數加高。`width` 照舊收（呼叫端不用改），不再拿來合併。
+ * 長的折行、那一列由 `finish()` 照字數加高。
  * `colours`（選填）：每一行的底色（null ＝不上色；營養品沒給完、備註的顏色，issues/12）。
+ *
+ * **每一行都是文字格式**（`'@'`，同待辦的日期）：一則一格之後，看起來像數字、日期、公式的那一則（「0912345678」「5/20」「=…」）
+ * 寫進去的那一刻會被 Google 認成數字（掉前面的 0）、日期、公式（段二審查）。`paint()` 先下數字格式再寫值。
  */
-function noteBlock(sheet, top, width, title, lines, colours) {
+function noteBlock(sheet, top, title, lines, colours) {
   sheet.getRange(top, 1, 1, FROZEN_COLS).merge().setValue(title)
     .setFontWeight('bold').setBackground(COLOR.noteHeader)
     .setVerticalAlignment('middle');
@@ -1094,7 +1097,7 @@ function noteBlock(sheet, top, width, title, lines, colours) {
 
   for (var i = 0; i < lines.length; i++) {
     var line = sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
-      .setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
+      .setNumberFormat('@').setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
     if (colours && colours[i]) line.setBackground(colours[i]);
   }
   return top + lines.length + 2;
@@ -1146,7 +1149,7 @@ function Canvas() {
   this.formats = {};
   for (var i = 0; i < CANVAS_FORMATS.length; i++) this.formats[CANVAS_FORMATS[i][1]] = [];
   this.merges = [];
-  /** 每一格的備註（記一句，issues/11）。notes[列][欄]。 */
+  /** 每一格的附註（Google 的 note；記一句，issues/11）。notes[列][欄]。 */
   this.notes = [];
   this.borders = [];
   this.widths = [];

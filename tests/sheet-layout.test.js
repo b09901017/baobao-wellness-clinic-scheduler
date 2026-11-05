@@ -6,9 +6,11 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { loadAppsScript } from './helpers/appsScriptStub.js';
 import { syncBundle } from '../public/js/domain/sheetReport.js';
+import { MARK_COLORS } from '../public/js/domain/customerMarks.js';
 
 const LEGEND = '✓ 做完　△ 排了還沒做　○ 待確認　✗ 沒來';
 const NOTICE = '⚠ 這張表由系統自動產生，請不要在這裡改資料 —— 改了也不會回到 app';
@@ -228,7 +230,7 @@ describe('10 療程項目照「做最多的在上面」排', () => {
   });
 });
 
-describe('11 器材併進那一格、記一句改成那一格的備註', () => {
+describe('11 器材併進那一格、記一句改成那一格的附註', () => {
   test('擇一池那一列：「✓ IN」「✓2 SIS」，底色照符號；器材那一列不見了', () => {
     const { sheet } = draw();
     const r = rowOf(sheet, '復能-三選一(60)');
@@ -244,7 +246,7 @@ describe('11 器材併進那一格、記一句改成那一格的備註', () => {
     assert.ok(!all.some((v) => v.includes('表外')), '落在表外的照舊丟掉');
   });
 
-  test('記一句在那一格的備註裡：全文、換行照留；同一格又有器材也兩樣都在；跟著它那一筆額度走', () => {
+  test('記一句在那一格的附註裡：全文、換行照留；同一格又有器材也兩樣都在；跟著它那一筆額度走', () => {
     const { sheet } = draw();
     const fn = rowOf(sheet, '復能-三選一(60)');
     assert.equal(sheet.noteAt(`G${fn}`), '14:30 SIS、15:45 ILIB\n第二行');
@@ -311,6 +313,41 @@ describe('12 營養品一筆一行、備註一則一列上色', () => {
     assert.deepEqual([1, 2].map((i) => [sheet.at(`A${top + i}`), sheet.backgrounds.get(`A${top + i}`)]),
       [['住附近', '#EBEAE8'], ['偏好早上', '#EBEAE8']]);
     assert.equal(sheet.at(`A${top + 3}`), '');
+  });
+
+  test('一則一格之後，看起來像數字、日期、公式的那一則照字寫（文字格式）—— 新包、舊包、營養品、買過什麼、來訪紀錄都是', () => {
+    // 段二審查：12 把每一則放進自己一格，Google 寫進去的那一刻把「0912345678」認成數字（掉前面的 0）、「5/20」認成日期、
+    // 「=…」「+…」當公式 —— 同待辦的日期（08）。替身照字存，所以斷言的是那一格的格式
+    const lines = ['0912345678', '5/20', '=1+1'];
+    for (const over of [
+      { noteLines: lines.map((text) => ({ text, color: 'grey' })) },
+      { noteLines: undefined, notes: lines.join('\n') },
+    ]) {
+      const { sheet } = draw([page({ flags: [], ...over })]);
+      const top = rowOf(sheet, '備註');
+      assert.deepEqual([1, 2, 3].map((i) => [sheet.at(`A${top + i}`), sheet.formats.numberFormat.get(`A${top + i}`)]),
+        lines.map((t) => [t, '@']));
+    }
+    const { sheet } = draw();
+    for (const title of ['買過什麼', '營養品', '來訪紀錄']) {
+      assert.equal(sheet.formats.numberFormat.get(`A${rowOf(sheet, title) + 1}`), '@', title);
+    }
+  });
+
+  test('MARK_TINT 是 app 那六色（MARK_COLORS ＋ tokens.css 淺色主題的 --mark-*）跟白色 15:85 混出來的 —— 那六色改了這裡會紅', () => {
+    // `.gs` 讀不到 tokens.css，只好另寫一份（CLAUDE.md「試算表的 SYNC_FORMAT」那一列）；這一條釘著兩邊（段二審查）
+    const { app } = draw();
+    const tint = app.context.MARK_TINT;
+    const css = readFileSync(new URL('../public/css/tokens.css', import.meta.url), 'utf8');
+    const light = css.slice(0, css.indexOf(":root[data-theme='dark']"));
+    const mix = (hex) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.15 + 255 * 0.85)
+      .toString(16).toUpperCase().padStart(2, '0')).join('')}`;
+    assert.deepEqual(Object.keys(tint).sort(), MARK_COLORS.map((c) => c.id).sort());
+    for (const c of MARK_COLORS) {
+      const hex = new RegExp(`${c.token}:\\s*(#[0-9a-fA-F]{6})`).exec(light)?.[1];
+      assert.ok(hex, `tokens.css 淺色主題沒有 ${c.token}`);
+      assert.equal(tint[c.id], mix(hex), c.id);
+    }
   });
 
   test('一則都沒有：照舊寫「（沒有）」', () => {

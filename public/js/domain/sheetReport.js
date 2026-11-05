@@ -633,13 +633,13 @@ export function syncBundle({
     // 底下的 `totals` 與兩份註記的 `rowIndex` 都只看 `rows`（額度那幾列）。
     const extras = extraRows({ scheduled, visits, dates, coursesById, equipment: master.equipment ?? [] });
 
-    // 「這一天用了哪一台」（格式 4 起）。一筆額度一列，畫在它那一列的正下方 ——
+    // 「這一天用了哪一台」（格式 4 起）。`.gs` 併進那一格的字（「✓ IN」，2026-11-05 起，ADR-0175；以前畫在那一列的正下方）——
     // 帶 `label` 是因為一位客戶可能同時有四選一與三選一，兩列都要註記時
     // 得分得出來。
     const equipmentNotes = scheduled
       .map((e, rowIndex) => ({
         // **帶第幾列不是只帶名字**：一位客戶可能有兩筆同名的額度，
-        // 而 `.gs` 要把這一列畫在**那一列的正下方**（她的原話）。
+        // 而 `.gs` 要寫進**那一列**的那幾格（以前畫在它的正下方，她的原話）。
         rowIndex,
         label: e.label ?? '',
         cells: equipmentCells(e, visits, dates, master.equipment ?? []),
@@ -647,7 +647,7 @@ export function syncBundle({
       .filter((x) => x.cells.length);
 
     // 「那一段記了什麼」（格式 5 起）。跟上面那一份同一個形狀、同一個理由 ——
-    // `.gs` 把它畫在那一列的正下方。**每一筆額度都問**（不像器材那一份只問
+    // `.gs` 把它寫進那一列那一格的附註（2026-11-05 起，ADR-0175）。**每一筆額度都問**（不像器材那一份只問
     // 得選的擇一池）：一句話可以記在任何一段上。
     const slotNotes = scheduled
       .map((e, rowIndex) => ({

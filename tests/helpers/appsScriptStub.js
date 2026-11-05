@@ -97,7 +97,7 @@ class FakeRange {
     return this.sheet.get(this.row, this.col);
   }
 
-  /** 那一格的備註（Google 的 note：右上角小黑三角）。'' 等於拿掉。 */
+  /** 那一格的附註（Google 的 note：右上角小黑三角）。'' 等於拿掉。 */
   setNote(text) {
     this.sheet.checkBounds(this.row, this.col);
     this.sheet.setNoteAt(this.row, this.col, text);
@@ -208,7 +208,7 @@ class FakeSheet {
     /** 同一份合併，但留著數字邊界 —— 凍結線的檢查要算得出來。 */
     this.mergeBounds = [];
     this.backgrounds = new Map();
-    /** 每一格的備註（記一句，.scratch/sheet-push-gaps/issues/11）。**`clear()` 不清它**（跟 Google 一樣要另外 `clearNotes()`） */
+    /** 每一格的附註（記一句，.scratch/sheet-push-gaps/issues/11）。**`clear()` 不清它**（跟 Google 一樣要另外 `clearNotes()`） */
     this.notes = new Map();
     /** 每一格最後一次設的格式（`FORMAT_SETTERS` 那幾種）。 */
     this.formats = Object.fromEntries(Object.values(FORMAT_SETTERS).map((k) => [k, new Map()]));
