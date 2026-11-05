@@ -167,7 +167,9 @@
 2. /matt-code-review 審這一輪全部：從 origin/develop 3bd4611d 起（git diff 3bd4611d...HEAD）。Spec 那一軸對 spec.md 與七支 issue 的判準
 3. 審查意見：先確定是真的（讀完前後文、能重現就重現）；成立的一條一個 commit，先寫會紅的測試、跑過確認紅 → 修到綠 → npm run verify。
    不成立的寫進 HANDOFF 一行理由。範圍外的記 HANDOFF「中途發現 → 段三」、不岔出去修。public/ 每一個 commit 都要 VERSION 再加一＋shell:snapshot
-4. npm run verify（related.js 這一輪改過，verify 會跟 develop 比、約 60 支 —— 這一次就讓它整條跑一次，背景跑、E2E_WORKERS=2）
+4. 本機只跑審查修正相關的那幾支（related.js 這一輪改過，npm run verify 會退回整條分支約 60 支 —— 不要整條跑：用 node -e 叫 related.js 的 pick() 拿修正動到的檔案挑，再 node scripts/e2e.mjs <那幾支>，E2E_WORKERS=2）。
+   **整條分支的全量交給 PR 的 CI**（e2e-full.yml 在 pull_request 上跑、六台）—— 主控 11/5 改的：本機再跑 60 支是重複的，筆電會熱 20 分鐘以上。
+   另外兩個平行的 session（iPad、試算表，各在自己的 worktree）說好了不起模擬器，port 是你的；起之前照樣先看 port 上有沒有殘留的
 5. 手動驗收清單：條列她可以照順序點的（「日曆 → 點那一格 → …」，不是「我修好了什麼」）。**寫的人要真的在本機模擬器走過**（npm run emulators ＋ seed:staging 對模擬器）。要排：
    - 段一：來訪編輯器打開後，在另一個分頁替同一位排一段再回來按儲存（要講出讀到的新那一段／不會同一天兩筆）；資料健檢慢網路（DevTools 節流）連按「補上二返額度」只建一筆；
      客戶詳情「修正」次數時另一個分頁存一段（不會寫回舊的數字）；營養品「已經給了」連按只記一次
