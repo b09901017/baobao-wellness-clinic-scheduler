@@ -128,3 +128,70 @@ describe('08 欄寬、分隔、格線、抬頭', () => {
     assert.equal(sheet.formats.numberFormat.get(doneAt), '@');
   });
 });
+
+describe('09 凍結前五欄', () => {
+  /** 日期多到超過 26 欄、底下每一塊都有東西的一頁。 */
+  const widePage = () => page({
+    name: '客戶B',
+    dateLabels: Array.from({ length: 30 }, (_, i) => `${1 + Math.floor(i / 28)}/${1 + (i % 28)}`),
+    rows: page().rows.map((r) => ({ ...r, marks: Array.from({ length: 30 }, (_, i) => (i % 3 ? '' : '✓')) })),
+    notes: '一段很長很長的備註，長到在五欄的寬度裡一定要折成好幾行才放得下，看看那一列有沒有跟著長高',
+  });
+
+  test('沒有任何一個合併跨過第 5 欄與第 6 欄之間（每一頁）', () => {
+    const { app } = draw([page(), widePage()]);
+    for (const sheet of app.ss.getSheets()) {
+      const crossing = sheet.mergeBounds.filter((m) => m.left <= 5 && m.right >= 6);
+      assert.deepEqual(crossing, [], `${sheet.name}：${sheet.merges.join(' ')}`);
+    }
+  });
+
+  test('凍結 5 列 5 欄，而且凍結是在合併之後才設', () => {
+    const app = loadAppsScript();
+    const seen = [];
+    const insert = app.ss.insertSheet.bind(app.ss);
+    app.ss.insertSheet = (name) => {
+      const sheet = insert(name);
+      const freeze = sheet.setFrozenColumns.bind(sheet);
+      sheet.setFrozenColumns = (n) => { seen.push({ name, n, merges: sheet.merges.length }); freeze(n); };
+      return sheet;
+    };
+    assert.equal(app.post({ token: 'secret', bundle: bundleOf([page()]) }).ok, true);
+    const sheet = app.ss.getSheetByName('客戶A');
+    assert.equal(sheet.frozenRows, 5);
+    assert.equal(sheet.frozenCols, 5);
+    const last = seen.filter((s) => s.name === '客戶A').at(-1);
+    assert.equal(last.n, 5);
+    assert.equal(last.merges, sheet.merges.length, '凍結的那一刻合併已經全部在了');
+  });
+
+  test('第 1 列那句提醒照舊在 A1；沒變的那一頁改的是產生時間那一格（第 4 列）', () => {
+    const app = loadAppsScript();
+    const bundle = bundleOf([page()]);
+    app.post({ token: 'secret', bundle });
+    const reply = app.post({ token: 'secret', bundle: { ...bundle, generatedAt: '2026/11/05 下午9:00:00' } });
+    assert.equal(reply.kept, 1);
+    const sheet = app.ss.getSheetByName('客戶A');
+    assert.equal(sheet.at('A1'), NOTICE);
+    assert.match(sheet.at('A4'), /^產生時間 2026\/11\/05 下午9:00:00/);
+    assert.equal(sheet.at('A2'), '客戶A');
+    assert.match(sheet.at('A3'), /合計/);
+  });
+
+  test('折行的列跟著長高（不再整頁固定 26）', () => {
+    const { app } = draw([widePage()]);
+    const sheet = app.ss.getSheetByName('客戶B');
+    const r = [...sheet.cells.entries()].find(([, v]) => String(v).startsWith('一段很長很長的備註'))[0].replace(/^A/, '');
+    assert.ok(sheet.rowHeights.get(Number(r)) > 26, `那一列 ${sheet.rowHeights.get(Number(r))} 高`);
+    assert.equal(sheet.rowHeights.get(5), 26, '表頭照舊');
+  });
+
+  test('rowHeightFor()：一行 26、兩行以上照行數長高；換行照算', () => {
+    const { context } = loadAppsScript();
+    assert.equal(context.rowHeightFor('短短的', 438, 11), 26);
+    const two = context.rowHeightFor('字'.repeat(40), 438, 11);
+    assert.ok(two > 26 && two < 60, String(two));
+    assert.ok(context.rowHeightFor('一\n二\n三', 438, 11) > two);
+    assert.ok(context.rowHeightFor('a'.repeat(40), 438, 11) === 26, '半形字比較窄');
+  });
+});

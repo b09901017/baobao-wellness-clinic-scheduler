@@ -116,7 +116,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     assert.equal(at, column(sheet).indexOf('ILIB(60)') + 2, '接在額度列的下一列');
     assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '✓']);
     assert.notEqual(sheet.backgrounds.get(`E${at}`), '#FFCDD2', '一槓不是 0');
-    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
+    assert.match(String(sheet.at('A3')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
     assert.equal(everything(sheet).split('報告看完了').length - 1, 1);
   });
 
@@ -285,13 +285,11 @@ describe('渲染', () => {
   test('表頭與備註區有合併儲存格、有凍結列、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
-    // FINISHED 在 K 欄，所以表至少寬到 M 欄，第一列要橫跨整張
-    assert.ok(sheet.merges.includes('A1:M1'), `第一列要橫跨整張表，實際：${sheet.merges.join(' ')}`);
+    // 2026-11-05 起凍結前五欄（.scratch/sheet-push-gaps/issues/09）：第一列只合併到剩餘那一欄 ——
+    // 凍結線不能穿過合併儲存格，以前第一列橫跨整張表（A1:M1）時凍結欄會丟例外（.scratch/first-real-import/issues/01）
+    assert.ok(sheet.merges.includes('A1:E1'), `第一列只合併到剩餘那一欄，實際：${sheet.merges.join(' ')}`);
     assert.equal(sheet.frozenRows, 5);
-    // **不凍結欄**。表頭三列橫跨整張表，凍結欄的線會穿過那些合併儲存格，
-    // Google 會直接丟例外（issues/01）。要往右捲還看得到療程項目那一欄的話，
-    // 得先把表頭改成不合併 —— 那是另一個決定，不要偷偷加回來。
-    assert.equal(sheet.frozenCols, 0);
+    assert.equal(sheet.frozenCols, 5);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');
   });
@@ -554,7 +552,7 @@ describe('營養品那一區', () => {
 
     assert.deepEqual(b.sheets[0].rows.map((r) => r.label), ['復能'], '矩陣只有排得進來訪的');
     assert.equal(b.sheets[0].totals.total, 12, '合計不含營養品的月數');
-    assert.equal(String(sheet.at('C2')).includes('應有 12'), true);
+    assert.equal(String(sheet.at('A3')).includes('應有 12'), true);
   });
 
   // 營養品那一區底下還有備註、來訪紀錄、TODO／FINISHED —— renderProducts()
@@ -824,10 +822,10 @@ describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () =>
     for (const label of ['功醫門診（體驗）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
   });
 
-  test('合計那一行照舊（它是一句字，不上色）；格式沒有升', () => {
+  test('合計那一行照舊（它是一句字，不上色；第三輪 09 起在第 3 列）；格式沒有升', () => {
     const { sheet } = colours();
-    assert.match(String(sheet.at('C2')), /剩餘 -?\d+/);
-    assert.notEqual(sheet.backgrounds.get('C2'), LOW);
+    assert.match(String(sheet.at('A3')), /剩餘 -?\d+/);
+    assert.notEqual(sheet.backgrounds.get('A3'), LOW);
     assert.equal(SYNC_FORMAT, 8);
   });
 });

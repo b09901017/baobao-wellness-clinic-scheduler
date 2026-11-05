@@ -49,15 +49,15 @@ function render(body = {}) {
   return { app, sheet, size };
 }
 
-describe('字級：名字 18 號（第三輪 08 從 14 放大）、第 3 列與註記列 9 號，其餘 11 號', () => {
+describe('字級：名字 18 號（第三輪 08 從 14 放大）、產生時間那一列與註記列 9 號，其餘 11 號', () => {
   test('名字那一格 18 號', () => {
     const { size } = render();
     assert.equal(size.A2, 18);
   });
 
-  test('第 3 列（產生時間）9 號', () => {
+  test('產生時間那一列（第三輪 09 起第 4 列）9 號', () => {
     const { size } = render();
-    assert.equal(size.A3, 9);
+    assert.equal(size.A4, 9);
   });
 
   test('器材那一列（夾在額度底下的註記列）9 號；額度那一列照舊 11 號', () => {

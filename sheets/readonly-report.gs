@@ -78,8 +78,17 @@ var COL = {
  */
 var TODO_COL = 1;
 var FINISH_COL = 11;
-var HEADER_ROWS = 4;  // 標題、客戶資訊、產生時間、空行
+var HEADER_ROWS = 4;  // 提醒、名字、號碼／購買名稱／合計、產生時間（2026-11-05 起沒有空行，issues/09）
 var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
+/** 產生時間那一列。沒變的那幾頁只改這一格（`render()`）—— 畫的那一側與改時間的那一側都讀這個數字。 */
+var STAMP_ROW = 4;
+/**
+ * 凍結前五欄（療程項目～剩餘；她 11/5：「我確實蠻希望可以另外前五欄凍結」，issues/09）。
+ * **凍結線不能穿過合併儲存格**（Google 會丟例外，`.scratch/first-real-import/issues/01`），所以**每一個合併都停在這一欄以內**：
+ * 最上面四列、下面「買過什麼」「營養品」「備註」「來訪紀錄」每一行與區塊抬頭都只合併到剩餘那一欄，長的折行、那一列跟著長高（`fitRows()`）。
+ * TODO（A～C）、FINISHED（K～M）本來就沒有穿過。
+ */
+var FROZEN_COLS = 5;
 
 var STYLE = {
   font: 'Noto Sans TC',
@@ -340,7 +349,7 @@ function render(ss, bundle, force, stored) {
     var kName = sheetNameFor(bundle.sheets[k0].name);
     var kEntry = book.byName[kName];
     if (planFor(kEntry, stored, kName, markOf(bundle.sheets[k0]), force) === 'keep') {
-      kEntry.sheet.getRange(3, 1).setValue(stamp);
+      kEntry.sheet.getRange(STAMP_ROW, 1).setValue(stamp);
       keep[kName] = true;
       kept += 1;
     } else {
@@ -578,7 +587,7 @@ function isOurs(a1) {
   return String(a1).indexOf(OURS_MARK) !== -1;
 }
 
-/** 第三列那一行。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
+/** 產生時間那一行（`STAMP_ROW`）。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
 function stampLine(bundle) {
   return '產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app'
     + '　·　' + bundle.legend;
@@ -647,19 +656,19 @@ function renderCustomer(ss, data, bundle, book) {
     width,
   );
   t = clockAdd('清空', t, true);
-  noticeRow(sheet, width, bundle);
+  noticeRow(sheet, FROZEN_COLS, bundle);
 
-  // 第 2 列：名字大字，右邊接購買名稱與合計
-  sheet.getRange(2, 1, 1, 2).merge().setValue(data.name)
+  // 第 2 列名字大字、第 3 列號碼＋購買名稱＋合計、第 4 列產生時間 —— 都只合併到剩餘那一欄（凍結線不能穿過合併，issues/09），長的折行
+  sheet.getRange(2, 1, 1, FROZEN_COLS).merge().setValue(data.name)
     .setFontSize(STYLE.titleSize).setFontWeight('bold')
     .setVerticalAlignment('middle');
-  sheet.getRange(2, 3, 1, Math.max(width - 2, 1)).merge()
+  sheet.getRange(3, 1, 1, FROZEN_COLS).merge()
     .setValue(infoLine(data))
     .setVerticalAlignment('middle').setWrap(true);
 
-  sheet.getRange(3, 1, 1, width).merge()
+  sheet.getRange(STAMP_ROW, 1, 1, FROZEN_COLS).merge()
     .setValue(stampLine(bundle))
-    .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle');
+    .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle').setWrap(true);
 
   // 矩陣表頭
   var head = ['療程項目', '應有', '已完成', '已排未上', '剩餘'].concat(data.dateLabels);
@@ -737,16 +746,16 @@ function renderCustomer(ss, data, bundle, book) {
   for (var d2 = 0; d2 < dateCount; d2++) {
     sheet.setColumnWidth(COL.FIRST_DATE + d2, STYLE.dateWidth);
   }
-  // 只凍結列，**不要凍結欄**。表頭那三列是橫跨整張表的合併儲存格，
-  // 而 Google 試算表不讓凍結線穿過合併儲存格 —— 加回 setFrozenColumns(1)
-  // 會在這裡丟例外，第一位客戶之後一張都畫不出來。
-  // 見 .scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md
+  // 凍結五列五欄（issues/09）。**每一個合併都要停在 FROZEN_COLS 以內** —— 以前表頭三列橫跨整張表，凍結欄會丟例外、
+  // 第一位客戶之後一張都畫不出來（.scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md）。
+  // 草稿紙只記下來，`paint()` 在合併之後才凍結
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
+  sheet.setFrozenColumns(FROZEN_COLS);
   // 格線藏起來，只留矩陣的框線（issues/08，示意圖 6c）
   sheet.setHiddenGridlines(true);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
-  // 名字那一列加高（18 號字）
+  // 名字那一列加高（18 號字）。折行的那幾列 `finish()` 已經照字數加高了
   sheet.setRowHeights(2, 1, STYLE.titleHeight);
   clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
@@ -911,7 +920,7 @@ function renderNotes(sheet, data, top, width) {
   }
   var end = noteBlock(sheet, row, width, '來訪紀錄', lines.map(function (l) { return l.text; }));
   for (var k = 0; k < lines.length; k++) {
-    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
+    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, FROZEN_COLS).setFontWeight('bold');
   }
   return end;
 }
@@ -992,19 +1001,23 @@ function emptyLine(sheet, row, col) {
     .setFontColor('#90A4AE').setVerticalAlignment('middle');
 }
 
+/**
+ * 一塊：抬頭一列、底下一行一列。**每一列只合併到剩餘那一欄**（`FROZEN_COLS`，凍結線不能穿過合併，issues/09），
+ * 長的折行、那一列由 `finish()` 照字數加高。`width` 照舊收（呼叫端不用改），不再拿來合併。
+ */
 function noteBlock(sheet, top, width, title, lines) {
-  sheet.getRange(top, 1, 1, width).merge().setValue(title)
+  sheet.getRange(top, 1, 1, FROZEN_COLS).merge().setValue(title)
     .setFontWeight('bold').setBackground(COLOR.noteHeader)
     .setVerticalAlignment('middle');
 
   if (!lines.length) {
-    sheet.getRange(top + 1, 1, 1, width).merge().setValue('（沒有）')
+    sheet.getRange(top + 1, 1, 1, FROZEN_COLS).merge().setValue('（沒有）')
       .setFontColor('#90A4AE').setVerticalAlignment('middle');
     return top + 3;
   }
 
   for (var i = 0; i < lines.length; i++) {
-    sheet.getRange(top + 1 + i, 1, 1, width).merge()
+    sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
       .setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
   }
   return top + lines.length + 2;
@@ -1060,6 +1073,7 @@ function Canvas() {
   this.widths = [];
   this.heights = [];
   this.frozenRows = null;
+  this.frozenCols = null;
   this.hiddenGridlines = null;
 }
 
@@ -1075,6 +1089,7 @@ Canvas.prototype.getRange = function (row, col, rows, cols) {
 Canvas.prototype.setColumnWidth = function (col, width) { this.widths[col] = width; };
 Canvas.prototype.setRowHeights = function (start, count, height) { this.heights.push([start, count, height]); };
 Canvas.prototype.setFrozenRows = function (n) { this.frozenRows = n; };
+Canvas.prototype.setFrozenColumns = function (n) { this.frozenCols = n; };
 Canvas.prototype.setHiddenGridlines = function (hidden) { this.hiddenGridlines = hidden; };
 
 /** 跟 Google 一樣：最後一列**有內容**的（寫進 '' 或 null 的不算）。 */
@@ -1206,6 +1221,7 @@ function paint(sheet, canvas) {
   }
   if (canvas.hiddenGridlines != null) sheet.setHiddenGridlines(canvas.hiddenGridlines);
   if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
+  if (canvas.frozenCols != null) sheet.setFrozenColumns(canvas.frozenCols);
   clockAdd('框線欄寬', t, true);
 }
 
@@ -1307,7 +1323,7 @@ function noticeRow(sheet, width, bundle) {
   sheet.getRange(1, 1, 1, width).merge()
     .setValue(bundle.notice)
     .setBackground(COLOR.notice).setFontColor(COLOR.noticeText).setFontWeight('bold')
-    .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
 }
 
 function styleHeader(range) {
@@ -1340,6 +1356,53 @@ function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
         SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
   sheet.setRowHeights(1, Math.max(sheet.getLastRow(), 1), STYLE.rowHeight);
+  // 折行的合併儲存格：Google 不會替合併的格子自己長高（只看得到第一行），照字數估幾行、那一列加高（issues/09）
+  var tall = fitRows(sheet);
+  for (var t = 0; t < tall.length; t++) sheet.setRowHeights(tall[t][0], 1, tall[t][1]);
+}
+
+/**
+ * 草稿紙上每一個「一列高、折行、有字」的合併儲存格估幾行，要比 `STYLE.rowHeight` 高的回 `[列, 高]`（同一列取最高的）。
+ * 欄寬要先設好（`renderCustomer()` 在 `finish()` 之前設）。
+ */
+function fitRows(canvas) {
+  var best = {};
+  for (var i = 0; i < canvas.merges.length; i++) {
+    var m = canvas.merges[i];
+    if (m[2] !== 1) continue;
+    var row = canvas.values[m[0]];
+    var value = row ? row[m[1]] : undefined;
+    var wrap = canvas.formats.wrap[m[0]] && canvas.formats.wrap[m[0]][m[1]];
+    if (wrap !== true || typeof value !== 'string' || !value) continue;
+    var px = 0;
+    for (var c = m[1]; c < m[1] + m[3]; c++) px += canvas.widths[c] || 100;
+    var sizes = canvas.formats.fontSize[m[0]];
+    var size = (sizes && sizes[m[1]]) || STYLE.bodySize;
+    var h = rowHeightFor(value, px, size);
+    if (h > STYLE.rowHeight && (!best[m[0]] || best[m[0]] < h)) best[m[0]] = h;
+  }
+  var out = [];
+  for (var r in best) out.push([Number(r), best[r]]);
+  out.sort(function (a, b) { return a[0] - b[0]; });
+  return out;
+}
+
+/**
+ * 一段字放進 `px` 寬、`size` 號字要多高（像素）。**純函式**（`tests/sheet-layout.test.js`）。
+ * **估的**：中日文、全形字算一個字寬（字級的 4/3 像素）、其餘 0.55 個；換行照算。Google 真的折成幾行只有貼上去才知道 ——
+ * 估多了是那一列高一點，估少了是最後一行被切掉，所以寬度先扣 8 像素的邊距。
+ */
+function rowHeightFor(text, px, size) {
+  var em = size * 4 / 3;
+  var usable = Math.max(px - 8, em);
+  var lines = 0;
+  var parts = String(text).split(String.fromCharCode(10));
+  for (var p = 0; p < parts.length; p++) {
+    var w = 0;
+    for (var k = 0; k < parts[p].length; k++) w += parts[p].charCodeAt(k) >= 0x2E80 ? em : em * 0.55;
+    lines += Math.max(1, Math.ceil(w / usable));
+  }
+  return Math.max(STYLE.rowHeight, lines * Math.round(em * 1.35) + 6);
 }
 
 /**
