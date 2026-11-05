@@ -1,6 +1,6 @@
 # 來訪編輯器按下去那一刻一律重讀這位客戶的全部來訪
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`.scratch/code-health-2026-11-04/issues/01-editor-reuses-stale-visits-on-save.md`（問題、重現步驟、修的方向，**詳細都在那一支，這裡不抄**）；
 `public/js/ui/views/visitEditor.js` 的 `refreshCustomerVisits()`、`submit()`、`mergedPayload()`、`cancelOneSlot()`；
@@ -39,3 +39,12 @@ ADR-0158 原文本來就是「存之前重讀」，不用補 ADR。
 新的 spec 要登記 `tests-e2e/related.js`。先紅再綠。
 
 ## 做完時留下的
+
+- `refreshCustomerVisits()` 每一次都 `listWhole()`（拿掉提前 return、改掉那段「`ifUpdatedAt` 照樣擋」的註解）；
+  `submit()` 重讀之後順手重讀 `ctx.sameDayVisits`（只影響撞期提醒：讀不到沿用手上那一份、不擋）
+- `data/visits.js` 的 `isWholeList`／`lastReadWhole`／`wholeLists` 刪了（只有這一處在用）；`visitEditor.js` 的 `isOffline` import 跟著沒人用、刪了
+- `tests/incomplete-read.test.js` 那兩條改成 `doesNotMatch`＋「讀之前不可以提前 return」
+- 新 E2E `88-editor-rereads-on-save`（登記在 `related.js`）：E1 別天同一筆額度 → `bookedCount` 2（修之前 1）；E2 同一天 → 併進那一筆、一天一筆（修之前長出第二筆）。兩條都先紅再綠
+- `sw.js` `v230` → `v231`
+- 代價照 issue：確認框晚一拍（一次讀取），網路不穩時 `listWhole()` 約十秒才退回快取、擋下不存 —— 跟另外 7 個入口一樣
+

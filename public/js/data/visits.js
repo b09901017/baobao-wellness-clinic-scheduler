@@ -41,22 +41,6 @@ export const get = (id) => repo.getOne(PATH, id);
 /** customerId → 最近一次讀全部來訪的來源（`'server'`／`'cache'`）。這一台還沒讀過的沒有這一格 */
 const visitsRead = new Map();
 
-/** 從伺服器讀回來的那幾份陣列本身（`isWholeList()`）。抄過、濾過的不在裡面 —— 那種當成不知道 */
-const wholeLists = new WeakSet();
-
-/**
- * 手上這一份**就是**一次從伺服器讀回來的全部來訪嗎（同一個陣列，沒抄過）。
- * 打開時讀一次就沿用的畫面（來訪編輯器）拿它決定按下去要不要重讀：是的話不用（確認框不晚一拍），
- * 不是（讀到的是快取、或不知道）才重讀（ADR-0158）。
- */
-export const isWholeList = (list) => Array.isArray(list) && wholeLists.has(list);
-
-/**
- * 這一台最近一次讀這位客戶的全部來訪，是從伺服器來的嗎 —— `save()` 問的就是這一格。打開時讀一次就沿用的畫面要連它一起問：
- * 只看陣列（`isWholeList()`）的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（段四審查）
- */
-export const lastReadWhole = (customerId) => visitsRead.get(customerId) === 'server';
-
 const offlineNow = () => globalThis.navigator?.onLine === false;
 
 /** 從 `since`（那時候 `repo.cacheReads()` 的值）到現在，有沒有任何一次讀取是快取來的 */
@@ -81,7 +65,6 @@ async function readCustomer(customerId) {
     order: ['date', 'desc'],
   });
   visitsRead.set(customerId, readSource(fromCache));
-  if (!fromCache) wholeLists.add(rows);
   return rows;
 }
 
