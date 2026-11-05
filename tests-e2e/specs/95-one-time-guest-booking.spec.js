@@ -82,6 +82,8 @@ test('B1 要幫誰排？打一個沒有的名字 →「＋ 新增一次性客人
   // 接著排：「做什麼」那一排是全部的課、沒有送的／體驗
   await app.layer('[data-guestpicks]');
   await expect(page.locator('[data-giftfold-more]'), '沒有「送的／體驗／其他…」').toHaveCount(0);
+  // 還沒選課：沒有「這是哪一次健檢的」那一塊（段六手動驗收抓到的：`isFollowupCourse(null)` 是 true）
+  await expect(page.locator('[data-guestexam-none], [data-chip="s0-gexam"]')).toHaveCount(0);
   await page.locator(GUEST('course-checkup')).click();
   await expect(page.locator(GUEST('course-checkup'))).toHaveAttribute('aria-pressed', 'true');
   await saveThrough(app, page);
