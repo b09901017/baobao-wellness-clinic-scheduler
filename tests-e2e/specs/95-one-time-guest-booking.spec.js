@@ -63,8 +63,12 @@ test('B1 要幫誰排？打一個沒有的名字 →「＋ 新增一次性客人
   await page.locator('[data-search]').fill('客戶B');
   const add = page.locator('[data-new-guest]');
   await expect(add).toHaveText('＋ 新增一次性客人「客戶B」');
-  await page.locator('[data-search]').fill('王');
-  await expect(add, '找得到人就沒有那一顆').toHaveCount(0);
+  // 打的字是別人名字的一部分（段五審查 R8）：王小明列著、底下照樣有那一顆；一模一樣的才沒有
+  await page.locator('[data-search]').fill('王小');
+  await expect(page.locator('[data-pick="cust-r"]')).toBeVisible();
+  await expect(add).toHaveText('＋ 新增一次性客人「王小」');
+  await page.locator('[data-search]').fill('王小明');
+  await expect(add, '有一位一模一樣就沒有那一顆').toHaveCount(0);
   await page.locator('[data-search]').fill('客戶B');
   await add.click();
 
@@ -168,6 +172,21 @@ test('B5 一次性客人的「約二返」→ 那一顆是「去日曆排」→ 
   await expect(page).toHaveURL(/#\/calendar/);
   await app.layer('[data-guestpicks]');
   await expect(page.locator('.drawer')).toContainText('客戶A');
+});
+
+// 段五審查 R3：轉成我的客戶、還沒加購的人壓表那一批沒有他 ——「去壓表」是死路
+test('B5b 轉成我的客戶（還沒加購）、一次性那一次健檢的「約二返」→ 照樣「去日曆排」→ 日曆新增有「二返（一次性那一次）」', async ({ app, page }) => {
+  await app.seed([
+    ...masterDocs(), ...guestWithExam({ oneTime: false }),
+    task({ id: 't-g-book', customerId: 'cust-g', customerName: '客戶A', kind: '約二返', dueDate: DAY, visitId: 'v-g-exam' }),
+  ]);
+  await app.signIn('/todo/today');
+  const btn = page.locator('[data-book-followup="t-g-book"]');
+  await expect(btn).toHaveText('去日曆排');
+  await btn.click();
+  await expect(page).toHaveURL(/#\/calendar/);
+  await app.layer('[data-chip="s0-ent"]');
+  await expect(page.locator('[data-chip="s0-ent"][data-chip-value="__onetime2nd__"]')).toContainText('一次性那一次');
 });
 
 test('B6 轉成我的客戶、又買了二返額度：「二返（一次性那一次）」只在還欠的時候有；按了存下去的段一次性、不扣他買的那一筆', async ({ app, page }) => {
