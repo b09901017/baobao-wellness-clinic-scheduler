@@ -1,6 +1,6 @@
 # 02 平常推變快：先讀完再寫
 
-Status: todo
+Status: done
 Blocked by: —
 
 ## 動工前先讀
@@ -41,4 +41,36 @@ Blocked by: —
 
 ## 做完時留下的
 
-（做完填：改前改後 `scripts/sheet-gs-calls.mjs` 的數字）
+**數字**（`scripts/sheet-gs-calls.mjs`，正式站 11/5 那一包 34 頁；這一版多數文件屬性 `props`）：
+
+| | 讀 | 寫 | 寫完又馬上讀 | 文件屬性 |
+|---|---|---|---|---|
+| 都沒變 改前（`3dd2ee12`） | 143 | 46 | 38 | 35 |
+| 都沒變 改後 | 76 | 36 | **0** | 1 |
+| 整份重畫 改前 | 619 | 6,506 | 276 | 103 |
+| 整份重畫 改後（02 只動了讀，畫法是 03） | 314 | 6,496 | 102 | 69 |
+
+讀還是一頁兩次（`getName`、第一列那一格），但全部在第一次寫之前讀完 —— 寫完又讀是 0。
+要再少只能走 Sheets API 進階服務（這一輪不做）。
+
+**怎麼證明畫出來一樣**：
+- 替身（`tests/helpers/appsScriptStub.js`）現在記每一格的格式（字級、粗體、字色、字型、左右／上下對齊、換行、底色）、
+  欄寬、列高、框線的每一次呼叫、鎖的說明與拿掉了誰；`getLastRow()` 改成跟 Google 一樣不算 `''`；
+  多 `getRangeList()`、`mergeAcross()`、`setColumnWidths()`、`isSheetHidden()`、`getDescription()`、`removeEditors()` 真的拿掉人。
+  `snapshotOf(ss)` 把整份收成一份可以比的東西
+- `tests/sheet-gs-batch.test.js`：手造的四頁（什麼都有／什麼都沒有／日期 40 個／她自己的同名分頁）＋上一次留下來的一頁，
+  四步推送（第一次、都沒變、一頁變了一位刪了、整份重畫），每一步整份試算表的雜湊釘的是**改前的 `.gs` 跑出來的**
+- `scripts/sheet-gs-compare.mjs old.gs <bundle>`：兩份 `.gs` 同一串推送、逐格比、只印數字 —— 正式站那一包四步都 0 個不一樣
+- 叫幾次也釘了（同一支測試第二段：10 頁都沒變 → 寫完又讀 0、文件屬性 1、不問 `getLastRow`）
+
+**做法與跟 issue 寫的不一樣的地方**：
+- `readBook()` 一開始讀每一張分頁的名字與 A1；要重畫的那幾頁在開始寫之前先問好大小與鎖（`sizeOf()`、`protectionsOf()`）、
+  第一列空著的才問 `getLastRow()`（`emptyOf()`：**整頁空著的分頁照舊算我們的** —— 改前 `resetSheet()` 是 `getLastRow() > 0 && 不是提醒` 才跳過，
+  只看 A1 的話她清空的那一頁會被當成她自己的而跳過）
+- 寫完又讀剩兩種：每畫好一頁上鎖時問一次「誰能改」（`getEditors` 與 `canDomainEdit` 擺在一起，一次）、新建的分頁問一次大小
+- `_data` 的鎖：剛好一道、說明一樣、只有我、網域不能改 → 不拆了重上；藏起來了就不再藏一次；原始資料一次 `setValues`
+- 指紋：一開始 `getProperties()` 一次，之後只寫（畫之前 `deleteProperty`、畫完 `setProperty`，順序跟改前一樣）；
+  `forgetStale()` 用手上那一份（**不用 `setProperties(…, true)`**：她手改一格時 `onEdit` 同時在拿掉指紋，整份蓋回去會把它救回來）
+- `LAYOUT_VERSION` 沒加（畫法沒變），只換 `tests/sheet-fingerprint.test.js` 釘的雜湊（`85634bb4cd65`）；03 會加到 2
+
+**只在 staging 驗得到**：真的快多少（執行紀錄的秒數）；`getEditors()` 在 `addEditor()` 之前或之後問，`canDomainEdit()` 擺到 `removeEditors()` 前面，真的 Google 會不會不一樣（照文件不會：新的鎖在改名單之前跟整份試算表的權限一樣）。

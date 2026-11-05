@@ -6,12 +6,16 @@
 // 這份替身把它要用到的 API 都做出來，並且把「寫進哪一格什麼值、合併了哪些範圍、
 // 鎖了哪幾張分頁」記下來讓測試去斷言。
 //
+// **2026-11-05 起每一格的格式也記**（字級、粗體、字色、字型、左右／上下對齊、換行、底色）、
+// 欄寬、列高、框線的每一次呼叫：`.gs` 改成批次寫（.scratch/sheet-push-gaps 的 02、03），
+// 要比得出「改前改後畫出來一模一樣」—— `snapshotOf()` 把整份試算表收成一份可以比的東西。
+// 格式只記**最後一次設的值**（跟 Google 一樣：後設的蓋掉先設的），沒設過的格子不在裡面。
+//
 // **它抓得到的**：邏輯錯（值算錯、寫錯格子、該鎖的沒鎖）、打錯的 API 名稱、
 // 參數個數不對、超出範圍的 getRange。
 //
 // **它抓不到的**：Google 那一側真正的行為差異（配額、權限、setBorder 的實際效果、
-// 網頁應用程式的部署設定）。那些只有真的部署上去才知道，
-// 所以第一次部署如果炸了，是預期內的。
+// 寫進合併區的細節、真的快不快、網頁應用程式的部署設定）。那些只有真的部署上去才知道。
 
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
@@ -28,6 +32,35 @@ function colLetter(col) {
   return out;
 }
 
+function colNumber(letters) {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+/** `B3` 或 `B3:D5` → `{ row, col, rows, cols }`。`getRangeList()` 收的就是這種字串。 */
+export function parseA1(a1) {
+  const m = /^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/.exec(a1);
+  if (!m) throw new Error(`看不懂的 A1：${a1}`);
+  const row = Number(m[2]);
+  const col = colNumber(m[1]);
+  const row2 = m[3] ? Number(m[4]) : row;
+  const col2 = m[3] ? colNumber(m[3]) : col;
+  if (row2 < row || col2 < col) throw new Error(`A1 範圍反了：${a1}`);
+  return { row, col, rows: row2 - row + 1, cols: col2 - col + 1 };
+}
+
+/** 每一格會記的格式（Range 上那一支設定 → 記在哪一格）。 */
+const FORMAT_SETTERS = {
+  setFontSize: 'fontSize',
+  setFontWeight: 'fontWeight',
+  setFontColor: 'fontColor',
+  setFontFamily: 'fontFamily',
+  setHorizontalAlignment: 'hAlign',
+  setVerticalAlignment: 'vAlign',
+  setWrap: 'wrap',
+};
+
 class FakeRange {
   constructor(sheet, row, col, rows, cols) {
     Object.assign(this, { sheet, row, col, rows, cols });
@@ -35,6 +68,12 @@ class FakeRange {
 
   /** 每一個排版動作都回自己，因為 .gs 裡到處都在串。 */
   #self() { return this; }
+
+  #each(fn) {
+    for (let r = 0; r < this.rows; r += 1) {
+      for (let c = 0; c < this.cols; c += 1) fn(this.row + r, this.col + c);
+    }
+  }
 
   setValue(value) {
     this.sheet.set(this.row, this.col, value);
@@ -61,6 +100,12 @@ class FakeRange {
     return this.#self();
   }
 
+  /** 每一列各自合併（Google 的 mergeAcross）。 */
+  mergeAcross() {
+    for (let r = 0; r < this.rows; r += 1) this.sheet.addMerge(this.row + r, this.col, 1, this.cols);
+    return this.#self();
+  }
+
   breakApart() {
     this.sheet.merges.length = 0;
     this.sheet.mergeBounds.length = 0;
@@ -68,22 +113,44 @@ class FakeRange {
   }
 
   setBackground(color) {
-    for (let r = 0; r < this.rows; r += 1) {
-      for (let c = 0; c < this.cols; c += 1) {
-        this.sheet.backgrounds.set(A1(this.row + r, this.col + c), color);
-      }
-    }
+    this.sheet.checkBounds(this.row + this.rows - 1, this.col + this.cols - 1);
+    this.#each((r, c) => this.sheet.backgrounds.set(A1(r, c), color));
     return this.#self();
   }
 
-  setBorder() { this.sheet.borders += 1; return this.#self(); }
-  setFontFamily(v) { this.sheet.fonts.add(v); return this.#self(); }
-  setFontSize() { return this.#self(); }
-  setFontWeight() { return this.#self(); }
-  setFontColor() { return this.#self(); }
-  setHorizontalAlignment() { return this.#self(); }
-  setVerticalAlignment() { return this.#self(); }
-  setWrap() { return this.#self(); }
+  setBorder(...args) {
+    this.sheet.borders += 1;
+    this.sheet.borderCalls.push({ range: `${A1(this.row, this.col)}:${A1(this.row + this.rows - 1, this.col + this.cols - 1)}`, args });
+    return this.#self();
+  }
+}
+
+for (const [method, key] of Object.entries(FORMAT_SETTERS)) {
+  FakeRange.prototype[method] = function setFormat(value) {
+    this.sheet.checkBounds(this.row + this.rows - 1, this.col + this.cols - 1);
+    if (key === 'fontFamily') this.sheet.fonts.add(value);
+    for (let r = 0; r < this.rows; r += 1) {
+      for (let c = 0; c < this.cols; c += 1) this.sheet.formats[key].set(A1(this.row + r, this.col + c), value);
+    }
+    return this;
+  };
+}
+
+/** `sheet.getRangeList([...])`：同一個動作套在每一塊上（Google 的 RangeList，沒有合併）。 */
+class FakeRangeList {
+  constructor(sheet, ranges) {
+    this.sheet = sheet;
+    this.ranges = ranges;
+  }
+
+  getRanges() { return [...this.ranges]; }
+}
+
+for (const method of ['setBackground', 'setBorder', 'breakApart', ...Object.keys(FORMAT_SETTERS)]) {
+  FakeRangeList.prototype[method] = function applyAll(...args) {
+    for (const range of this.ranges) range[method](...args);
+    return this;
+  };
 }
 
 class FakeProtection {
@@ -96,13 +163,21 @@ class FakeProtection {
   }
 
   setDescription(d) { this.description = d; return this; }
+  getDescription() { return this.description ?? ''; }
   addEditor(user) { this.editors.push(user); return this; }
   getEditors() { return this.editors; }
-  removeEditors(emails) { this.removed.push(...emails); return this; }
+  removeEditors(emails) {
+    this.removed.push(...emails);
+    this.editors = this.editors.filter((u) => !emails.includes(u.getEmail()));
+    return this;
+  }
   canDomainEdit() { return this.domainEdit; }
   setDomainEdit(v) { this.domainEdit = v; return this; }
   setWarningOnly(v) { this.warningOnly = v; return this; }
-  remove() { this.sheet.protections.length = 0; }
+  remove() {
+    const i = this.sheet.protections.indexOf(this);
+    if (i !== -1) this.sheet.protections.splice(i, 1);
+  }
 }
 
 class FakeSheet {
@@ -114,10 +189,14 @@ class FakeSheet {
     /** 同一份合併，但留著數字邊界 —— 凍結線的檢查要算得出來。 */
     this.mergeBounds = [];
     this.backgrounds = new Map();
+    /** 每一格最後一次設的格式（`FORMAT_SETTERS` 那幾種）。 */
+    this.formats = Object.fromEntries(Object.values(FORMAT_SETTERS).map((k) => [k, new Map()]));
     this.fonts = new Set();
     this.borders = 0;
+    this.borderCalls = [];
     this.protections = [];
     this.widths = new Map();
+    this.rowHeights = new Map();
     this.frozenRows = 0;
     this.frozenCols = 0;
     this.maxRows = 1000;
@@ -127,10 +206,14 @@ class FakeSheet {
     this.clears = 0;
   }
 
-  set(row, col, value) {
+  checkBounds(row, col) {
     if (row > this.maxRows || col > this.maxCols) {
       throw new Error(`「${this.name}」寫到範圍外：${A1(row, col)}（上限 ${A1(this.maxRows, this.maxCols)}）`);
     }
+  }
+
+  set(row, col, value) {
+    this.checkBounds(row, col);
     this.cells.set(A1(row, col), value);
   }
 
@@ -150,14 +233,36 @@ class FakeSheet {
     return new FakeRange(this, row, col, rows, cols);
   }
 
-  getLastRow() {
-    return [...this.cells.keys()].reduce((max, key) => Math.max(max, Number(key.replace(/^[A-Z]+/, ''))), 0);
+  getRangeList(a1s) {
+    if (!Array.isArray(a1s) || !a1s.length) throw new Error(`「${this.name}」getRangeList 要一個不是空的陣列`);
+    return new FakeRangeList(this, a1s.map((a1) => {
+      const { row, col, rows, cols } = parseA1(a1);
+      return this.getRange(row, col, rows, cols);
+    }));
   }
 
-  clear() { this.cells.clear(); this.backgrounds.clear(); this.clears += 1; }
+  /** **跟 Google 一樣只算有內容的格子**：寫進 `''` 或 null 的不算（2026-11-05 以前替身會算）。 */
+  getLastRow() {
+    let max = 0;
+    for (const [key, v] of this.cells) {
+      if (v === '' || v == null) continue;
+      max = Math.max(max, Number(key.replace(/^[A-Z]+/, '')));
+    }
+    return max;
+  }
+
+  clear() {
+    this.cells.clear();
+    this.backgrounds.clear();
+    for (const m of Object.values(this.formats)) m.clear();
+    this.borderCalls.length = 0;
+    this.clears += 1;
+  }
+
   clearConditionalFormatRules() {}
 
   addMerge(row, col, rows, cols) {
+    this.checkBounds(row + rows - 1, col + cols - 1);
     this.merges.push(`${A1(row, col)}:${A1(row + rows - 1, col + cols - 1)}`);
     this.mergeBounds.push({
       top: row, left: col, bottom: row + rows - 1, right: col + cols - 1,
@@ -186,9 +291,21 @@ class FakeSheet {
     }
     this.frozenCols = n;
   }
+
   setColumnWidth(col, w) { this.widths.set(col, w); }
-  setRowHeights() {}
+
+  setColumnWidths(start, n, w) {
+    if (n < 1) throw new Error(`「${this.name}」setColumnWidths 至少要一欄：${start},${n}`);
+    for (let i = 0; i < n; i += 1) this.widths.set(start + i, w);
+  }
+
+  setRowHeights(start, n, h) {
+    if (n < 1) throw new Error(`「${this.name}」setRowHeights 至少要一列：${start},${n}`);
+    for (let i = 0; i < n; i += 1) this.rowHeights.set(start + i, h);
+  }
+
   hideSheet() { this.hidden = true; }
+  isSheetHidden() { return this.hidden; }
 
   protect() {
     const p = new FakeProtection(this);
@@ -196,7 +313,7 @@ class FakeSheet {
     return p;
   }
 
-  getProtections() { return this.protections; }
+  getProtections() { return [...this.protections]; }
 }
 
 class FakeSpreadsheet {
@@ -221,16 +338,58 @@ class FakeSpreadsheet {
   toast(message, title) { this.toasts.push({ message, title }); }
 }
 
+/** 一張 Map（A1 → 值）收成照位置排好的陣列，空的格子不收（Google 裡寫 '' 跟沒寫一樣）。 */
+function sortedCells(map, { dropEmpty = false } = {}) {
+  const pos = (a1) => {
+    const { row, col } = parseA1(a1);
+    return row * 100000 + col;
+  };
+  return [...map.entries()]
+    .filter(([, v]) => !dropEmpty || (v !== '' && v != null))
+    .sort((a, b) => pos(a[0]) - pos(b[0]));
+}
+
+/**
+ * 整份試算表收成一份可以比的東西：每一張分頁的值、每一格的格式、合併、框線、欄寬、列高、凍結、鎖、藏起來了沒。
+ * 合併照位置排（先合併哪一塊不影響長相）；框線照呼叫的先後（後畫的蓋掉先畫的）。
+ */
+export function snapshotOf(ss) {
+  return ss.getSheets().map((s) => ({
+    name: s.name,
+    hidden: s.hidden,
+    frozenRows: s.frozenRows,
+    frozenCols: s.frozenCols,
+    maxRows: s.maxRows,
+    maxCols: s.maxCols,
+    values: sortedCells(s.cells, { dropEmpty: true }),
+    backgrounds: sortedCells(s.backgrounds),
+    formats: Object.fromEntries(Object.entries(s.formats).map(([k, m]) => [k, sortedCells(m)])),
+    merges: [...s.merges].sort(),
+    borders: s.borderCalls,
+    widths: [...s.widths.entries()].sort((a, b) => a[0] - b[0]),
+    rowHeights: [...s.rowHeights.entries()].sort((a, b) => a[0] - b[0]),
+    protections: s.protections.map((p) => ({
+      description: p.description ?? null,
+      removed: [...p.removed].sort(),
+      domainEdit: p.domainEdit,
+      warningOnly: p.warningOnly,
+    })),
+  }));
+}
+
 /**
  * 載入 .gs 並回傳它的全域函式，加上可以斷言的替身。
  *
- * @param {{token?: string, sheetNames?: string[], lock?: boolean}} [options]
+ * @param {{token?: string, sheetNames?: string[], lock?: boolean, source?: string}} [options]
+ *   `source`：拿另一份 `.gs` 的原始碼來跑（比改前改後用，`scripts/sheet-gs-compare.mjs`）
  */
-export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true } = {}) {
+export function loadAppsScript({
+  token = 'secret', sheetNames = [], lock = true, source = null,
+} = {}) {
   const ss = new FakeSpreadsheet(sheetNames);
   // 文件屬性（格式 8 記每一頁的指紋）。同一個替身裡推好幾次都留著 —— 跟真的試算表一樣
   const docProps = new Map();
-  const source = readFileSync(new URL('../../sheets/readonly-report.gs', import.meta.url), 'utf8');
+  const code = source ?? readFileSync(new URL('../../sheets/readonly-report.gs', import.meta.url), 'utf8');
 
   const context = createContext({
     SpreadsheetApp: {
@@ -247,6 +406,7 @@ export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true 
       getDocumentProperties: () => ({
         getProperty: (k) => (docProps.has(k) ? docProps.get(k) : null),
         setProperty: (k, v) => { docProps.set(k, String(v)); },
+        setProperties: (map) => { for (const [k, v] of Object.entries(map)) docProps.set(k, String(v)); },
         deleteProperty: (k) => { docProps.delete(k); },
         getProperties: () => Object.fromEntries(docProps),
       }),
@@ -267,6 +427,6 @@ export function loadAppsScript({ token = 'secret', sheetNames = [], lock = true 
     RegExp,
   });
 
-  runInContext(source, context, { filename: 'readonly-report.gs' });
+  runInContext(code, context, { filename: 'readonly-report.gs' });
   return { ss, context, docProps, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
 }
