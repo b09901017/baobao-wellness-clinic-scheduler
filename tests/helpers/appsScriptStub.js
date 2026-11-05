@@ -384,7 +384,7 @@ export function snapshotOf(ss) {
  *   `source`：拿另一份 `.gs` 的原始碼來跑（比改前改後用，`scripts/sheet-gs-compare.mjs`）
  */
 export function loadAppsScript({
-  token = 'secret', sheetNames = [], lock = true, source = null,
+  token = 'secret', sheetNames = [], lock = true, source = null, now = () => 0,
 } = {}) {
   const ss = new FakeSpreadsheet(sheetNames);
   // 文件屬性（格式 8 記每一頁的指紋）。同一個替身裡推好幾次都留著 —— 跟真的試算表一樣
@@ -422,6 +422,8 @@ export function loadAppsScript({
       getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }),
     },
     console: { log: (...args) => { logs.push(args.map(String).join(' ')); } },
+    // 時鐘固定（`now`）：計時那一行寫進 `_data` 的 B1，整份試算表的雜湊才每次一樣。`.gs` 只用 `Date.now()`
+    Date: { now },
     JSON,
     String,
     Number,
