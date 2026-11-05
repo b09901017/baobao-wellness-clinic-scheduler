@@ -52,7 +52,6 @@ import { tip } from '../components/tip.js';
 import { confirmAction, confirmReview, confirmWithOption } from '../components/dialog.js';
 import { relinkAfterSave } from '../relinkFollowup.js';
 import * as toast from '../toast.js';
-import { isOffline } from '../net.js';
 import { go } from '../router.js';
 import { back } from '../nav.js';
 
@@ -1469,6 +1468,12 @@ async function submit(ctx, draft) {
   // **按下去那一刻重讀這位客戶的全部來訪**（ADR-0158）：打開時讀的那一份可能是快取裡剛好有的那幾筆 ——
   // 拿它驗、拿它算次數就是少算；沿用的話那一次是快取的就永遠存不進去。讀不完整就講一句，畫面上的字留著
   if (!await refreshCustomerVisits(ctx)) return null;
+  // 撞期提醒用的那一天的來訪也換成現在的（只影響提醒：讀不到就沿用手上那一份，不擋她）
+  try {
+    ctx.sameDayVisits = await visitsData.listByDate(draft.date);
+  } catch {
+    /* 沿用 */
+  }
   const { el, customer, entitlements, all, customerVisits, sameDayVisits } = ctx;
 
   // 「健檢不是我排的」還沒選第幾返（exam-not-mine 06）：要先擋 —— 帶標記、沒有返數的段就是二返，
@@ -1637,12 +1642,12 @@ const coursesByIdOf = (all) => Object.fromEntries((all?.courses ?? []).map((c) =
  * 這位客戶的全部來訪重讀一次、換進 `ctx`（ADR-0158）。讀不完整（離線、讀到快取）或讀不到就講一句、回 false ——
  * 呼叫端不往下走，畫面上她打的字原封不動。
  *
- * **打開時讀到的就是伺服器的全部、現在也沒有確定離線**就不再讀：確認框不晚一拍；別台在那之後改了這一筆，
- * `save()` 的 `ifUpdatedAt` 照樣擋。要重讀的是打開那一刻讀到快取的那一種 —— 沿用它的話永遠存不進去。
+ * **每一次都讀，不沿用打開那一刻的那一份**（2026-11-05，11/4 健檢 #1）：以前打開時讀到伺服器那一份就不再讀，
+ * 理由是「別台改了這一筆，`save()` 的 `ifUpdatedAt` 照樣擋」—— 那只擋**這一筆**。別台在那之後替同一位排了**別筆**
+ * （扣同一筆額度、或同一天），這裡拿舊的那一份重算額度就少算那一段、`sameDayVisitFor()` 看不到那一天已經有一筆
+ * （ADR-0083：同一天長出第二筆）。代價是確認框晚一拍，跟另外七個存來訪的入口一樣。
  */
 async function refreshCustomerVisits(ctx) {
-  // 陣列是伺服器那一份、**而且這一位最近一次讀到的也是**（`save()` 問的是後者；別處從快取讀過一次就換掉了）
-  if (visitsData.isWholeList(ctx.customerVisits) && visitsData.lastReadWhole(ctx.customer.id) && !isOffline()) return true;
   try {
     ctx.customerVisits = await visitsData.listWhole(ctx.customer.id, ctx.customer.name);
     return true;

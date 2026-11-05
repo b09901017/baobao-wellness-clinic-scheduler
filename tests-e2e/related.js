@@ -672,6 +672,33 @@ export const COVERAGE = {
     'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
     'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
   ],
+  // 來訪編輯器按儲存那一刻重讀這位客戶的全部來訪（small-fixes-2026-11-05 01，11/4 健檢 #1）
+  '88-editor-rereads-on-save': [
+    'public/js/ui/views/visitEditor.js', 'public/js/data/visits.js',
+  ],
+  // 重算次數：算完之後那一筆額度被別處改過就不寫（small-fixes-2026-11-05 03，11/4 健檢 #3）
+  '90-recount-stale': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/data/customers.js',
+  ],
+  // 營養品「記交付」寫之前重讀那一筆額度（small-fixes-2026-11-05 04，11/4 健檢 #4）
+  '89-delivery-once': [
+    'public/js/data/notes.js', 'public/js/ui/views/customerDetail.js', 'public/js/domain/products.js',
+  ],
+  // 隨手記「挑日期」那一顆本身就是日期框、點得到、選了就記上（small-fixes-2026-11-05 05）：四個入口都走一次
+  '91-note-date-one-tap': [
+    'public/js/ui/components/note.js', 'public/css/app.css', 'public/js/ui/views/home.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 行事備註的顏色：第一顆是實心的預設色、重複的那一色不列、休假每顆斜線（small-fixes-2026-11-05 07，ADR-0171）
+  '92-event-colour-swatches': [
+    'public/js/ui/views/eventEditor.js', 'public/js/domain/events.js', 'public/css/app.css',
+  ],
+  // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
+  '93-health-fix-once': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
+    'public/js/data/customers.js',
+  ],
 };
 
 /**
@@ -730,6 +757,16 @@ export const CSS_SCOPES = {
   tsl: { classes: ['tsl'], owners: ['public/js/ui/components/sheetConfirm.js'] },
   // 「送的／體驗…」收起來的那一段（壓表、來訪編輯器、拍 Abovee 共用）
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
+  // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
+  notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 挑顏色那一排圓點：客戶備註、長備註那幾則的編輯、設定頁警示、行事備註（ADR-0171 的 `.swatches--event`）
+  swatch: {
+    classes: ['swatch', 'swatches'],
+    owners: [
+      'public/js/ui/components/marks.js', 'public/js/ui/components/notesEditor.js',
+      'public/js/ui/views/masterList.js', 'public/js/ui/views/eventEditor.js',
+    ],
+  },
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

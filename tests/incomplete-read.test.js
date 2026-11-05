@@ -219,11 +219,12 @@ describe('原始碼：畫面那一側', () => {
   test('來訪編輯器：存與取消一段之前重讀全部（打開時讀一次就沿用的話，快取來的那一份永遠存不進去）', () => {
     const src = read('public/js/ui/views/visitEditor.js');
     assert.match(bodyOf(src, 'refreshCustomerVisits'), /listWhole\(/);
-    // 打開時讀到的就是伺服器那一份（同一個陣列）才不重讀 —— 確認框不晚一拍
-    assert.match(bodyOf(src, 'refreshCustomerVisits'), /isWholeList\(ctx\.customerVisits\)/);
-    // 段四審查：而且這一位最近一次讀到的也是伺服器的 —— `save()` 問的是那一格（`visitsRead`），
-    // 只看陣列的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（兩份真相）
-    assert.match(bodyOf(src, 'refreshCustomerVisits'), /lastReadWhole\(ctx\.customer\.id\)/);
+    // 2026-11-05（11/4 健檢 #1）：**每一次都讀**，不再「打開時讀到伺服器那一份就沿用」——
+    // `ifUpdatedAt` 只擋這一筆，別台在那之後替同一位排的別筆（同一筆額度、同一天）沿用的那一份看不到：
+    // 額度少算一段、同一天長出第二筆。E2E `88` 量那兩種
+    assert.doesNotMatch(bodyOf(src, 'refreshCustomerVisits'), /isWholeList/);
+    assert.doesNotMatch(bodyOf(src, 'refreshCustomerVisits'), /lastReadWhole/);
+    assert.doesNotMatch(bodyOf(src, 'refreshCustomerVisits'), /return true;[\s\S]*try/, '讀之前不可以提前 return');
     for (const name of ['submit', 'cancelOneSlot']) {
       const body = bodyOf(src, name);
       const at = body.indexOf('refreshCustomerVisits(');

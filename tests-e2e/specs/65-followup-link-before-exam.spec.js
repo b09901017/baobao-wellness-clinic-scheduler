@@ -64,6 +64,9 @@ function seedTwoExams() {
 
 /** 存檔前那幾道確認一道一道按掉（提醒那一道、壓好了嗎那一道） */
 async function okAll(app) {
+  // 先等第一道出來：來訪編輯器按下去先重讀這位客戶的全部來訪才開確認框（small-fixes-2026-11-05 01），
+  // 一按完就問 isVisible() 的話問在那一次讀取回來之前，一道都沒按到（靠快慢才綠，lessons 十五）
+  await expect(app.dialog()).toBeVisible();
   for (let i = 0; i < 3; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     if (!(await app.dialog().isVisible())) return;
@@ -213,7 +216,8 @@ test('L4 健檢取消之後另約一次健檢：存檔前那一道講「那一�
   await page.locator('[data-chip="s0-ent"][data-chip-value="ent-exam"]').click();
   await page.click('button[type="submit"]');
 
-  // 提醒那一道（還沒選診間之類）先按掉，到「壓好了嗎」那一道看那一句
+  // 提醒那一道（還沒選診間之類）先按掉，到「壓好了嗎」那一道看那一句。先等第一道出來（同 `okAll()`）
+  await expect(app.dialog()).toBeVisible();
   let said = '';
   for (let i = 0; i < 3 && await app.dialog().isVisible(); i += 1) {
     // eslint-disable-next-line no-await-in-loop

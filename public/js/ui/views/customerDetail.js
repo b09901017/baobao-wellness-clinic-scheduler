@@ -1154,13 +1154,25 @@ function kindText(e, ctx) {
 }
 
 async function fixCounts(ctx, entId) {
-  const e = ctx.entitlements.find((x) => x.id === entId);
-  // **按下去那一刻重讀全部**（ADR-0158）：打開這一頁那一刻讀到的可能是快取裡剛好有的那幾筆，照它改就是少算
+  // **按下去那一刻重讀全部**（ADR-0158）：打開這一頁那一刻讀到的可能是快取裡剛好有的那幾筆，照它改就是少算。
+  // **額度那一筆也重讀**（2026-11-05，跟資料健檢的重算次數同一個洞，11/4 健檢 #3）：寫的時候帶它的 `updatedAt` ——
+  // 確認框開著的時候別台存了一段（額度被那一台寫對了），按「修正」就不蓋回去。
+  // 不拿打開這一頁那一刻的那一份比：這一頁存過一段來訪它就換了，拿它比會假擋
   let visits;
+  let e;
   try {
-    visits = await visitsData.listWhole(ctx.id, ctx.customer?.name);
+    [visits, e] = await Promise.all([
+      visitsData.listWhole(ctx.id, ctx.customer?.name),
+      data.listEntitlements(ctx.id).then((rows) => rows.find((x) => x.id === entId)),
+    ]);
   } catch (err) {
     toast.readFailed(err);
+    return;
+  }
+  // 那一筆在別處刪掉了（這一頁還畫著它）：講一句、重畫這一頁讓那一張收掉 —— 一聲不響的話她會以為按鈕壞了（段三審查）
+  if (!e) {
+    toast.info('這一筆額度已經不在了（可能在別的地方刪掉了）');
+    reload(ctx);
     return;
   }
   const rec = reconcile(e, visits, entId);
@@ -1183,7 +1195,7 @@ async function fixCounts(ctx, entId) {
         doneCount: rec.actual.done,
         bookedCount: rec.actual.booked,
         lastReconciledAt: new Date().toISOString(),
-      }),
+      }, { ifUpdatedAt: e.updatedAt ?? null }),
       // 計數改了，健檢那條鏈可能跟著動（ADR-0159）—— 這一道確認框沒講到，存完講一句（issue 19）
       { success: (chain) => `已修正${chainSavedSay(chain)}` },
     );
@@ -1398,7 +1410,8 @@ async function runProductAction(ctx, e, reminder, action) {
           customerName: ctx.customer.name,
           products: ctx.products ?? [],
         }),
-        { success: all ? '都給了，記起來了' : '記起來了' },
+        // 寫入還在飛的時候再記一次接到同一趟（寫完之後再記，`recordDelivery()` 重讀那一筆額度擋著）
+        { success: all ? '都給了，記起來了' : '記起來了', key: `delivery:${e.id}` },
       );
       await reload(ctx);
     }

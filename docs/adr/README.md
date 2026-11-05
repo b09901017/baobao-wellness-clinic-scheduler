@@ -17,6 +17,7 @@
 | [0025](./0025-what-happened-is-recorded-per-slot.md) 預約的狀態記在來訪上，那天實際發生了什麼記在時段上 | 後半（「前三個逐段不會不一樣」）—— 整條生命週期記在時段上 | [0081](./0081-the-slot-carries-the-lifecycle.md) |
 | [0030](./0030-future-candidates-are-ticked-by-default.md) 還沒發生的候選預設勾起來，已經發生的預設不勾 | 用在拍 Abovee 過去那幾列的做法（日子過了的不預設勾） | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
 | [0033](./0033-a-sent-link-is-a-third-state-of-asking.md) 「連結已發出、還沒填」是問時間的第三種狀態，但不改變那一列的定義 | 一半：待辦中心一列的說明搬到她真的要操作的那一頁 | [0072](./0072-a-row-on-the-todo-centre-is-only-a-title.md) |
+| [0040](./0040-a-personal-event-picks-its-own-colour.md) 個人行程自己挑顏色，存的是名字不是色碼 | Consequences 最後一點（「不挑」那一顆做成空心圈）—— 第一顆是實心的預設色、六色裡重複的那一色不列、休假每一顆都畫斜線 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) |
 | [0041](./0041-the-sheet-is-the-registration.md) 壓表本身就是登記，所以 Abovee 不是待辦 | 「同一種取消任務只長一張」—— 改成逐段長 | [0091](./0091-a-cancel-task-knows-which-slots.md) |
 | [0042](./0042-the-report-comes-before-the-follow-up.md) 二返前面還有一站：報告還沒拿到 | 「追蹤健檢報告只在還欠二返時產生」 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) |
 | [0050](./0050-the-health-check-can-rename-an-imported-note.md) 資料健檢也改得掉匯入寫錯的那個字 | 整支的核心：病歷號不再是一則備註，是客戶身上的一格 | [0160](./0160-chart-number-is-a-field.md) |
@@ -60,7 +61,7 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 
-## 全部（168 支）
+## 全部（169 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -103,7 +104,7 @@
 | [0037](./0037-the-wall-can-be-re-sorted-but-never-re-scored.md) | 卡片牆的排序可以換，但每一種都只是同一份名單的重排 | 2026-08-22 | 現行 |
 | [0038](./0038-picking-an-option-does-not-repaint-the-page.md) | 在壓表面板上選一個東西，不重畫整頁 | 2026-08-22 | 現行 |
 | [0039](./0039-six-things-on-the-calendar-need-six-colours.md) | 日曆上有六種東西要分辨，所以狀態色不再借用語意色 | 2026-08-23 | 現行 |
-| [0040](./0040-a-personal-event-picks-its-own-colour.md) | 個人行程自己挑顏色，存的是名字不是色碼 | 2026-08-23 | 現行 |
+| [0040](./0040-a-personal-event-picks-its-own-colour.md) | 個人行程自己挑顏色，存的是名字不是色碼 | 2026-08-23 | 部分被推翻 → ADR-0171 |
 | [0041](./0041-the-sheet-is-the-registration.md) | 壓表本身就是登記，所以 Abovee 不是待辦 | 2026-08-23 | 部分被推翻 → ADR-0091 |
 | [0042](./0042-the-report-comes-before-the-follow-up.md) | 二返前面還有一站：報告還沒拿到 | 2026-08-23 | 部分被推翻 → ADR-0139 |
 | [0043](./0043-the-todo-centre-follows-the-flow.md) | 待辦中心照流程分段，階段色就是來訪狀態色 | 2026-08-23 | 現行 |
@@ -234,3 +235,4 @@
 | [0168](./0168-sign-in-through-the-apps-own-address.md) | Google 登入走 app 自己的網址（iPad 主畫面那一顆才登得進去） | 2026-10-21 | 現行 |
 | [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |
+| [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |

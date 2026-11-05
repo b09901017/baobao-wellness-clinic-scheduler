@@ -130,16 +130,23 @@ export async function setDone(id, done) {
  * @returns {Promise<object|null>} 寫完之後的那一筆提醒（沒有提醒就回 null）
  */
 export async function recordDelivery(note, entitlement, delivery, ctx = {}) {
-  const patch = withDelivery(entitlement, delivery);
+  const customerId = note?.customerId ?? ctx.customerId;
+  const path = `customers/${customerId}/entitlements`;
+  // **寫之前重讀那一筆額度、拿重讀的那一份判斷給過了沒**（2026-11-05，11/4 健檢 #4）：呼叫端手上那一份是打開畫面那一刻的 ——
+  // 第一次寫完、畫面還沒重讀（或 toast 按重試）就再記一次同一款，`deliveries` 就多一筆一樣的，而那一份會進試算表。
+  // 讀回來的帶著這一台還沒送出的寫入；`ifUpdatedAt` 擋不住這一種（還沒回到伺服器的 serverTimestamp 讀回來是 null）。
+  // 讀不到就照手上那一份（跟以前一樣）
+  const fresh = customerId ? await repo.getOne(path, entitlement.id).catch(() => null) : null;
+  const current = fresh ?? entitlement;
+  const patch = withDelivery(current, delivery);
   // 沒有東西要記（她點成一款都沒給、或那幾款早就給過了）：不寫，
   // 那一筆提醒也就原封不動。
   if (!patch) return note ? { ...note } : null;
 
-  const customerId = note?.customerId ?? ctx.customerId;
   const customerName = note?.customerName ?? ctx.customerName ?? '';
   const master = ctx.products ? { products: ctx.products } : undefined;
 
-  const after = { ...entitlement, ...patch };
+  const after = { ...current, ...patch };
   const finished = isFullyDelivered(after);
   const at = new Date().toISOString();
   const changes = finished
@@ -149,7 +156,7 @@ export async function recordDelivery(note, entitlement, delivery, ctx = {}) {
   await repo.commit([
     {
       op: 'update',
-      path: `customers/${customerId}/entitlements`,
+      path,
       id: entitlement.id,
       changes: patch,
     },
