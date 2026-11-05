@@ -1169,7 +1169,12 @@ async function fixCounts(ctx, entId) {
     toast.readFailed(err);
     return;
   }
-  if (!e) return;
+  // 那一筆在別處刪掉了（這一頁還畫著它）：講一句、重畫這一頁讓那一張收掉 —— 一聲不響的話她會以為按鈕壞了（段三審查）
+  if (!e) {
+    toast.info('這一筆額度已經不在了（可能在別的地方刪掉了）');
+    reload(ctx);
+    return;
+  }
   const rec = reconcile(e, visits, entId);
 
   const ok = await confirmAction({

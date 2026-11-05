@@ -50,6 +50,23 @@ test('R2 客戶詳情的「修正」：確認框開著的時候別處改過那�
   expect([ent.doneCount, ent.bookedCount], '別台寫的那一份留著').toEqual([1, 1]);
 });
 
+test('R4 客戶詳情的「修正」：那一筆額度在別處刪掉了 → 講一句、那一張收掉，不是一聲不響（段三審查）', async ({ app, page }) => {
+  const docs = scenarioBrokenCounts();
+  await app.seed(docs);
+  await app.signIn('/customers/cust-e');
+  const fix = page.locator('[data-fix="ent-e-vein"]');
+  await expect(fix).toBeVisible();
+
+  const ent = docs.find((d) => d.id === 'ent-e-vein');
+  await seedDocs([{ ...ent, data: { ...ent.data, deletedAt: new Date() } }]);
+  await fix.click();
+
+  await expect(page.locator('#toast'), '講出來').toContainText('已經不在了');
+  await expect(fix, '重畫之後那一張不在了').toHaveCount(0);
+  const after = await app.readDoc('customers/cust-e/entitlements', 'ent-e-vein');
+  expect([after.doneCount, after.bookedCount], '刪掉的那一筆沒被寫').toEqual([5, 3]);
+});
+
 test('R3 沒人改過：客戶詳情照常修好', async ({ app, page }) => {
   await app.seed(scenarioBrokenCounts());
   await app.signIn('/customers/cust-e');
