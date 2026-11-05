@@ -158,6 +158,8 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
 4. 知道就好：一次性客人照片上寫「體驗」的列不提醒任何一句（第 4 題：不看預約來源；他本來就不扣）
 5. **月底對帳那一塊的小字（段二第 6 條、段三第 7 條）**：照第 4 題推（拍 Abovee 有「記成一次性客人」了），`report.mjs` 那一塊的小字改成「不是妳的客人就不用管；要記進 app，拍 Abovee 時按「記成一次性客人」。」—— 08 改，不用問她
 6. E2E：本機跑了 `96`、`85` 與碰確認層的九支（`41`、`51`、`57`、`62`、`65`、`67`、`68`、`86`、`87`）；`--related` 挑到 92 支（幾乎全量），全量交給段末的 CI
+7. **CI 全量 E2E**：07、08 推上去之後跑了 `gh workflow run e2e-full.yml --ref claude/one-time-visit-design`，run `41990743459`（跑在 `cfb60ed3`）——
+   段四結束時還在跑，**段五開頭先看**（紅了先記進段五的發現、段六修；那是 07 的，或 08 動到的 `report.mjs`）
 
 ## 手動驗收清單（草稿，段四整理；段六在本機模擬器走一次再交給她）
 
@@ -298,8 +300,43 @@ ADR 再寫新的從 0175 起。模擬器同一時間只能一組在跑：起之�
 做完要交：各一個 commit（推到 origin 的同一條分支）、HANDOFF 更新、段五的開場、簡短回覆。
 ```
 
-### 段五（xhigh，審查單獨一段）、段六（medium）
+### 段五（effort：xhigh）—— 段四做完時寫（11/5）
 
-段四做完時寫。段五：`/matt-code-review` 審這一輪全部（從設計段的第一個 commit 起），「要特別看的」寫成判準問句＋要查牽連的符號
-（`isOneTime`、`isOneTimeSlot`、`withOneTimeChain`、`chainInputs`、`syncBundle`、`customerReport`、`slotFromPicks`、`validateVisit`；grep `oneTime:`）。
-段六：照審查修（每條先紅燈）、手動驗收清單在模擬器走一次、推之前看一眼有沒有真名／公司名、開 PR 進 develop、CI 綠了合併（CLAUDE.md：不用再問）。
+```
+這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一～四做完 01–08（commit 見 git log），文件也整理好了。
+這一段只審查、不改程式：用 /matt-code-review 審這一輪全部 —— 基準是 git merge-base origin/develop HEAD（設計段的第一個 commit 是 fa0d2703；
+中間合併過 develop，審的是這條分支自己的 diff：git diff origin/develop...HEAD）。spec 是 .scratch/one-time-guests/spec.md 與 issue 01–08、ADR-0172。
+
+先做：
+1. gh run view 41990743459（段四的 CI 全量，跑在 cfb60ed3）—— 還在跑就先讀文件；紅了記進這一段的發現（段六修），不要在這一段修
+2. git fetch；落後 develop 就合併、不要 rebase（ccd_host 的 sync_with_base_branch，沒有就 git merge origin/develop）—— rebase 之後只能強制推送，auto mode 會擋；擋了就停下來問她
+3. 讀 CLAUDE.md（連動表「一次性客人」那一列是段四寫的，也要審它講的是不是真的）、docs/agents/lessons.md、ADR-0172、spec.md、
+   HANDOFF（共同的規矩、過目抓到的、中途發現段一～段四）、01–08 的「做完時留下的」
+
+要特別看的（寫成判準問句；每一條照 ripple-check 查牽連，用這個 worktree 自己的 CodeGraph 索引 —— 改了才要 codegraph sync —— 照樣跟 grep 對一次）：
+- 整輪的判準：這一行會不會讓一位一般客戶或一段沒有標記的段被放寬、被藏起來，或讓一次性的段被算進任何一筆真的額度、出現在試算表上？
+- 虛擬那一對（withOneTimeChain／originalOf／assertNoOneTimeIds）：有沒有任何一條寫入路徑帶著 oneTime: 開頭的 id 存得下去？有沒有一處回給畫面的是投影過的那一份？
+- 名單排除：每一份會列客戶的名單（grep isOneTime、inCustomerList、customers.filter）有沒有漏一處？「看已停用的」那一份列不列一次性客人？
+- 叫鏈之前先收手的那幾處（chainInputs 三個參數、hasOneTimeSlots／hasFollowupChain、cannotClose／closeBlocks 的 coursesById）：有沒有新的呼叫端漏傳？
+- slotFromPicks／validateVisit：一次性的二返沒接健檢也沒 examNotMine 存得下去嗎？接在一次性健檢上的 n返 不標存得下去嗎？
+- 拍 Abovee（07）：guest／guestCourseId／guestSecond／bothSeconds 在 resolveItem 的 next、pickOption 的 base、asRecorded 三處清乾淨了嗎？
+  換一位（一般 ⇄ 一次性 ⇄ 轉成客戶那一位）有沒有殘留？recordGuestOnPhoto 會不會動到別人的列？linkBatchExams 的 keys 有沒有讓別列她選好的被重設？
+- 試算表（syncBundle／customerReport／sheetVisits／guestTask）：混著一般與一次性的段的那一天，整筆狀態重推對不對？
+- 文件：連動表那一列、SPEC 規則 13、操作手冊七之六講的函式名與畫面上的字，grep 得到、點得到嗎？
+要查牽連的符號：isOneTime、isOneTimeSlot、withOneTimeChain、chainInputs、syncBundle、customerReport、slotFromPicks、validateVisit、
+guestOptions、oneTimeExamChoices、guestExamChoices、recordGuestOnPhoto、picksOf；grep `oneTime:`。
+
+段五要另外判斷的兩件（HANDOFF 中途發現）：段三第 2 條（轉成客戶之後改以前的一次性段、按真的額度 → 擋下來那一句要不要換）、
+段四第 1 條（日曆新增那一則「已建立名字卡」的復原要不要關掉）。都不用問她，寫成審查的發現與建議。
+
+審查結果寫進 .scratch/one-time-guests/REVIEW.md（每一條：在哪裡、什麼情境會錯、建議怎麼修、嚴重程度；確定是錯才寫，先重現）。
+同時最多兩個 subagent。不改程式、不開 PR。模擬器要用的話：起之前先看 port 上有沒有人，有的話不要停掉別人的，先問她；跑完照那幾組的 port 停。
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+做完要交：REVIEW.md 與 HANDOFF 更新（一個 commit，推到 origin 的同一條分支）、段六的開場、簡短回覆。
+```
+
+### 段六（effort：medium）—— 段五做完時對過再用
+
+段六：照 REVIEW.md 修（每條先紅燈、照 ripple-check 查牽連）、HANDOFF「手動驗收清單（草稿）」在本機模擬器走一次（會寫入的在模擬器走；走不通的那一步改清單）、
+`sw.js` 的 VERSION 照共同的規矩再升、推之前 `node --test tests/no-secrets.test.js` skipped 0 並看一眼有沒有真名／公司名（commit 訊息、PR 內文也是）、
+開 PR 進 **develop**（內文附手動驗收清單）、CI 綠了合併（CLAUDE.md：不用再問）。
