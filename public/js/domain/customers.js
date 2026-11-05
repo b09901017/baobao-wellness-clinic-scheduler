@@ -49,6 +49,30 @@ export function oneTimeCustomer({ name, chartNo = null, phone = null, lineId = n
  */
 export const toMyCustomer = () => ({ oneTime: false });
 
+/** 客戶清單的三份（ADR-0172）：在服務中、已停用、一次性客人。 */
+export const CUSTOMER_LISTS = Object.freeze(['active', 'inactive', 'oneTime']);
+
+/**
+ * 客戶清單上那一份列不列他（ADR-0172 決定一、spec 第 2 題）。**三份互斥**：
+ * 一次性客人只在「看一次性客人」那一份 —— 平常那一份與已停用那一份都不列他（他沒有停用：不要了就刪）；
+ * 那一份也不列一般客戶。刪掉的哪一份都不列。
+ *
+ * @param {object} customer
+ * @param {'active'|'inactive'|'oneTime'} [list]
+ */
+export function inCustomerList(customer, list = 'active') {
+  if (!customer || customer.deletedAt) return false;
+  if (isOneTime(customer)) return list === 'oneTime';
+  if (list === 'oneTime') return false;
+  return list === 'inactive' ? customer.active === false : customer.active !== false;
+}
+
+/**
+ * 新增客戶打到一次性客人的名字時那一句（spec 第 6 題）。**不放連結**：存檔前那一道（`confirmReview()`）只收字串，
+ * 所以句子自己指路。
+ */
+export const GUEST_SAME_NAME = '有一位同名的一次性客人 —— 要把他轉成妳的客戶，去客戶清單最底下「看一次性客人」點他、按「轉成我的客戶」';
+
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
  * 沒有上限就算不出那個比值，所以它必須是個常數而不是隨手填的數字。
@@ -188,11 +212,18 @@ export function fieldWarnings(c, existing = []) {
   const sameName = existing.filter(
     (e) => e.id !== c.id && !e.deletedAt && String(e.name ?? '').trim() === name,
   );
+  // 一次性客人（ADR-0172）：**一般客戶**打到同名的一次性客人，那一句換成指路去轉（spec 第 6 題）；
+  // 名字卡本身（他也是一次性的）照舊數每一位。名字卡選填電話與 LINE，所以不講「沒有聯絡方式」
+  const regular = !isOneTime(c);
+  const guests = regular ? sameName.filter(isOneTime).length : 0;
+  const mine = sameName.length - guests;
+  const said = [
+    mine ? `已經有 ${mine} 位客戶也叫「${name}」，確認不是同一個人嗎？` : null,
+    guests ? GUEST_SAME_NAME : null,
+  ].filter(Boolean);
   return {
-    name: name && sameName.length
-      ? `已經有 ${sameName.length} 位客戶也叫「${name}」，確認不是同一個人嗎？`
-      : null,
-    contact: isBlank(c.phone) && isBlank(c.lineId)
+    name: name && said.length ? said.join(' ') : null,
+    contact: regular && isBlank(c.phone) && isBlank(c.lineId)
       ? '沒有電話也沒有 LINE，之後問時間會找不到人'
       : null,
     chartNo: chartNoClash(c, existing),

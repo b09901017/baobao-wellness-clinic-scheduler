@@ -3677,6 +3677,45 @@ button.mark--contact::after {
   border-color: var(--overdue-bg);
 }
 
+/* ---------- 一次性客人（ADR-0172） ---------- */
+/* 名字旁邊那一小格「一次性」：小灰字，不是丸子（spec 第 5 題）。讀取卡片、名字卡那一頁、
+   客戶清單「看一次性客人」那一份、找人的框（要幫誰排？、批次取消、隨手記掛給誰）共用 */
+.guestmark {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  color: var(--text-mute);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 客戶清單最底下那一排（看已停用的、看一次性客人）：兩顆放得進一行 */
+.custfoot {
+  flex-wrap: nowrap;
+}
+
+/* 名字卡那一頁：三列「病歷號／電話／LINE 名字」 */
+.guestcard {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-4) 0 0;
+}
+.guestcard dt {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+.guestcard dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.guestconvert {
+  margin: var(--space-6) 0 0;
+}
+
 /* ---------- 進度追蹤 ---------- */
 /*
  * 一位客戶一張卡，卡裡一天一組，**一段一顆按鈕**（2026-09-12）。

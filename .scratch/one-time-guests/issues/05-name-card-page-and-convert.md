@@ -1,6 +1,6 @@
 # 05：客戶清單最底下的連結、一次性客人名單、名字卡那一頁、轉成我的客戶
 
-Status: todo
+Status: done
 Blocked by: 01、02、03（轉成客戶的確認框講鏈上的事）
 
 ## 動工前先讀
@@ -55,4 +55,20 @@ Blocked by: 01、02、03（轉成客戶的確認框講鏈上的事）
 
 ## 做完時留下的
 
-（做完的那一段寫）
+段三（2026-11-05）。測試在 `tests/one-time-name-card.test.js`（16 條）與 E2E `94-one-time-guest-card`（7 支，本機 2 個 worker 跑過全綠）。
+
+- **客戶清單**（`customers.js`）：`view.showInactive` 換成 `view.list`（`'active'|'inactive'|'oneTime'`）；列誰只問 domain 的 `inCustomerList(customer, list)`（`domain/customers.js`，三份互斥、刪掉的哪一份都不列）。
+  最底下那一排 `[data-listlinks]`（`.footlinks.custfoot`）：兩顆 `[data-list]`，現在看的那一份那一顆寫「看在服務中的」。標題那一行只剩「看這個月的進度」「長備註」。
+  「看一次性客人」那一份的卡是 `guestCard()`（`[data-guestrow]`：名字＋`.guestmark`「一次性」、警示、備註那一排；沒有額度那一段）。懸浮鈕：`.app__main:has(.fab)` 本來就讓 130px，E2E O1 量中心點最上層是它自己
+- **名字卡表單**：`ui/components/guestForm.js` 的 `mountGuestForm(host, { card, id, existing, alerts, quick, submitLabel, onSubmit, onCancel })`，`onSubmit({ card })`
+  （`cardOf()`：`{ name, chartNo, phone, lineId, flags }`，交給 `oneTimeCustomer()`）。`quick: true` 只露名字、病歷號、電話（06 日曆新增、07 拍 Abovee 用）。
+  選擇器：`[data-gf-form]`、`[name="name|chartNo|phone|lineId"]`、`[data-gf-submit]`、`[data-gf-cancel]`、⚠ 在 `[data-gf-warn="name|chartNo"]`。存檔前那一道是 `confirmReview(warnings(...))`；**它不寫資料庫**
+- **名字卡那一頁**：`customerDetail.js` 的 `render()` 看到 `isOneTime()` 就畫 `paintGuest()`（`[data-guestpage]`，同一條路由）。抬頭 `.hero__name .guestmark`、`[data-guestcard]`（病歷號／電話／LINE 名字）、
+  `[data-guestvisits] [data-visit]`（點了 `openVisitCard()`）、`[data-guest-edit]`（`paintGuestEdit()`，全部五格）、`[data-to-mine]`、`[data-audit]`、`[data-guest-delete]`
+- **抽出來共用的兩支**：`deleteCustomer(ctx)`（「停用與刪除」那一張與名字卡那一頁，`deleteBlockers()` 照舊）、`saveBasics(ctx, changes, { review })`（客戶詳情「編輯」與名字卡「編輯」，改名照舊 `ownWhole()` → `renameTargets()` → `updateWithSnapshots()`；名字卡表單自己問過同名那一道，給 `review: false`）。
+  `tests/own-whole-reads.test.js` 的 13、14 改成掃這兩支（斷言一個字都沒放寬）
+- **轉成我的客戶**：`convertToMine()` → `confirmAction()`（句子是 `consequences.js` 的 `toMyCustomerConsequences({ visits, entitlements, coursesById })`：上清單、要先加購才排得進壓表、以前的 N 段照舊算一次性（數還算數的一次性段）、還欠 N 場二返（`oneTimeOwed()`）、不能轉回）→ `data.update(id, toMyCustomer())` → `reload()` 畫成一般客戶詳情。稽核留得下 `before.oneTime: true`／`after.oneTime: false`（E2E O4）
+- **同名那一句**：`fieldWarnings()` —— 一般客戶打到同名的一次性客人 → `GUEST_SAME_NAME`（同時有同名的一般客戶就兩句接起來）；名字卡（一次性）照舊數每一位、不講「沒有聯絡方式」。`confirmReview()` 只收字串，所以那一句自己指路
+- CSS：`.guestmark`（11px、`--text-mute`，06 讀取卡片與找人的框也用它）、`.custfoot`、`.guestcard`、`.guestconvert`
+- `sw.js` v288（origin/develop v283、這條分支段二是 v287）；`guestForm.js` 進 `SHELL`；spec `94` 進 `related.js`
+- **沒做的**：`SPEC.md:1616` 還寫著「看這個月的進度」和「看已停用的」並排 —— 08 寫文件時改

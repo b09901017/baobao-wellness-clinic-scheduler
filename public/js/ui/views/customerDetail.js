@@ -37,7 +37,8 @@ import {
   poolCourseOf,
 } from '../../domain/entitlements.js';
 import { pairsOf, missingPairs } from '../../domain/followups.js';
-import { chainPlanLines, chainSavedSay } from '../../domain/consequences.js';
+import { chainPlanLines, chainSavedSay, toMyCustomerConsequences } from '../../domain/consequences.js';
+import { mountGuestForm } from '../components/guestForm.js';
 import {
   examVisits, followupsOfExam, nthLabel, secondFollowupIds,
 } from '../../domain/nthFollowup.js';
@@ -196,6 +197,11 @@ export async function render(el, id) {
     return;
   }
 
+  // 一次性客人（ADR-0172）：同一條路由畫名字卡那一頁 —— 沒有額度、加購、問時間、傳表單、長備註、停用
+  if (rules.isOneTime(ctx.customer)) {
+    paintGuest(ctx);
+    return;
+  }
   paint(ctx);
 }
 
@@ -461,6 +467,133 @@ function wire(ctx, { today }) {
   el.querySelector('[data-danger]').addEventListener('click', () => openDanger(ctx));
 
   availability.wireSection(ctx);
+}
+
+// ---------- 一次性客人：名字卡那一頁（ADR-0172，issue 05） ----------
+
+/**
+ * 一次性客人的那一頁。**同一條路由**（`#/customers/:id`），`isOneTime()` 時畫這一份（spec 第 2 題）。
+ *
+ * 只有：名字＋「一次性」、名字卡（病歷號、電話、LINE 名字、警示，「編輯」改得動 —— 改名同一般客戶，`saveBasics()`）、
+ * 他的來訪（點一列開讀取卡片，同客戶詳情）、變更紀錄、最底下「轉成我的客戶」與刪除（`deleteCustomer()`，同一般客戶）。
+ * **沒有**：額度、加購、買過什麼、本輪可用性、傳表單連結、長備註、停用、壓表相關（spec 第 7 題）。
+ */
+function paintGuest(ctx) {
+  const { el, customer, visits, clinicalFlags } = ctx;
+  const master = {
+    courses: ctx.courses ?? [], equipment: ctx.equipment ?? [], ivProducts: ctx.ivProducts ?? [],
+  };
+  const flags = rules.splitFlags(customer, clinicalFlags);
+  const value = (v) => (v ? esc(v) : '<span class="dim">沒填</span>');
+
+  el.innerHTML = `
+    <div data-detailpage data-guestpage>
+    <a class="backlink" href="#/customers" data-back>${icon('left', { size: 17 })}客戶</a>
+
+    <div class="hero">
+      <div class="row" style="align-items: flex-start">
+        <div class="row__main">
+          <h1 class="hero__name">${esc(customer.name)} <span class="guestmark">一次性</span></h1>
+        </div>
+        <button class="btn btn--sm" type="button" data-guest-edit>編輯</button>
+      </div>
+      ${(customer.flags ?? []).length ? `
+        <div class="hero__flags">${flagsUi.detailChips(flags, { rows: clinicalFlags })}</div>` : ''}
+    </div>
+
+    <dl class="guestcard" data-guestcard>
+      <dt>病歷號</dt><dd class="num">${value(customer.chartNo)}</dd>
+      <dt>電話</dt><dd class="num">${value(customer.phone)}</dd>
+      <dt>LINE 名字</dt><dd>${value(customer.lineId)}</dd>
+    </dl>
+
+    <div class="section">
+      <h2 class="section__title">來訪紀錄</h2>
+      <span class="section__n">${visits.length}</span>
+    </div>
+    ${visits.length
+      ? `<ul class="link-list" data-guestvisits>${visits.map((v) => visitRow(v, master)).join('')}</ul>`
+      : '<p class="muted" style="margin: 0">還沒有來訪紀錄。</p>'}
+
+    <p class="guestconvert">
+      <button class="btn" type="button" data-to-mine>轉成我的客戶</button>
+    </p>
+
+    <div class="footlinks">
+      <button class="footlink" type="button" data-audit>變更紀錄</button>
+      <button class="footlink footlink--danger" type="button" data-guest-delete>刪除</button>
+    </div>
+    </div>`;
+
+  el.querySelector('[data-back]').addEventListener('click', (e) => {
+    e.preventDefault();
+    back('/customers');
+  });
+  el.querySelector('[data-guest-edit]').addEventListener('click', () => paintGuestEdit(ctx));
+  pageRoot(el).addEventListener('click', (e) => {
+    const day = e.target.closest('[data-visit]');
+    if (day) openVisitCard(ctx, day.dataset.visit);
+  });
+  el.querySelector('[data-to-mine]').addEventListener('click', () => convertToMine(ctx));
+  el.querySelector('[data-audit]').addEventListener('click', () => openAudit(ctx));
+  el.querySelector('[data-guest-delete]').addEventListener('click', () => deleteCustomer(ctx));
+}
+
+/** 名字卡的「編輯」：共用的表單（`components/guestForm.js`，全部五格），存走 `saveBasics()`（改名同一般客戶）。 */
+function paintGuestEdit(ctx) {
+  const { el, customer } = ctx;
+  el.innerHTML = `
+    <a class="backlink" href="#" data-back>${icon('left', { size: 17 })}${esc(customer.name)}</a>
+    <section class="card">
+      <h2 class="card__title">編輯名字卡</h2>
+      <div data-guestform></div>
+    </section>`;
+
+  const leave = pushScreen('guest-edit', () => paintGuest(ctx));
+  el.querySelector('[data-back]').addEventListener('click', (e) => {
+    e.preventDefault();
+    leave();
+  });
+
+  data.list().catch(() => []).then((existing) => {
+    const host = el.querySelector('[data-guestform]');
+    if (!host) return;
+    mountGuestForm(host, {
+      id: ctx.id,
+      card: customer,
+      existing,
+      alerts: clinicalTerms(ctx.clinicalFlags ?? []),
+      submitLabel: '儲存',
+      onCancel: leave,
+      // 表單自己問過同名、病歷號那一道（`fieldWarnings()`），這裡不再問一次
+      onSubmit: ({ card }) => saveBasics(ctx, card, { review: false }),
+    });
+  });
+}
+
+/**
+ * 轉成我的客戶（spec 第 6 題）：確認框答是才轉，寫 `oneTime: false`（`toMyCustomer()`，ADR-0172 決定二 —— 不拿掉那一格）。
+ * 他以前那幾段的標記不動。轉完重讀，畫成一般客戶詳情。**不做轉回去。**
+ */
+async function convertToMine(ctx) {
+  const ok = await confirmAction({
+    title: `把「${ctx.customer.name}」轉成妳的客戶？`,
+    consequences: toMyCustomerConsequences({
+      visits: ctx.visits,
+      entitlements: ctx.entitlements,
+      coursesById: byId(ctx.courses ?? []),
+    }),
+    confirmLabel: '轉成我的客戶',
+  });
+  if (!ok) return;
+  try {
+    await toast.withSaveState(() => data.update(ctx.id, rules.toMyCustomer()), {
+      success: '已轉成妳的客戶', key: `customer:to-mine:${ctx.id}`,
+    });
+    reload(ctx);
+  } catch {
+    /* 已處理 */
+  }
 }
 
 // ---------- 抬頭與這個月 ----------
@@ -864,7 +997,15 @@ function openDanger(ctx) {
     }
   });
 
-  sheet.el.querySelector('[data-delete]').addEventListener('click', async () => {
+  sheet.el.querySelector('[data-delete]').addEventListener('click', () => deleteCustomer(ctx));
+}
+
+/**
+ * 刪掉這位客戶。**一般客戶與一次性客人共用**（ADR-0172：刪除同一般客戶）：「停用與刪除」那一張、名字卡那一頁最底下。
+ */
+async function deleteCustomer(ctx) {
+  const { customer } = ctx;
+  {
     // **還掛著他的事就先擋**（prelaunch-audit-2026-09-23/issues/08，她選 A）：刪掉之後日曆與待辦上
     // 會留著一個點進去是「找不到這位客戶」的人，而那幾格在 Abovee 上還壓著。規則在 `deleteBlockers()`。
     // **按下去那一刻讀全部**（issue 13）：打開這一頁那一刻讀到的可能是快取裡剛好有的，少一筆待確認的來訪就放行了
@@ -936,7 +1077,7 @@ function openDanger(ctx) {
     } catch {
       /* 已處理 */
     }
-  });
+  }
 }
 
 // ---------- 額度 ----------
@@ -1557,14 +1698,23 @@ function paintEdit(ctx) {
     const errors = rules.validate({ ...changes, id: ctx.id });
     f.showErrors(el, errors);
     if (errors.length) return;
+    await saveBasics(ctx, changes);
+  });
+}
 
+/**
+ * 存基本資料（客戶詳情的「編輯」、名字卡那一頁的「編輯」共用）：同名、病歷號那一句照問，改名時快照一起換（`renameTargets()`）。
+ * @param {{review?: boolean}} [opts] 名字卡的表單自己問過同名那一道了，給 false
+ */
+async function saveBasics(ctx, changes, { review = true } = {}) {
+  {
     // **改名**（prelaunch-audit-2026-09-23/issues/09）：同名那一句照樣問（ADR-0102），
     // 而且今天以後（或還掛著沒做完的事）的來訪、還沒做的待辦、還沒勾的隨手記上的名字一起換 ——
     // 規則在 `renameTargets()`
     // 病歷號跟另一位一樣（ADR-0160）：同一道問、不擋。只在那一格改過時問 —— 本來就同號的那一位，改電話不必每次被問
     const renamed = changes.name !== (ctx.customer.name ?? '');
     const chartChanged = (changes.chartNo ?? '') !== String(ctx.customer.chartNo ?? '').trim();
-    if (renamed || chartChanged) {
+    if (review && (renamed || chartChanged)) {
       const w = rules.fieldWarnings({ ...changes, id: ctx.id }, await data.list().catch(() => []));
       const said = [renamed ? w.name : null, chartChanged ? w.chartNo : null].filter(Boolean);
       if (said.length && !await confirmReview(said)) return;
@@ -1595,7 +1745,7 @@ function paintEdit(ctx) {
     } catch {
       /* 已處理 */
     }
-  });
+  }
 }
 
 // ---------- 額度編輯 ----------

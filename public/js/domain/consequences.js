@@ -34,14 +34,14 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer, hasFollowupChain,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer, hasFollowupChain, oneTimeOwed,
 } from './followups.js';
 // 一次性客人的那一對（ADR-0172 決定三，03）：這一支裡**先問「有沒有真的二返額度」就收手**的那幾處，改在投影裡問
 import { withOneTimeChain, originalOf } from './oneTimeChain.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { giftKindOf, giftLabel, bookingMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL } from './masterData.js';
+import { giftKindOf, giftLabel, bookingMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL, isOneTimeSlot } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel, isValidTime, toMinutes } from './visitTime.js';
 import { slotName } from './naming.js';
@@ -1565,4 +1565,29 @@ export function courseChangeConsequences({ course, plan } = {}) {
   if (gone.length || shrunk) lines.push('勾過的不動');
 
   return { title: `儲存「${course?.name ?? ''}」？`, consequences: lines, confirmLabel: '儲存' };
+}
+
+/**
+ * 「轉成我的客戶」那一道確認框（ADR-0172 決定二、spec 第 6 題）。只講真的會發生的事（ADR-0070）：
+ *
+ * - 他會上客戶清單、壓表、問這輪的時間、試算表的名單（他現在身上沒有額度 —— 要先加購才排得進壓表）
+ * - 當一次性客人時記的那幾段**照舊算一次性**：不扣之後買的額度、不進試算表（段上那一格不動）
+ * - 一次性時做的健檢還欠的二返照舊不扣、接回那一次（`oneTimeOwed()`：轉之前、轉之後算的一樣 —— 段上的標記沒變）
+ *
+ * 數的是還算數的一次性段（取消的不算，同 ADR-0135 數段的規矩）。
+ *
+ * @param {{visits?: object[], entitlements?: object[], coursesById?: Record<string, object>}} o 這位的全部來訪
+ * @returns {string[]}
+ */
+export function toMyCustomerConsequences({ visits = [], entitlements = [], coursesById = {} } = {}) {
+  const live = (visits ?? []).filter((v) => v && !v.deletedAt && v.status !== 'cancelled');
+  const slots = live.reduce((n, v) => n + liveSlots(v).filter(isOneTimeSlot).length, 0);
+  const owedTotal = oneTimeOwed({ entitlements, visits: (visits ?? []).filter((v) => v && !v.deletedAt), coursesById }).reduce((n, r) => n + r.owed, 0);
+  return [
+    '會出現在客戶清單上，也會進壓表、問這輪的時間、試算表的名單',
+    '他身上還沒有任何額度 —— 要先加購，才排得進壓表',
+    ...(slots ? [`當一次性客人時記的 ${slots} 段照舊算一次性：不扣之後買的額度、不進試算表`] : []),
+    ...(owedTotal ? [`那時候做的健檢還欠 ${owedTotal} 場二返 —— 之後約的那一場照舊不扣、接回那一次`] : []),
+    '轉了就不能轉回一次性客人',
+  ];
 }
