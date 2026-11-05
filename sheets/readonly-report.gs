@@ -43,7 +43,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 1;
+var LAYOUT_VERSION = 2;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 
@@ -402,7 +402,8 @@ function renderCustomer(ss, data, bundle, book) {
   var name = sheetNameFor(data.name);
   var entry = resetSheet(ss, name, book);
   if (!entry) return null;   // 這張是她自己的，不動它
-  var sheet = entry.sheet;
+  // 先畫在草稿紙上，最後一次寫上去（`paint()`，03）。底下的畫法一行都沒改
+  var sheet = new Canvas();
 
   var dateCount = data.dateLabels.length;
   var matrixWidth = COL.FIRST_DATE - 1 + Math.max(dateCount, 1);
@@ -511,6 +512,7 @@ function renderCustomer(ss, data, bundle, book) {
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
+  paint(entry.sheet, sheet);
   return name;
 }
 
@@ -777,6 +779,254 @@ function infoLine(data) {
     '合計　應有 ' + data.totals.total + '　已完成 ' + data.totals.done
       + '　已排未上 ' + data.totals.booked + '　剩餘 ' + data.totals.remaining,
   ].filter(String).join('　·　');
+}
+
+// ---------- 一頁先畫在記憶體裡 ----------
+//
+// 2026-11-05（.scratch/sheet-push-gaps 的 03；Google 官方的 Apps Script 最佳做法：同一種動作收成一次）。
+// 以前一格一格下：一頁重畫叫 Google 約 190 次（34 頁整份重畫 6,506 次、約 192 秒）——
+// `noteBlock()` 每一行各自合併、寫字、換行、置中；矩陣上色逐格；欄寬逐欄。
+//
+// 現在畫法的程式碼**一行都沒改**（`renderCustomer()` 底下那幾支照舊叫 `sheet.getRange(…).merge().setValue(…)…`），
+// 只是那個 `sheet` 換成這一張草稿紙（`Canvas`）：它記下每一格最後的值與格式（後設的蓋掉先設的，跟 Google 一樣）、
+// 每一次合併、框線、欄寬、列高、凍結。畫完 `paint()` 一次寫上去 —— 值一次 `setValues`、每一種格式照值分組
+// 各一次 `RangeList`、連續的合併一次 `mergeAcross()`、同寬的欄一次 `setColumnWidths()`。
+// 畫出來一模一樣是測試釘著的（`tests/sheet-gs-batch.test.js`：雜湊是改前的 `.gs` 跑出來的）。
+//
+// **草稿紙只做畫法用到的那幾支**。畫法多叫一支它沒有的，替身裡第一次推送就會丟錯 —— 照樣補一支、記進 `paint()`。
+
+/** 每一格會記的格式：草稿紙上那一支 → 寫上去時 RangeList 的哪一支。順序就是 `paint()` 寫的順序（彼此不影響）。 */
+var CANVAS_FORMATS = [
+  ['setBackground', 'background'],
+  ['setFontFamily', 'fontFamily'],
+  ['setFontSize', 'fontSize'],
+  ['setFontWeight', 'fontWeight'],
+  ['setFontColor', 'fontColor'],
+  ['setHorizontalAlignment', 'hAlign'],
+  ['setVerticalAlignment', 'vAlign'],
+  ['setWrap', 'wrap'],
+];
+
+function Canvas() {
+  /** values[列][欄]（從 1 起）。沒寫過的是 undefined。 */
+  this.values = [];
+  this.formats = {};
+  for (var i = 0; i < CANVAS_FORMATS.length; i++) this.formats[CANVAS_FORMATS[i][1]] = [];
+  this.merges = [];
+  this.borders = [];
+  this.widths = [];
+  this.heights = [];
+  this.frozenRows = null;
+}
+
+Canvas.prototype.getRange = function (row, col, rows, cols) {
+  rows = rows == null ? 1 : rows;
+  cols = cols == null ? 1 : cols;
+  if (row < 1 || col < 1 || rows < 1 || cols < 1) {
+    throw new Error('範圍不合法：' + row + ',' + col + ',' + rows + ',' + cols);
+  }
+  return new CanvasRange(this, row, col, rows, cols);
+};
+
+Canvas.prototype.setColumnWidth = function (col, width) { this.widths[col] = width; };
+Canvas.prototype.setRowHeights = function (start, count, height) { this.heights.push([start, count, height]); };
+Canvas.prototype.setFrozenRows = function (n) { this.frozenRows = n; };
+
+/** 跟 Google 一樣：最後一列**有內容**的（寫進 '' 或 null 的不算）。 */
+Canvas.prototype.getLastRow = function () {
+  for (var r = this.values.length - 1; r >= 1; r--) {
+    var row = this.values[r];
+    if (!row) continue;
+    for (var c = 1; c < row.length; c++) {
+      if (row[c] !== '' && row[c] != null) return r;
+    }
+  }
+  return 0;
+};
+
+Canvas.prototype.put = function (grid, row, col, value) {
+  if (!grid[row]) grid[row] = [];
+  grid[row][col] = value;
+};
+
+function CanvasRange(canvas, row, col, rows, cols) {
+  this.canvas = canvas;
+  this.row = row;
+  this.col = col;
+  this.rows = rows;
+  this.cols = cols;
+}
+
+CanvasRange.prototype.setValue = function (value) {
+  this.canvas.put(this.canvas.values, this.row, this.col, value);
+  return this;
+};
+
+CanvasRange.prototype.setValues = function (grid) {
+  if (grid.length !== this.rows) throw new Error('setValues 列數不合：' + grid.length + ' vs ' + this.rows);
+  for (var r = 0; r < grid.length; r++) {
+    if (grid[r].length !== this.cols) throw new Error('setValues 欄數不合：' + grid[r].length + ' vs ' + this.cols);
+    for (var c = 0; c < grid[r].length; c++) this.canvas.put(this.canvas.values, this.row + r, this.col + c, grid[r][c]);
+  }
+  return this;
+};
+
+CanvasRange.prototype.merge = function () {
+  this.canvas.merges.push([this.row, this.col, this.rows, this.cols]);
+  return this;
+};
+
+CanvasRange.prototype.setBorder = function () {
+  this.canvas.borders.push([this.row, this.col, this.rows, this.cols, Array.prototype.slice.call(arguments)]);
+  return this;
+};
+
+CANVAS_FORMATS.forEach(function (pair) {
+  var key = pair[1];
+  CanvasRange.prototype[pair[0]] = function (value) {
+    var grid = this.canvas.formats[key];
+    for (var r = 0; r < this.rows; r++) {
+      for (var c = 0; c < this.cols; c++) this.canvas.put(grid, this.row + r, this.col + c, value);
+    }
+    return this;
+  };
+});
+
+/**
+ * 草稿紙寫上去。順序：值 → 格式 → 合併 → 框線 → 欄寬 → 列高 → 凍結。
+ * 值先寫、再合併（合併區除了左上角都是 ''）：寫進已經合併的範圍 Google 會怎樣，替身驗不出來，就不要走那條路。
+ * 凍結最後（凍結線不能穿過合併儲存格，合併要先在）。
+ */
+function paint(sheet, canvas) {
+  var rows = 0;
+  var cols = 0;
+  for (var r = 1; r < canvas.values.length; r++) {
+    if (!canvas.values[r]) continue;
+    rows = r;
+    cols = Math.max(cols, canvas.values[r].length - 1);
+  }
+  if (rows && cols) {
+    var grid = [];
+    for (var r2 = 1; r2 <= rows; r2++) {
+      var line = [];
+      var src = canvas.values[r2] || [];
+      for (var c2 = 1; c2 <= cols; c2++) line.push(c2 < src.length && src.hasOwnProperty(c2) ? src[c2] : '');
+      grid.push(line);
+    }
+    sheet.getRange(1, 1, rows, cols).setValues(grid);
+  }
+
+  for (var f = 0; f < CANVAS_FORMATS.length; f++) {
+    var groups = rectsByValue(canvas.formats[CANVAS_FORMATS[f][1]]);
+    for (var g = 0; g < groups.length; g++) {
+      sheet.getRangeList(groups[g].ranges)[CANVAS_FORMATS[f][0]](groups[g].value);
+    }
+  }
+
+  mergeAll(sheet, canvas.merges);
+
+  for (var b = 0; b < canvas.borders.length; b++) {
+    var one = canvas.borders[b];
+    var range = sheet.getRange(one[0], one[1], one[2], one[3]);
+    range.setBorder.apply(range, one[4]);
+  }
+
+  for (var w = 1; w < canvas.widths.length; w++) {
+    if (canvas.widths[w] == null) continue;
+    var end = w;
+    while (canvas.widths[end + 1] === canvas.widths[w]) end++;
+    sheet.setColumnWidths(w, end - w + 1, canvas.widths[w]);
+    w = end;
+  }
+
+  for (var h = 0; h < canvas.heights.length; h++) {
+    sheet.setRowHeights(canvas.heights[h][0], canvas.heights[h][1], canvas.heights[h][2]);
+  }
+  if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
+}
+
+/**
+ * 照先後合併。連著好幾個「同樣幾欄、一列高、一列接一列」的（備註、來訪紀錄那一行一行）收成一次 `mergeAcross()`
+ * （它把每一列各自合併）；其餘照舊一次一個 `merge()`。
+ */
+function mergeAll(sheet, merges) {
+  for (var i = 0; i < merges.length; i++) {
+    var m = merges[i];
+    var j = i;
+    while (m[2] === 1 && j + 1 < merges.length
+        && merges[j + 1][2] === 1 && merges[j + 1][1] === m[1] && merges[j + 1][3] === m[3]
+        && merges[j + 1][0] === merges[j][0] + 1) {
+      j++;
+    }
+    if (j === i) {
+      sheet.getRange(m[0], m[1], m[2], m[3]).merge();
+    } else {
+      sheet.getRange(m[0], m[1], j - i + 1, m[3]).mergeAcross();
+    }
+    i = j;
+  }
+}
+
+/**
+ * 一張「每一格的格式」照值分組，每一組收成幾塊長方形的 A1（`B3:D5`）—— 同一種值一次 `RangeList` 寫完。
+ * 先一列裡連著同一個值的收成一段，再把上下一模一樣的段疊成一塊。沒設過的格子（undefined）不碰。
+ *
+ * @returns {{value: *, ranges: string[]}[]}
+ */
+function rectsByValue(grid) {
+  var groups = {};
+  var order = [];
+  var open = {};   // 'c1,c2,key' → 這一塊從第幾列開始、到第幾列
+  function close(id) {
+    var o = open[id];
+    groups[o.key].ranges.push(a1Of(o.top, o.c1) + ':' + a1Of(o.bottom, o.c2));
+    delete open[id];
+  }
+  for (var r = 1; r <= grid.length; r++) {
+    var row = grid[r] || [];
+    var seen = {};
+    for (var c = 1; c < row.length; c++) {
+      if (row[c] === undefined) continue;
+      var value = row[c];
+      var key = typeof value + ':' + String(value);
+      var c2 = c;
+      while (c2 + 1 < row.length && row[c2 + 1] !== undefined
+          && typeof row[c2 + 1] + ':' + String(row[c2 + 1]) === key) {
+        c2++;
+      }
+      if (!groups[key]) {
+        groups[key] = { value: value, ranges: [] };
+        order.push(key);
+      }
+      var id = c + ',' + c2 + ',' + key;
+      if (open[id] && open[id].bottom === r - 1) {
+        open[id].bottom = r;
+      } else {
+        if (open[id]) close(id);
+        open[id] = { top: r, bottom: r, c1: c, c2: c2, key: key };
+      }
+      seen[id] = true;
+      c = c2;
+    }
+    for (var id2 in open) {
+      if (!seen[id2] && open[id2].bottom < r) close(id2);
+    }
+  }
+  for (var id3 in open) close(id3);
+  var out = [];
+  for (var k = 0; k < order.length; k++) out.push(groups[order[k]]);
+  return out;
+}
+
+function a1Of(row, col) {
+  var letters = '';
+  var n = col;
+  while (n > 0) {
+    var rem = (n - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters + row;
 }
 
 // ---------- 共用的排版動作 ----------

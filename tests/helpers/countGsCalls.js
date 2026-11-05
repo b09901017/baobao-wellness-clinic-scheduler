@@ -13,6 +13,7 @@ const READ = /^(get|can|is)/;
 const NOT_CALLS = new Set(['constructor', 'at', 'set', 'get', 'addMerge', 'checkBounds', 'getRange', 'getRangeList']);
 const wrapped = new WeakSet();
 let active = null;
+let depth = 0;
 
 function note(key, kind) {
   if (!active) return;
@@ -42,8 +43,14 @@ function wrapProto(proto, label) {
     if (typeof d.value !== 'function') continue;
     const orig = d.value;
     proto[name] = function counted(...args) {
-      note(`${label}.${name}`, READ.test(name) ? 'read' : 'write');
-      return orig.apply(this, args);
+      // 替身的 RangeList 是一塊一塊轉叫 Range 的：裡面那幾次不是 Apps Script 的呼叫，不算
+      if (depth === 0) note(`${label}.${name}`, READ.test(name) ? 'read' : 'write');
+      depth += 1;
+      try {
+        return orig.apply(this, args);
+      } finally {
+        depth -= 1;
+      }
     };
   }
 }

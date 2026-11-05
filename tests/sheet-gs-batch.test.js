@@ -157,4 +157,18 @@ describe('一次推送叫 Google 幾次（替身數的，scripts/sheet-gs-calls.
     assert.equal(stats.props, 1, `文件屬性 ${stats.props} 次：一開始讀一次全部，沒變的不寫`);
     assert.ok(!stats.byName['Sheet.getLastRow'], '認不認得只看第一列那一格');
   });
+
+  test('整份重畫：一頁固定幾十次（不再跟格子數成正比），寫完又讀一頁一次（上鎖時問誰能改）', () => {
+    const app = loadAppsScript();
+    const count = callCounter(app);
+    app.post({ token: 'secret', bundle: bundleOf(pages(10)) });
+    const stats = count(() => app.post({ token: 'secret', bundle: bundleOf(pages(10)), force: true }));
+    assert.equal(stats.result.sheets, 10);
+    // 改前（develop 3dd2ee12）同一包：讀 187、寫 1,980、寫完又讀 84（一頁約 200 次寫）；改後 讀 78、寫 452、寫完又讀 10
+    assert.ok(stats.writes <= 10 * 50, `寫了 ${stats.writes} 次`);
+    assert.ok(stats.writeThenRead <= 10, `寫完又馬上讀 ${stats.writeThenRead} 次`);
+    for (const one of ['Range.setValue', 'Range.setBackground', 'Range.setWrap', 'Range.setVerticalAlignment', 'Sheet.setColumnWidth', 'Sheet.getLastRow']) {
+      assert.ok(!stats.byName[one], `${one} 叫了 ${stats.byName[one]} 次：畫法要先畫在草稿紙上（Canvas）`);
+    }
+  });
 });
