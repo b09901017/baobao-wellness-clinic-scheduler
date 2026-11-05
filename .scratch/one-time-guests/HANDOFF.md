@@ -11,7 +11,7 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 | 設計 | 談定 8 題、ADR-0172、CONTEXT.md、spec、issue 01–08、subagent 過目 | xhigh | **做完**（commit 見 git log） |
 | 一 | 01 形狀與驗證、02 健檢那一串（domain：虛擬的一對） | xhigh | **做完**（11/5，`0668f0ee`、`ff12b4fd`；單元 5552 全過；CI 全量 E2E 六台全綠） |
 | 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | **做完**（11/5，`7389fb7b`、`9ea77263`；單元 5634 全過、真名掃描 skipped 0；被 auto mode 擋下來之後，**她 11/5 准主控強制推一次**（`--force-with-lease`），推上去了；CI 全量 E2E 見中途發現段二第 1 條） |
-| 三 | 05 客戶清單最底下、名字卡那一頁（含表單元件）、轉成我的客戶；06 日曆新增、來訪編輯器與壓表、讀取卡片、「約二返」的按鈕 | high | todo |
+| 三 | 05 客戶清單最底下、名字卡那一頁（含表單元件）、轉成我的客戶；06 日曆新增、來訪編輯器與壓表、讀取卡片、「約二返」的按鈕 | high | **做完**（11/5，`42b054f6`、`f2fc82a0`，都推上去了（一般的 push，沒有改寫）；單元 5664 全過、真名掃描 skipped 0；E2E `94`、`95` 本機全綠；CI 全量 run `41986269764` 見中途發現段三第 1 條） |
 | 四 | 07 拍 Abovee；08 文件；CI 全量 E2E；手動驗收清單草稿 | high | todo |
 | 五 | `/matt-code-review` 審查這一輪全部 | xhigh | todo |
 | 六 | 照審查修、手動驗收清單在模擬器走一次、開 PR 進 develop、CI 綠了合併 | medium | todo |
@@ -121,7 +121,7 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
    auto mode 判成「Git Destructive」擋下來，照規矩停了沒有繞。**推上去之後**跑一次 CI 全量：`gh workflow run e2e-full.yml --ref claude/one-time-visit-design`
    （本機 `--related` 挑到 74 支、2 個 worker 也要三十幾分鐘，跟段一一樣交給 CI）。推之前的檢查做過了：`tests/no-secrets.test.js` skipped 0、commit 訊息過過濾網前後一樣；
    diff 過過濾網有 26 行被遮，看過全是數字、日期與器材代號 `sis`（`eq-sis`），沒有名字
-   → **她 11/5 准強制推一次，主控推了**（`--force-with-lease`，`3c2d052b`）；CI 全量 E2E run `41981609898`（跑在 `3c2d052b`）—— 結果段三開頭看、寫在這一行底下
+   → **她 11/5 准強制推一次，主控推了**   （`--force-with-lease`，`3c2d052b`）；CI 全量 E2E run `41981609898`（跑在 `3c2d052b`）—— **段三開頭看了：六台全綠**（11/5），沒有要修的
 2. **`strandedOnNewExamLines()` 也是同一個形狀**（issue 沒列）：它先問「新加的那一段扣不扣健檢額度」才講「有一場二返還接在被取消的那一次上」——
    一次性客人另約健檢時一句都不講，ADR-0146 那一顆也跟著沒有。**03 一起修了**（在投影裡認新加的那一段），測試在 `one-time-chain-callers.test.js`
 3. **`chainInputs()` 多了第三個參數**（這位客戶的來訪）。06（日曆新增、來訪編輯器）與 07（拍 Abovee）**新增一條會叫它的路要傳**，不然一次性客人在那一道確認框上一句鏈上的話都不講；
@@ -132,6 +132,19 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
 6. 月底對帳那一頁「Abovee 上有、app 裡沒有這個人」那一塊的小字（`report.mjs`：「不是妳的客人就不用管。」）可以多一句「要記進 app 就建一次性客人」——
    等名字卡（05）與拍 Abovee 的「記成一次性客人」（07）做好再決定，**08 寫文件時一起看**
 7. 知道就好：`home.js` 的 `bookFollowup()`（「約二返」那一張的「去壓表」）只認真的二返額度 —— 那是過目第 5 條，06 換成「去日曆排」
+
+### 段三（2026-11-05）
+
+1. **CI 全量 E2E**：段三兩個 commit 推上去之後跑了 `gh workflow run e2e-full.yml --ref claude/one-time-visit-design`，run `41986269764`（跑在 `f2fc82a0`）——
+   段三結束時還在跑，**段四開頭先看**（紅了先修，那是 05、06 的）。本機 `--related` 挑到 89 支（幾乎全量），所以只跑了 `94`、`95`、`83`、`67`（32 支全綠）
+2. **轉成我的客戶之後改一段以前的一次性的段、按一筆真的額度** → 那一段照舊帶 `oneTime: true`，存檔被擋（「一次性的段不扣任何次數，不可以同時指定額度」）。
+   刻意沒有在換額度時拿掉那一格（她第 6 題：「以前的那幾段照舊算一次性」；安安靜靜把它變成扣額度，就是讓一次性的段被算進真的額度）。
+   擋下來那一句講的不是「怎麼辦」—— **段五審查看要不要換一句**（例：「這一段是當一次性客人時記的，不扣額度；要扣就取消這一段、另約一段」），不用問她
+3. **讀取卡片的「一次性」在抬頭底下、卡片內容最上面那一格**，不是跟名字同一行：抬頭（名字）是五個呼叫端各自給的，issue 要畫在 `visitReadHtml()` 裡。截圖看過，讀得出來。她驗收時如果要同一行，要改五個呼叫端的抬頭
+4. **`SPEC.md:1616`** 還寫「看這個月的進度」和「看已停用的」並排 —— 08 寫文件時改（05 的「做完時留下的」也記了）
+5. 知道就好：「約二返」那一顆換字（`home.js` 的 `labelGuestBookings()`）是畫完再讀一次客戶名單（任務身上只有 `customerId`）。字換過來之前按下去也走對（`bookFollowup()` 自己再問一次）
+6. 知道就好：來訪編輯器第一列（名字＋狀態）沒標「一次性」—— spec 只要讀取卡片與找人的框
+7. 段二第 6 條（月底對帳那一塊的小字要不要多一句「要記進 app 就建一次性客人」）：名字卡做好了，**等 07（拍 Abovee 的「記成一次性客人」）做完，08 寫文件時一起決定**
 
 ## 要她決定的
 
@@ -220,9 +233,39 @@ ADR 再寫新的從 0175 起。模擬器同一時間只能一組在跑：起之�
 做完要交：各一個 commit（推到 origin 的同一條分支）、HANDOFF 更新、段四的開場、簡短回覆。
 ```
 
-### 段四（high）、段五（xhigh，審查單獨一段）、段六（medium）
+### 段四（effort：high）—— 段三做完時對過了（11/5）
 
-段三做完時寫。段四：07 拍 Abovee、08 文件、`gh workflow run e2e-full.yml --ref claude/one-time-visit-design` 全量、手動驗收清單草稿（她照順序點的路）。
-段五：`/matt-code-review` 審這一輪全部（從設計段的第一個 commit 起），「要特別看的」寫成判準問句＋要查牽連的符號
+```
+這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一～三做完 01–06（commit 見 git log）。
+段三的兩個 commit（05、06）推上去了，也跑了 CI 全量 E2E：run 41986269764（跑在 f2fc82a0）。
+先 gh run view 41986269764 看結果 —— 還在跑就先讀文件、等它；紅了先修（那是 05、06 的），每一條先紅燈、寫回 HANDOFF 中途發現段三第 1 條底下，再開始 07。
+接著 git fetch；落後 develop 就合併、不要 rebase（用 ccd_host 的 sync_with_base_branch 工具，沒有就 git merge origin/develop；package-lock 變了才重跑 npm ci）——
+rebase 之後只能強制推送，auto mode 會擋；擋了就停下來問她，不要換寫法繞。
+讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、
+.scratch/one-time-guests/HANDOFF.md（共同的規矩、過目抓到的、中途發現 —— 段一、主控重查、段二、段三那幾條）、01–06 的「做完時留下的」。
+查牽連用這個 worktree 自己的 CodeGraph 索引（改了檔之後 codegraph sync 再查，照樣跟 grep 對一次），graphify 查主資料夾的 graph.json（--graph）。
+這一段做 .scratch/one-time-guests/issues/07-abovee-photo.md，再做 08-docs.md。
+段三留給這一段的：
+- 名字卡快速表單：components/guestForm.js 的 mountGuestForm(host, { card: { name, chartNo }, existing, quick: true, onSubmit({ card }) })，建名字卡走
+  data/customers.js 的 createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] })（日曆的 newGuest() 是照抄的樣子）
+- 一次性客人那一列「要做什麼」那一排：slotOptions.js 的 guestOptions(courses, { keep, notMineKeep, nthExams })，畫法 giftFold.coursesHtml({ options, value, chip, key, sm })（自己給 chip）；
+  值是 guestPick(courseId)、讀回來 guestCourseIdOf(value) → slotFromPicks({ oneTime: true, courseId, followupForVisitId })；一次性的二返接哪一次問 oneTimeExamChoices()
+- 轉成我的客戶之後的「二返（一次性那一次）」：slotOptionsFor() 本來就列（ONE_TIME_SECOND_PICK、isOneTimeSecond）—— 拍 Abovee 的 pickOption() 要認它（壓表的寫法：schedule.js 的 examChoicesOf()／addSlot()）
+- trialFromMinutes() 已經不換一次性的那一顆（拍 Abovee 的 pickMinutes() 叫它）
+- 「換一位」與搜尋結果標「一次性」：class 是 .guestmark（app.css「一次性客人」那一段）
+- 08 文件：CLAUDE.md 連動表補「一次性客人」那一列；SPEC.md:1616（看已停用的搬到最底下）；docs/操作手冊.md 與 docs/常見問題.md；
+  06 的「做完時留下的」最後有一份手動驗收清單（她照順序點的路），整理進這一段的手動驗收清單草稿；中途發現段二第 6 條、段三第 7 條（月底對帳那一句）這裡決定
+- 中途發現段三第 2 條（轉成客戶之後改以前的一次性段、按真的額度 → 擋下來那一句）留給段五
+段四做完之後再跑一次 CI 全量（gh workflow run e2e-full.yml --ref claude/one-time-visit-design）。
+public/ 有動：sw.js 的 VERSION 用 origin/develop 上的與這條分支上的大的那一個再加一（段三結束時這條分支是 v289）；新檔案進 SHELL 與 tests-e2e/related.js。
+ADR 再寫新的從 0175 起。模擬器同一時間只能一組在跑：起之前先看 port 上有沒有人，有的話不要停掉別人的，先問她；跑完照那幾組的 port 停（node tests-e2e/emulator-groups.mjs stop）。
+推之前 node --test tests/no-secrets.test.js 要 skipped 0。
+規矩照 HANDOFF「每一段共同的規矩」。主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+做完要交：各一個 commit（推到 origin 的同一條分支）、HANDOFF 更新、段五的開場、簡短回覆。
+```
+
+### 段五（xhigh，審查單獨一段）、段六（medium）
+
+段四做完時寫。段五：`/matt-code-review` 審這一輪全部（從設計段的第一個 commit 起），「要特別看的」寫成判準問句＋要查牽連的符號
 （`isOneTime`、`isOneTimeSlot`、`withOneTimeChain`、`chainInputs`、`syncBundle`、`customerReport`、`slotFromPicks`、`validateVisit`；grep `oneTime:`）。
 段六：照審查修（每條先紅燈）、手動驗收清單在模擬器走一次、推之前看一眼有沒有真名／公司名、開 PR 進 develop、CI 綠了合併（CLAUDE.md：不用再問）。
