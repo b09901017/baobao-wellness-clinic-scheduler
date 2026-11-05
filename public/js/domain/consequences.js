@@ -34,12 +34,14 @@ import {
 } from './visits.js';
 import {
   pairsOf, REPORT_TASK_KIND, FOLLOWUP_TASK_KIND, SEND_REPORT_TASK_KIND, bookingForExam, syncFollowupTasks, closeBlocks,
-  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer,
+  examStatusIn, PICKABLE_EXAM, strandedFollowups, relinkOffer, hasFollowupChain, oneTimeOwed,
 } from './followups.js';
+// 一次性客人的那一對（ADR-0172 決定三，03）：這一支裡**先問「有沒有真的二返額度」就收手**的那幾處，改在投影裡問
+import { withOneTimeChain, originalOf } from './oneTimeChain.js';
 import { RECORD_TASK_KIND } from './taskRules.js';
 import { chargesEntitlement, counts } from './entitlements.js';
 import { nthOf, nthLabel, isNthSlot, examEntitlementIds, followupName } from './nthFollowup.js';
-import { giftKindOf, giftLabel, bookingMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL } from './masterData.js';
+import { giftKindOf, giftLabel, bookingMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL, isOneTimeSlot } from './masterData.js';
 import { shortDate, isValidDate } from './dates.js';
 import { timeLabel, isValidTime, toMinutes } from './visitTime.js';
 import { slotName } from './naming.js';
@@ -335,12 +337,15 @@ export function notRelinkedSay(relink, errors = [], { unread = false } = {}) {
 export function strandedOnNewExamLines({
   visit, added = null, entitlements = [], coursesById = {}, customerVisits = [], offer = null,
 }) {
-  const examIds = examEntitlementIds(entitlements, coursesById);
   const fresh = added ?? (visit?.slots ?? []).map((_, i) => i);
-  // 新的健檢記成未到、已取消（拍 Abovee 照照片的狀態記，abovee-status-follows-photo 06）接不上 —— 不講「要接到這一次」
-  if (!fresh.some((i) => PICKABLE_EXAM.has(slotStatus(visit, visit?.slots?.[i])) && examIds.has(visit.slots[i].entitlementId))) return [];
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
+  // 新加的那一段是不是健檢：在一次性客人的那一對裡認（一次性的健檢沒有額度，ADR-0172）。一般客人就是原本那兩份
+  const chain = withOneTimeChain({ entitlements, visits: [...others, visit], coursesById });
+  const examIds = examEntitlementIds(chain.entitlements, coursesById);
+  const newSlots = chain.visits.at(-1)?.slots ?? [];
+  // 新的健檢記成未到、已取消（拍 Abovee 照照片的狀態記，abovee-status-follows-photo 06）接不上 —— 不講「要接到這一次」
+  if (!fresh.some((i) => PICKABLE_EXAM.has(slotStatus(visit, visit?.slots?.[i])) && examIds.has(newSlots[i]?.entitlementId))) return [];
   return strandedFollowups(entitlements, coursesById, [...others, visit]).map(({ visit: v, slot, slotIndex, exam, status }) => {
     const name = followupName(slot, coursesById);
     const offered = Boolean(offer) && offer.visitId === v.id && offer.slotIndex === slotIndex;
@@ -527,8 +532,9 @@ export function aboveeConsequences({
   for (const g of groups) {
     const added = addedIn(g);
     for (const i of added) {
-      // 帶標記的三返只講「健檢不是你排的」那一句（兩句講的是同一件事）
-      const label = isExamNotMine(g.visit?.slots?.[i]) ? null : nthLabel(nthOf(g.visit?.slots?.[i]));
+      // 帶標記的三返只講「健檢不是你排的」那一句（兩句講的是同一件事）；一次性的段不講次數（段五審查 R10）
+      const s = g.visit?.slots?.[i];
+      const label = isExamNotMine(s) || isOneTimeSlot(s) ? null : nthLabel(nthOf(s));
       if (label) nths.add(label);
     }
     for (const name of giftNames(g.visit, coursesById, added)) free.add(name);
@@ -625,8 +631,8 @@ function nthLabels(visit, added = null) {
   const slots = visit?.slots ?? [];
   const seen = new Set();
   for (const slot of (added ?? slots.map((_, at) => at)).map((i) => slots[i])) {
-    // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）
-    if (isExamNotMine(slot)) continue;
+    // 帶標記的三返由 `notMineNames()` 那一句講（ADR-0169）；一次性的段本來就沒有數字可以講（段五審查 R10）
+    if (isExamNotMine(slot) || isOneTimeSlot(slot)) continue;
     const label = nthLabel(nthOf(slot));
     if (label) seen.add(label);
   }
@@ -796,7 +802,8 @@ export function closeConsequences({
   visit, picks: asked = [], entitlements = [], coursesById = {}, sheetSyncOn = false, visits = [], tasks = [],
 }) {
   const lines = [];
-  const blocked = closeBlocks(visit, asked, { entitlements, visits });
+  // 給課程主檔：一次性的二返接的那一次一次性健檢才認得出來（ADR-0172，`cannotClose()`）
+  const blocked = closeBlocks(visit, asked, { entitlements, visits, coursesById });
   const picks = asked.map((p, i) => (blocked.has(i) ? null : p));
   const open = slotsToClose(visit).map(({ index }) => index);
   const done = open.filter((i) => picks[i] === true);
@@ -875,7 +882,8 @@ export function closeBlockSay({ examDate, status }) {
  * @returns {string[]}
  */
 export function followupBookingLines({ customer, visits = [], chain = null, coursesById = {} }) {
-  if (!chain || !pairsOf(chain.entitlements ?? [], coursesById).some((p) => p.followup)) return [];
+  // 真的一對、或一次性客人的那一對（`hasFollowupChain()`，03）—— 以前只問真的，一次性客人一句都不講
+  if (!chain || !hasFollowupChain({ entitlements: chain.entitlements ?? [], visits, coursesById })) return [];
   const plan = syncFollowupTasks({
     customer, entitlements: chain.entitlements, visits, tasks: chain.tasks ?? [], coursesById,
   });
@@ -903,8 +911,10 @@ export function followupBookingLines({ customer, visits = [], chain = null, cour
  * @returns {string[]}
  */
 export function strandedFollowupLines({ before = [], after = [], entitlements = [], coursesById = {}, verb = '取消' }) {
-  const examIds = examEntitlementIds(entitlements, coursesById);
-  const was = new Map((before ?? []).filter(Boolean).map((v) => [v.id, v]));
+  // 「那一次本來接得上」在一次性客人的那一對裡問（一次性的健檢沒有額度，ADR-0172，03）。一般客人就是原本那兩份
+  const was0 = withOneTimeChain({ entitlements, visits: (before ?? []).filter(Boolean), coursesById });
+  const examIds = examEntitlementIds(was0.entitlements, coursesById);
+  const was = new Map(was0.visits.map((v) => [v.id, v]));
   const day = (date) => (isValidDate(date) ? shortDate(date) : '另一天');
   return strandedFollowups(entitlements, coursesById, (after ?? []).filter(Boolean))
     .filter(({ exam }) => PICKABLE_EXAM.has(examStatusIn(was.get(exam.id), examIds)))
@@ -1046,10 +1056,9 @@ export function chainSavedSay(chain) {
  * 死線的天數不影響長不長，所以不用讀設定。
  */
 function chainAfterClose(visit, picks, { entitlements, coursesById, visits, tasks }) {
-  // 沒有配得到二返的健檢額度就不可能有鏈（同 `followupOps()` 的提前結束）
-  if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
-
   const all = [...(visits ?? []).filter((v) => v.id !== visit?.id), closeVisit(visit, picks)];
+  // 沒有配得到二返的健檢就不可能有鏈（同 `followupOps()` 的提前結束）—— 真的一對、或一次性客人的那一對（03）
+  if (!hasFollowupChain({ entitlements, visits: all, coursesById })) return null;
   const { create, remove } = syncFollowupTasks({
     customer: { id: visit?.customerId ?? null, name: visit?.customerName ?? null },
     entitlements,
@@ -1138,13 +1147,18 @@ export function untickConsequences({ task, preview } = {}) {
  */
 function bookedFollowupFor(task, preview) {
   if (!task?.visitId) return null;
-  const exam = (preview.visits ?? []).find((v) => v.id === task.visitId);
+  // 一次性客人的健檢與二返在那一對裡認（ADR-0172，03）；回去的是她資料裡的那一份（`originalOf()`）
+  const given = preview.visits ?? [];
+  const chain = withOneTimeChain({ entitlements: preview.entitlements ?? [], visits: given, coursesById: preview.coursesById ?? {} });
+  const back = originalOf(given, chain.visits);
+  const exam = chain.visits.find((v) => v.id === task.visitId);
   if (!exam) return null;
 
-  for (const pair of pairsOf(preview.entitlements ?? [], preview.coursesById ?? {})) {
+  for (const pair of pairsOf(chain.entitlements, preview.coursesById ?? {})) {
     if (!pair.followup) continue;
     if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
-    return bookingForExam(task.visitId, pair.followup.id, preview.visits ?? []);
+    const hit = bookingForExam(task.visitId, pair.followup.id, chain.visits);
+    return hit ? { visit: back.visit(hit.visit), slot: back.slot(hit.visit, hit.slot) } : null;
   }
   return null;
 }
@@ -1552,4 +1566,29 @@ export function courseChangeConsequences({ course, plan } = {}) {
   if (gone.length || shrunk) lines.push('勾過的不動');
 
   return { title: `儲存「${course?.name ?? ''}」？`, consequences: lines, confirmLabel: '儲存' };
+}
+
+/**
+ * 「轉成我的客戶」那一道確認框（ADR-0172 決定二、spec 第 6 題）。只講真的會發生的事（ADR-0070）：
+ *
+ * - 他會上客戶清單、壓表、問這輪的時間、試算表的名單（他現在身上沒有額度 —— 要先加購才排得進壓表）
+ * - 當一次性客人時記的那幾段**照舊算一次性**：不扣之後買的額度、不進試算表（段上那一格不動）
+ * - 一次性時做的健檢還欠的二返照舊不扣、接回那一次（`oneTimeOwed()`：轉之前、轉之後算的一樣 —— 段上的標記沒變）
+ *
+ * 數的是還算數的一次性段（取消的不算，同 ADR-0135 數段的規矩）。
+ *
+ * @param {{visits?: object[], entitlements?: object[], coursesById?: Record<string, object>}} o 這位的全部來訪
+ * @returns {string[]}
+ */
+export function toMyCustomerConsequences({ visits = [], entitlements = [], coursesById = {} } = {}) {
+  const live = (visits ?? []).filter((v) => v && !v.deletedAt && v.status !== 'cancelled');
+  const slots = live.reduce((n, v) => n + liveSlots(v).filter(isOneTimeSlot).length, 0);
+  const owedTotal = oneTimeOwed({ entitlements, visits: (visits ?? []).filter((v) => v && !v.deletedAt), coursesById }).reduce((n, r) => n + r.owed, 0);
+  return [
+    // 只講真的會發生的（ADR-0070，段五審查 R6）：沒有額度不會進壓表那一批、不會被列進問時間
+    '會出現在客戶清單與試算表上；他身上還沒有任何額度 —— 加購之後才會進壓表、問這輪的時間',
+    ...(slots ? [`當一次性客人時記的 ${slots} 段照舊算一次性：不扣之後買的額度、不進試算表`] : []),
+    ...(owedTotal ? [`那時候做的健檢還欠 ${owedTotal} 場二返 —— 之後約的那一場照舊不扣、接回那一次`] : []),
+    '轉了就不能轉回一次性客人',
+  ];
 }

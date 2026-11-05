@@ -61,7 +61,7 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 
-## 全部（169 支）
+## 全部（170 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -236,4 +236,5 @@
 | [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |
 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
+| [0172](./0172-a-one-time-guest-is-a-customer-off-every-list.md) | 一次性客人：不在任何名單上的客戶，他的段標成一次性；健檢那一串用一對只在算的時候存在的額度 | 2026-11-05 | 現行 |
 | [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |

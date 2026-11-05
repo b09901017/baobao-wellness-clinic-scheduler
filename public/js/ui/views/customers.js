@@ -49,7 +49,17 @@ const SORTS = [
 ];
 
 // 搜尋字與排序留在模組層：從詳情頁按上一頁回來時，她想看到剛剛那份清單。
-const view = { search: '', sort: 'recent', course: null, showInactive: false };
+// `list` 是三份裡的哪一份（`rules.CUSTOMER_LISTS`：在服務中／已停用／一次性客人，ADR-0172）—— 以前是一個「看已停用的」開關
+const view = { search: '', sort: 'recent', course: null, list: 'active' };
+
+/**
+ * 最底下那一排（spec 第 2 題，她 11/5：「看已停用的」跟「看這個月的進度」「長備註」擠在最上面、擠成兩行）：
+ * 兩個連結並排，現在看的那一份那一顆換成「看在服務中的」。
+ */
+const LIST_LINKS = [
+  { list: 'inactive', label: '看已停用的' },
+  { list: 'oneTime', label: '看一次性客人' },
+];
 
 /** 上次來訪往回看多久。超過就一律算「很久沒來」，不必把整個資料庫拉下來。 */
 const LOOKBACK_DAYS = 180;
@@ -103,9 +113,6 @@ export async function render(el) {
         <h1 class="page__title">客戶</h1>
         <span class="footlinks footlinks--inline">
           <a class="footlink" href="#/customers/progress">看這個月的進度</a>
-          <button class="footlink" type="button" data-inactive
-                  aria-pressed="${view.showInactive}">
-            ${view.showInactive ? '看在服務中的' : '看已停用的'}</button>
           <a class="footlink" href="#/customers/notes">長備註</a>
         </span>
       </div>
@@ -125,6 +132,12 @@ export async function render(el) {
     </div>
 
     <div data-rows></div>
+
+    <div class="footlinks custfoot" data-listlinks>
+      ${LIST_LINKS.map((l) => `
+        <button class="footlink" type="button" data-list="${view.list === l.list ? 'active' : l.list}"
+                aria-pressed="${view.list === l.list}">${view.list === l.list ? '看在服務中的' : l.label}</button>`).join('')}
+    </div>
 
     <div class="fab" data-fab>
       <div class="fab__menu" hidden data-fabmenu>
@@ -156,10 +169,13 @@ export async function render(el) {
     repaint();
   });
 
-  el.querySelector('[data-inactive]').addEventListener('click', () => {
-    view.showInactive = !view.showInactive;
-    render(el);
-  });
+  el.querySelectorAll('[data-list]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      view.list = btn.dataset.list;
+      view.course = null;
+      render(el);
+    }),
+  );
 
   const pressSort = () => {
     el.querySelectorAll('[data-sort]').forEach((b) =>
@@ -234,7 +250,7 @@ export async function render(el) {
 function courseChips(ctx) {
   const tally = new Map();
   for (const c of ctx.rows) {
-    if (c.active === false || c.deletedAt) continue;
+    if (!rules.inCustomerList(c, 'active')) continue;
     for (const p of customerPools({ entitlements: ctx.entsBy[c.id] ?? [] }).pools) {
       if (p.remaining > 0) tally.set(p.label, (tally.get(p.label) ?? 0) + 1);
     }
@@ -275,8 +291,9 @@ function matches(customer, ctx) {
   const fields = [customer.name, customer.phone, customer.lineId, customer.source];
   if (!fields.some((v) => rules.nameHas(v, view.search)) && !rules.chartNoHas(customer, view.search)) return false;
 
-  if (view.showInactive) return customer.active === false;
-  if (customer.active === false) return false;
+  // 三份互斥（`inCustomerList()`）：平常那一份與已停用那一份不列一次性客人，「看一次性客人」那一份只列他們（ADR-0172）
+  if (!rules.inCustomerList(customer, view.list)) return false;
+  if (view.list !== 'active') return true;
 
   if (view.course) {
     const { pools } = customerPools({ entitlements: ctx.entsBy[customer.id] ?? [] });
@@ -324,7 +341,9 @@ function paintRows(el, ctx) {
 
   if (!visible.length) {
     el.innerHTML = `<p class="muted">${
-      ctx.rows.length ? '沒有符合的客戶。' : '還沒有客戶。按右下角的加號開始。'
+      view.list === 'oneTime' && !view.search
+        ? '還沒有一次性客人。到日曆新增、在「要幫誰排？」打名字，找不到時就建得了。'
+        : ctx.rows.length ? '沒有符合的客戶。' : '還沒有客戶。按右下角的加號開始。'
     }</p>`;
     return;
   }
@@ -336,6 +355,7 @@ function paintRows(el, ctx) {
 }
 
 function card(c, ctx) {
+  if (rules.isOneTime(c)) return guestCard(c, ctx);
   const ents = ctx.entsBy[c.id] ?? [];
   const sum = summarize(ents);
   const flags = rules.splitFlags(c, ctx.clinicalFlags);
@@ -392,6 +412,31 @@ function card(c, ctx) {
           ${flags.others.map((x) => `<span class="badge badge--clip">${esc(x)}</span>`).join('')}
           ${sum.overused ? '<span class="badge badge--overdue">有額度超用</span>' : ''}
         </div>` : ''}
+    </a>`;
+}
+
+/**
+ * 「看一次性客人」那一份的一張卡（ADR-0172）：名字＋「一次性」、警示、備註那一排（電話、LINE、病歷號）。
+ * 沒有額度那一段 —— 他本來就沒有額度，寫「還沒有額度」會讓她以為要去加購。
+ */
+function guestCard(c, ctx) {
+  const flags = rules.splitFlags(c, ctx.clinicalFlags);
+  const notes = noteItems(c);
+  return `
+    <a class="card" href="#/customers/${esc(c.id)}" data-guestrow
+       style="display: block; text-decoration: none; color: inherit">
+      <div class="row" style="align-items: flex-start">
+        <div class="row__main">
+          <div class="row__title">
+            ${esc(c.name)} <span class="guestmark">一次性</span>
+            ${flagsUi.detailChips(flags, { others: false, rows: ctx.clinicalFlags })}
+          </div>
+        </div>
+        ${icon('right', { size: 16 })}
+      </div>
+      ${notes.length
+        ? `<div style="margin-top: var(--space-2)">${marksUi.notesPreview(notes, { max: 4 })}</div>`
+        : ''}
     </a>`;
 }
 

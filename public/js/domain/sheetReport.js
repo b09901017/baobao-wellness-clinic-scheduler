@@ -19,6 +19,7 @@ import { deliveryState, amountOf, monthsOf, itemsOf } from './products.js';
 import { purchaseDays, purchaseDayLabel } from './purchases.js';
 import {
   isActive, markFor, slotStatus, isLiveSlot, slotNoteOf as slotNote, shortStatus, MARK_ORDER, MARK_LEGEND,
+  withSlotStatuses, visitStatusFrom,
 } from './visits.js';
 import { pairsOf, holdsExam, usedAndDone, isFollowupCourse } from './followups.js';
 import { followupsOfExam, nthLabel, nthOf, SECOND } from './nthFollowup.js';
@@ -29,10 +30,41 @@ import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
 import { nameOf as variantName, fullNameOf } from './naming.js';
-import { giftKindOf, giftLabel, isExamNotMine } from './masterData.js';
+import { giftKindOf, giftLabel, isExamNotMine, isOneTime, isOneTimeSlot } from './masterData.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
 export const READONLY_NOTICE = '⚠️ 本表由系統自動產生，請勿手動編輯。修改請至 app。';
+
+/**
+ * 試算表看得到的那一份來訪：**一次性的段拿掉**（ADR-0172）。一天全部是一次性的段 → 整筆拿掉（那一天的日期欄不畫）；
+ * 混著一般的段的那一天 → 只留一般的段、整筆的狀態照留下來的那幾段重推（`visitStatusFrom()`）——
+ * 不然一次性那一段做完了、一般那一段取消了，那一天照樣被當成有來（`isActive()`）。
+ * 兩條路（自動推送 `syncBundle()`、手動貼上 `customerReport()`）都先過這一支。沒有一次性的段的來訪原封不動（同一個物件）。
+ *
+ * @param {object[]} visits
+ * @returns {object[]}
+ */
+export function sheetVisits(visits = []) {
+  return (visits ?? []).flatMap((v) => {
+    const slots = v?.slots ?? [];
+    if (!slots.some(isOneTimeSlot)) return [v];
+    const seen = withSlotStatuses(v);
+    const kept = seen.slots.filter((s) => !isOneTimeSlot(s));
+    if (!kept.length) return [];
+    const rest = { ...seen, slots: kept };
+    return [{ ...rest, status: visitStatusFrom(rest) }];
+  });
+}
+
+/**
+ * 這一張待辦是不是只掛在一次性的段上（試算表的 TODO／FINISHED 不印它）。
+ * 帶 `slotIndexes` 的看那幾段；沒有的（健檢鏈那幾種、舊任務）看那一天每一段 —— 混著一般的段的那一天照印（拿不準就印）。
+ */
+function guestTask(task, visit) {
+  const slots = visit?.slots ?? [];
+  const at = Array.isArray(task?.slotIndexes) && task.slotIndexes.length ? task.slotIndexes : slots.map((_, i) => i);
+  return at.length > 0 && at.every((i) => isOneTimeSlot(slots[i]));
+}
 
 /**
  * 一位客戶一張表：療程項目 × 日期的矩陣，底下接二返註記、備註與 TODO / FINISHED。
@@ -63,7 +95,8 @@ export function customerReport({
   equipment = [], ivProducts = [], generatedAt = '', today = null,
 }) {
   const alive = entitlements.filter((e) => !e.deletedAt);
-  const used = visits.filter((v) => isActive(v) && isValidDate(v.date));
+  // 一次性的段不進任何一列（ADR-0172）—— 自動推送那條路同一支（`sheetVisits()`）
+  const used = sheetVisits(visits).filter((v) => isActive(v) && isValidDate(v.date));
   const dates = [...new Set(used.map((v) => v.date))].sort();
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
   const staffById = Object.fromEntries(staff.map((x) => [x.id, x]));
@@ -600,14 +633,16 @@ export function syncBundle({
   const coursesById = Object.fromEntries((master.courses ?? []).map((c) => [c.id, c]));
   const staffById = Object.fromEntries((master.staff ?? []).map((x) => [x.id, x]));
 
+  // **一次性客人不進試算表**（ADR-0172 決定一，她：「客戶以及試算表中不用有他們」）。名字撞到也不替一般客戶加尾巴（`sheetNames()` 只看這一份）
   const sorted = customers
-    .filter((c) => !c.deletedAt)
+    .filter((c) => !c.deletedAt && !isOneTime(c))
     .slice()
     .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-TW'));
 
   const tabName = sheetNames(sorted);
   const sheets = sorted.map((customer) => {
-    const visits = (visitsBy[customer.id] ?? [])
+    // 轉成我的客戶之後，當一次性客人時的那幾段照舊不進（ADR-0172 決定二）：一段都不進任何一列，整天都是的那一天日期欄不畫
+    const visits = sheetVisits(visitsBy[customer.id] ?? [])
       .filter((v) => isActive(v) && isValidDate(v.date));
     const alive = (entitlementsBy[customer.id] ?? []).filter((e) => !e.deletedAt);
     const dates = [...new Set(visits.map((v) => v.date))].sort();
@@ -1022,7 +1057,8 @@ function bookingsOf(visits, entitlementId, dates) {
  */
 function taskBlocks(tasks, visits, master = null, today = null) {
   const visitById = Object.fromEntries(visits.map((v) => [v.id, v]));
-  const alive = (tasks ?? []).filter((t) => !t.deletedAt);
+  // 一次性的段的待辦也不印（ADR-0172：那幾段不進試算表）—— 掛在哪幾段問 `slotIndexes`，沒有那一格的（健檢鏈那幾種）看整天
+  const alive = (tasks ?? []).filter((t) => !t.deletedAt && !guestTask(t, visitById[t.visitId]));
 
   const line = (t) => {
     // 哪一天、哪一場走 `todoFlow.js` 的 `taskLine()` —— 客戶詳情與待辦中心

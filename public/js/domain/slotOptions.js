@@ -26,6 +26,7 @@
 import { customerPools } from './scheduling.js';
 import { coursesForEntitlement } from './visits.js';
 import { examChoicesForNth, courseIdForNth } from './nthFollowup.js';
+import { oneTimeOwed } from './followups.js';
 import {
   isUncounted, canBeGift, groupByCourse, isTrialMinutes, trialMinutesOf, examNotMineCourse, EXAM_NOT_MINE_LABEL,
 } from './masterData.js';
@@ -38,6 +39,13 @@ export const NTH_PICK = '__nth__';
  * 只活在畫面上：組時段時換回 `examNotMine: true` ＋ 第幾返（`slotDraft.js` 的 `slotFromPicks()`）。
  */
 export const NOT_MINE_PICK = '__notmine__';
+
+/**
+ * 「二返（一次性那一次）」那一顆的值（ADR-0172）。**不是任何一筆額度的 id**，同 `NTH_PICK` 的底線前綴。
+ * 轉成我的客戶之後，當一次性客人時做的健檢還欠的那一場二返（她第 6 題：「照舊不扣、接回那一次」）：
+ * 按了組出來的段帶 `oneTime: true`、接那一次健檢（`slotFromPicks({ oneTime: true, courseId, followupForVisitId })`）。
+ */
+export const ONE_TIME_SECOND_PICK = '__onetime2nd__';
 
 const COURSE_PICK = '__course__:';
 
@@ -66,6 +74,7 @@ export function giftCourseIdOf(value) {
  *   course         這一段預設算哪一門課（擇一池挑了器材之後會換，ADR-0075）
  *   entitlement    那一筆額度；不扣次數的兩種是 `null`
  *   isNth／isGift  n返、送的／體驗（`giftOptions()`）
+ *   isOneTimeSecond 「二返（一次性那一次）」（`oneTimeSecondOptions()`，ADR-0172）
  *   folded         收在「送的／體驗…」後面（送的／體驗那幾顆都是）
  *
  * **送的／體驗那一組每一門課都有一顆**（健檢、二返除外）—— 這位客戶身上如果還有那門課的額度，
@@ -126,8 +135,35 @@ export function slotOptionsFor(
     }
   }
 
+  out.push(...oneTimeSecondOptions({ entitlements, visits, courses }));
+
   const notMine = notMineOption(courses);
   return arrangeSlotOptions([...out, ...giftOptions(courses), ...(notMine ? [notMine] : [])], courses);
+}
+
+/**
+ * 「二返（一次性那一次）」那一顆（ADR-0172，spec「我判斷的細節」）：**一次性的健檢還欠二返時才有**（`oneTimeOwed()`：那一對拿 `owed()` 算，
+ * 一次健檢欠一場；約了一場接回去就收、那一場沒來又回來）。壓表、來訪編輯器、拍 Abovee 三個入口都經 `slotOptionsFor()` 拿到它。
+ *
+ * 只有轉成我的客戶的人會走到這裡（一次性客人自己的「做什麼」那一排是全部的課，06）；他一段一次性的健檢都沒有時一顆都不回。
+ * 跟二返、n返 同一組（`isFollowupOption()`：最後一組、另起一行）。不扣次數（`remaining` 是 `'—'`）、沒有額度（`entitlement` 是 `null`）。
+ *
+ * @returns {object[]} 一門健檢課程一顆（幾乎都只有一顆）
+ */
+export function oneTimeSecondOptions({ entitlements = [], visits = [], courses = [] } = {}) {
+  const coursesById = Object.fromEntries((courses ?? []).map((c) => [c.id, c]));
+  return oneTimeOwed({ entitlements, visits, coursesById })
+    .map(({ followupCourseId }) => coursesById[followupCourseId])
+    .filter((course) => course && !course.deletedAt)
+    .map((course) => ({
+      entitlementId: ONE_TIME_SECOND_PICK,
+      label: `${course.name}（一次性那一次）`,
+      remaining: '—',
+      durationMin: course.durationMin ?? 30,
+      course,
+      entitlement: null,
+      isOneTimeSecond: true,
+    }));
 }
 
 /**
@@ -159,6 +195,54 @@ export function notMineOption(courses = [], { keep = null } = {}) {
     folded: true,
     extra: true,
   };
+}
+
+/** 一次性客人按的那一門課的值的前綴（ADR-0172）。**不是任何一筆額度的 id**，同 `NTH_PICK` 的底線前綴。 */
+const GUEST_PREFIX = '__guest__:';
+
+/** 一次性客人（還沒轉成我的客戶）按了哪一門課 → 那一排上的值。組時段時換回 `slotFromPicks({ oneTime: true, courseId })`。 */
+export const guestPick = (courseId) => `${GUEST_PREFIX}${courseId}`;
+
+/** 那一排上的值是不是一次性客人的一門課；是就回課程 id，不是回 `null`。 */
+export const guestCourseIdOf = (value) => (typeof value === 'string' && value.startsWith(GUEST_PREFIX)
+  ? (value.slice(GUEST_PREFIX.length) || null)
+  : null);
+
+/**
+ * 一次性客人（還沒轉成我的客戶）的「做什麼」那一排（ADR-0172、spec 第 4 題與「我判斷的細節」）：
+ *
+ * - **全部還在用的課**，照分類（`groupByCourse()`，同加購那一排先分類再項目）；健檢、二返都在裡面（`isGuest`、`group`）
+ * - **送的／體驗不列**（他本來就不扣）
+ * - 「其他 ▸」（`extra`）裡留「健檢不是我排的」與「＋ n返」（他有接得上的一次性健檢時，`nthExams` 有一顆按得下去）
+ *
+ * 不扣任何東西：按了組出來的段是 `slotFromPicks({ oneTime: true, courseId })`。來訪編輯器與拍 Abovee 用（壓表不做，第 4 題）。
+ * 畫法是 `giftFold.coursesHtml()`。
+ *
+ * @param {object[]} courses 主檔
+ * @param {object} [o]
+ * @param {object|null} [o.keep] 這一段現在指著的那一門：停用了也要列（同 `giftOptions()`）
+ * @param {object|null} [o.notMineKeep] 這一段現在就是「健檢不是我排的」時那一段的課程（同 `notMineOption()`）
+ * @param {object[]} [o.nthExams] `examChoicesForNth()` 那一份（02 起認得一次性的健檢）
+ * @returns {object[]}
+ */
+export function guestOptions(courses = [], { keep = null, notMineKeep = null, nthExams = [] } = {}) {
+  const alive = (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false);
+  const list = keep && !alive.some((c) => c.id === keep.id) ? [...alive, keep] : alive;
+  const main = groupByCourse(list, (c) => c, courses).flatMap(({ group, items }) => items.map((course) => ({
+    entitlementId: guestPick(course.id),
+    label: course.name,
+    remaining: '—',
+    durationMin: course.durationMin ?? 60,
+    course,
+    entitlement: null,
+    isGuest: true,
+    group,
+  })));
+  const nth = (nthExams ?? []).some((c) => c.pickable)
+    ? [{ entitlementId: NTH_PICK, label: '＋ n返', remaining: '—', course: null, entitlement: null, isNth: true, extra: true }]
+    : [];
+  const notMine = notMineOption(courses, { keep: notMineKeep });
+  return [...main, ...nth, ...(notMine ? [notMine] : [])];
 }
 
 /**
@@ -200,14 +284,16 @@ export function giftOptions(courses = [], { keep = null } = {}) {
  *
  * 只有一種會換：**扣著那門課額度的段**、按的是那門課的「體驗的時候排幾分」（`isTrialMinutes()`）→ 那門課的體驗。
  * - **反過來不自動**：體驗的段按 60 照樣是體驗 60（她說的是「選 20 就預設是體驗」）；要扣額度她按那一顆額度
- * - n返（`NTH_PICK`）、「健檢不是我排的」（`NOT_MINE_PICK`）、還沒選、已經是送的／體驗的不換；那門課停用了也不換（那一顆不在「送的／體驗…」裡）
+ * - n返（`NTH_PICK`）、「健檢不是我排的」（`NOT_MINE_PICK`）、「二返（一次性那一次）」（`ONE_TIME_SECOND_PICK`）、還沒選、已經是送的／體驗的不換；那門課停用了也不換（那一顆不在「送的／體驗…」裡）
  *
  * @param {{value: string|null, course: object|null, minutes: number|string|null, courses: object[]}} o
  *   `value` 是那一排上現在按著的那一顆（額度 id、`NTH_PICK`、`giftPick()`），`course` 是這一段現在算哪一門課
  * @returns {{value: string, giftKind: 'trial'}|null} 要換成哪一顆；不用換是 `null`
  */
 export function trialFromMinutes({ value = null, course = null, minutes = null, courses = [] } = {}) {
-  if (!value || value === NTH_PICK || value === NOT_MINE_PICK || giftCourseIdOf(value)) return null;
+  // 一次性客人按的課（`guestPick()`，ADR-0172）也不換：他的段不是送的／體驗（`validateVisit()` 擋）
+  if (!value || value === NTH_PICK || value === NOT_MINE_PICK || value === ONE_TIME_SECOND_PICK || giftCourseIdOf(value)
+    || guestCourseIdOf(value)) return null;
   if (!course || course.deletedAt || course.active === false) return null;
   return isTrialMinutes(course, minutes, courses) ? { value: giftPick(course.id), giftKind: 'trial' } : null;
 }
@@ -240,7 +326,7 @@ export const EXTRA_GROUP = '其他';
 /** 二返與 n返 那一組叫什麼（每一顆的 `group`）。它不是課程的分類 —— 那一組永遠排在最後。 */
 export const FOLLOWUP_GROUP = '二返・n返';
 
-const isFollowupOption = (o) => Boolean(o?.isNth || o?.entitlement?.followupForEntitlementId);
+const isFollowupOption = (o) => Boolean(o?.isNth || o?.isOneTimeSecond || o?.entitlement?.followupForEntitlementId);
 
 /** 一類裡：先額度（照名字）、最後 n返。 */
 const kindRank = (o) => (o.isNth ? 1 : 0);

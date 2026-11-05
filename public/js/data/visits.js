@@ -21,6 +21,7 @@ import {
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import { assertNoOneTimeIds, hasOneTimeSlots } from '../domain/oneTimeChain.js';
 
 const PATH = 'visits';
 const TASK_PATH = 'tasks';
@@ -450,14 +451,18 @@ export async function chainAfterEntitlements(customerId, change, { name = null }
  * 確認框要試算健檢那條鏈時讀的那兩份：這位客戶的額度、任務（連清掉的，ADR-0106）——
  * 跟存檔時 `followupOps()` 讀的是同一份（ADR-0070）。**沒有健檢配二返就回 `null`**，不多讀任務；讀不到也是 `null`（少講幾句，不擋）。
  * 用的是 `consequences.js` 的 `cancelConsequences({ chain })` 與 `followupBookingLines()`。
+ *
+ * `visits`：呼叫端手上這位客戶的來訪（**要傳**）。一次性客人沒有額度，健檢那一串用一對只在算的時候才有的額度（ADR-0172 決定三）——
+ * 沒有真的一對、而這幾筆裡有一次性的段時照樣讀任務（03）；不然一次性客人在每一道確認框上都一句鏈上的話都不講。
+ * 回的額度照舊是真的那幾筆，那一對由算的那一支自己套。
  */
-export async function chainInputs(customerId, coursesById = {}) {
+export async function chainInputs(customerId, coursesById = {}, visits = []) {
   if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
   // 讀到快取的也當讀不到（ADR-0158）：少講幾句，不講錯的 —— 真的存的那一下會擋
   const since = repo.cacheReads();
   try {
     const entitlements = await customersData.listEntitlements(customerId);
-    if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
+    if (!pairsOf(entitlements, coursesById).some((p) => p.followup) && !hasOneTimeSlots(visits)) return null;
     const tasks = await tasksData.listByCustomerForSync(customerId);
     if (readsIncomplete({ offline: offlineNow(), sources: [readSource(cachedSince(since))] })) return null;
     return { entitlements, tasks };
@@ -743,6 +748,9 @@ function toOps({ create = [], update = [], remove = [] }) {
 }
 
 function countOps(customerId, touched, visitsAfter) {
+  // **存檔那一道防線**（ADR-0172 決定三）：一次性客人的那一對額度只在算健檢那一串的時候存在 —— 投影過的那一份被拿來存，
+  // 這裡就會去改一筆不存在的額度。`save()`、`remove()`、`restore()` 都經過這一支；丟錯、不悄悄清掉
+  assertNoOneTimeIds([...touched.filter(Boolean), ...(visitsAfter ?? [])]);
   const ids = touchedEntitlementIds(...touched.filter(Boolean));
   const recounted = recount(ids, visitsAfter);
   const at = new Date().toISOString();
