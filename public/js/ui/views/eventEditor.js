@@ -105,9 +105,6 @@ function html(e, { isNew, embedded = false }) {
                     aria-pressed="${c.id === e.category}" data-category="${c.id}">
               ${esc(c.label)}</button>`).join('')}
         </div>
-        ${isLeave(e)
-          ? `<p class="field__hint">休假那幾天壓表的小日曆會直接劃掉 —— 你人不在，排了也是白排。</p>`
-          : `<p class="field__hint">行事備註只是那個時段有事，其餘時間照樣排得了。</p>`}
       </div>
 
       ${colourField(e)}
@@ -125,7 +122,6 @@ function html(e, { isNew, embedded = false }) {
       <label class="field">
         <span class="field__label">結束</span>
         <input type="date" data-end value="${esc(e.endDate ?? '')}" />
-        <span class="field__hint">跟開始不同就是跨天的，月檢視上會拉成一條橫的。</span>
       </label>
 
       ${e.allDay ? '' : `

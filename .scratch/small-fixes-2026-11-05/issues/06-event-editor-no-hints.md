@@ -1,6 +1,6 @@
 # 新增行事備註那張表：三句小字全刪
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`public/js/ui/views/eventEditor.js`（`:109-110` 休假／行事備註各一句、`:128`「跟開始不同就是跨天的…」）；
 `tests/fewer-words.test.js` 的 `FIELD_HINT_KEEP`（`ui/views/eventEditor.js: 3`）
@@ -27,3 +27,9 @@ Blocked by: —
 - `grep` 那三句的字，`public/` 底下還有沒有？（不可以；`domain/events.js:202` 的註解不算）
 
 ## 做完時留下的
+
+- `eventEditor.js` 三句 `field__hint` 全刪（「休假那幾天壓表的小日曆…」「行事備註只是那個時段有事…」「跟開始不同就是跨天的…」）；
+  標題、顏色、刪掉那三顆 `?` 留著。`grep` 那三句的字：`public/` 底下只剩 `domain/events.js` 與 `schedule.js` 的註解；`docs/` 沒有
+- `tests/fewer-words.test.js` 的 `FIELD_HINT_KEEP` 拿掉 `eventEditor.js` 那一列（改成一行註解講為什麼是 0）—— 先拿掉、跑過紅（「這幾支自己手寫了欄位說明」），刪完綠
+- verify：`npm test` 只有 07 還沒 commit 的 ADR 與測試紅（索引、`event-colour-swatches`，屬於 07）；E2E 照 `pick()`（`eventEditor.js`、`sw.js`）挑 `00 08 10 18 81` 直接跑，42 個全過
+- `sw.js` v237
