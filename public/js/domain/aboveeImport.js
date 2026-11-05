@@ -3305,9 +3305,11 @@ export function visitsForCheck(groups, group, ctx) {
  */
 export function checkCtxFor(groups, group, ctx) {
   const master = ctx.master ?? {};
+  // 那一位整份（一次性客人那一格要帶得出來，ADR-0172 —— 以前只傳警示，那一道在這條路上永遠不會響）
+  const who = (ctx.customers ?? []).find((c) => c.id === group.customerId) ?? null;
   return {
     slotLabel: (i) => slotSay(group.visit?.slots?.[i], master),
-    customer: { flags: (ctx.customers ?? []).find((c) => c.id === group.customerId)?.flags ?? [] },
+    customer: { ...(who ?? {}), flags: who?.flags ?? [] },
     entitlements: ctx.entitlementsBy?.[group.customerId] ?? [],
     courses: master.courses ?? [], equipment: master.equipment ?? [], rooms: master.rooms ?? [],
     staff: master.staff ?? [], ivProducts: master.ivProducts ?? [],

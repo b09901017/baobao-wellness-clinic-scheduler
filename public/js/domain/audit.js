@@ -141,6 +141,8 @@ const FIELD_LABELS = {
   customerName: '客戶',
   // 她改得到、2026-10-07 以前印英文的那幾格（issue 14）。字照設定頁那一格寫。
   partners: '合作機構',
+  // ADR-0172：建名字卡（是）、轉成我的客戶（是 → 否）。段上的那一格走整筆 `slots` 的比對
+  oneTime: '一次性客人',
   tier: '幾萬的',
   membershipMonths: '會籍（月）',
   preferredRoomIds: '常用診間',

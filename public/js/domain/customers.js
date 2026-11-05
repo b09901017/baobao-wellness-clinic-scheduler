@@ -5,9 +5,49 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
-import { clinicalTerms, normalizeAlias } from './masterData.js';
+import { clinicalTerms, normalizeAlias, isOneTime as oneTimeFlag } from './masterData.js';
 import { acceptsMoreSlots } from './visits.js';
 import { chartNosOf, normalizeChartNo } from './identify.js';
+import { toCustomerFields } from './customerMarks.js';
+
+// **一次性客人**（2026-11-05，ADR-0172）：`isOneTime(customer)` 住在 `masterData.js`（葉節點）、從這裡轉出去 ——
+// `visits.js` 的存檔驗證要問它，而這一支經 `identify.js` → `legacyImport.js` 繞回 `visits.js`（載入時就會撞到）。
+// 畫面一律從這裡 import；它是同一支函式，「讀只有一支」照樣成立。
+export const isOneTime = oneTimeFlag;
+
+/**
+ * 一張名字卡 → 要建的那一份客戶文件（ADR-0172 決定一）。能填的只有名字、病歷號、電話、LINE 名字、警示 ——
+ * 都是客戶文件既有的欄位；其餘照新增客戶表單的空白預設（`customerForm.js` 的 `draftToCustomer(blankDraft())`：
+ * 沒有購買日、沒有方案、喜好程度 0），多一格 `oneTime: true`。`active` 由寫入那一支補（`createWithPlan()` 同一個做法）。
+ *
+ * @param {{name: string, chartNo?: string|null, phone?: string|null, lineId?: string|null, flags?: string[]}} card
+ * @returns {object}
+ */
+export function oneTimeCustomer({ name, chartNo = null, phone = null, lineId = null, flags = [] } = {}) {
+  const text = (v) => String(v ?? '').trim() || null;
+  return {
+    name: String(name ?? '').trim(),
+    phone: text(phone),
+    lineId: text(lineId),
+    chartNo: text(chartNo),
+    source: null,
+    purchasedAt: null,
+    membershipExpiresAt: null,
+    priority: 0,
+    flags: [...(flags ?? [])],
+    partners: [],
+    ...toCustomerFields([]),
+    oneTime: true,
+  };
+}
+
+/**
+ * 轉成我的客戶要寫的變動：**`{ oneTime: false }`，不拿掉那一格**（ADR-0172 決定二）。
+ * 拿掉要 `deleteField`，而 `repo.commit()` 把變動原樣抄進稽核那一筆，放一個刪除標記進去整批會失敗；
+ * domain 也 import 不到 SDK。`isOneTime()` 只認 `true`，所以 `false` 跟沒有那一格一樣，稽核上留得下「一次性客人 是 → 否」。
+ * 他以前那幾段的標記留著（照舊不扣、不進試算表）。
+ */
+export const toMyCustomer = () => ({ oneTime: false });
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），

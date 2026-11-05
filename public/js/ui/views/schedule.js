@@ -2315,7 +2315,8 @@ async function addSlot() {
   }
   const { visit, merged } = visitWithSlot(selected, view.day, slot, customerVisits);
   const { errors, warnings } = validateVisit(visit, {
-    customer: { flags: selected.flags ?? [] },
+    // 剛讀回來的那一位整份（一次性客人那一格要帶得出來，ADR-0172）；警示照舊用卡片上的那一份
+    customer: { ...(owner ?? {}), flags: selected.flags ?? [] },
     entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
     courses: all.courses, equipment: all.equipment, rooms: all.rooms,
     staff: all.staff, ivProducts: all.ivProducts,
@@ -2397,7 +2398,7 @@ async function addSlot() {
     // 健檢存好了才接：那一場二返要接的是剛存好的那一筆的 id（`ui/relinkFollowup.js`，日曆新增同一支）
     if (pick === 'relink') {
       await relinkAfterSave(said.relink, { id: savedId, date: visit.date }, {
-        customer: { id: selected.customerId, flags: selected.flags ?? [] },
+        customer: { ...(owner ?? {}), id: selected.customerId, flags: selected.flags ?? [] },
         entitlements: ctx.queueInput.entitlementsBy[selected.customerId] ?? [],
         master: all,
       });

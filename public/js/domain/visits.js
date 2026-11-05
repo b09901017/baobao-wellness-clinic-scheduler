@@ -17,7 +17,7 @@ import { counts, countsWithDraft, slotOutcome } from './entitlements.js';
 import { isValidDate, daysBetween, shortDate } from './dates.js';
 import {
   roomsForCourse, roomFitsCourse, picksDoctor, bookingMinutesOf, durationChoicesOf, equipmentForCourse, DOCTOR_ROLE,
-  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL,
+  giftKindOf, giftLabel, canBeGift, GIFT_KINDS, trialMinutesOf, isExamNotMine, EXAM_NOT_MINE_LABEL, isOneTimeSlot, isOneTime,
 } from './masterData.js';
 // 循環 import（visits ↔ followups，followups 也經 taskRules 繞回來）：兩邊都只在函式裡用，模組載入時不碰
 import {
@@ -1692,6 +1692,8 @@ function visitErrors(visit, {
   const errors = [];
   // 匯入的舊來訪缺的那些欄位不是漏填，是舊系統從來沒記過。見 isImported()。
   const imported = isImported(visit);
+  // 一次性客人（ADR-0172）：他身上每一段都要標一次性。**三個呼叫端以前只傳半個客戶**（`{ flags }`）—— 都要帶得出這一格
+  const guestCustomer = isOneTime(customer);
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
   const equipById = byId(equipment);
@@ -1732,19 +1734,28 @@ function visitErrors(visit, {
     // **健檢不是她排的是第三種**（ADR-0169）：不扣、不接。它只放寬兩道（「要選一個額度」、n返「一定要指定是哪一次健檢的」），
     // 而且只放過那一種形狀 —— 哪一格不對都在 `examNotMineErrors()` 講出來，底下額度與健檢那兩條都不再問它
     const notMine = isExamNotMine(slot);
+    // **一次性的段是第四種**（ADR-0172）：不扣、不是送的／體驗。它只放寬「要選一個額度」，而且只放過那一種形狀
+    // （`oneTimeErrors()`）；跟「健檢不是我排的」疊在一起時那幾格由 `examNotMineErrors()` 講（不重複）
+    const guest = isOneTimeSlot(slot);
     // 兩種身分都有的壞資料 `giftKindOf()` 照額度／n返 讀（回 null），所以這兩句看那一格原本的值
     const marked = GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;
-    if (slot.giftKind != null && !marked && !notMine) {
+    if (slot.giftKind != null && !marked && !notMine && !guest) {
       errors.push(`${at}：體驗或送的那一格看不懂（「${slot.giftKind}」）`);
+    }
+    // 一次性客人身上一段沒有標記、也沒有額度：程式的錯（組時段漏了那一格），不該發生 —— 擋下來，不要讓它被當成一般的段存進去
+    if (guestCustomer && !guest && !slot.entitlementId) {
+      errors.push(`${at}：一次性客人的段要標成一次性`);
     }
     if (notMine) {
       errors.push(...examNotMineErrors(slot, courses).map((e) => `${at}：${e}`));
+    } else if (guest) {
+      errors.push(...oneTimeErrors(slot, courses).map((e) => `${at}：${e}`));
     } else if (marked && slot.entitlementId) {
       errors.push(`${at}：${giftLabel(marked)}的段不扣任何次數，不可以同時指定額度`);
     } else if (marked && nth) {
       errors.push(`${at}：n返 不可以同時是${giftLabel(marked)}的`);
     } else if (!slot.entitlementId) {
-      if (!nth && !gift) errors.push(`${at}：要選一個額度`);
+      if (!nth && !gift && !guestCustomer) errors.push(`${at}：要選一個額度`);
     } else if (nth) {
       errors.push(`${at}：n返 不扣任何次數，不可以同時指定額度`);
     } else if (!ent) {
@@ -1910,6 +1921,27 @@ function examNotMineErrors(slot, courses = []) {
   }
   if (isNthSlot(slot) && nthOf(slot) == null) {
     errors.push(`${say}的返數要是 ${MIN_NTH} 到 ${MAX_NTH}（二返不寫返數）`);
+  }
+  return errors;
+}
+
+/**
+ * 一次性的段（ADR-0172）存不存得下去：**只放過那一種形狀**（同 `examNotMineErrors()`；`docs/agents/lessons.md` 第四節）。
+ *
+ * - 不扣額度、不是送的／體驗（那兩格一定是空的）
+ * - **一次性的二返**（二返那門課、不是 n返）一定要接一次健檢 —— 它沒有額度可以照位置配，一般二返那條「沒接只提醒」不適用。
+ *   健檢不在 app 裡的那一種按「健檢不是我排的」（那一條路在呼叫端先走 `examNotMineErrors()`，不會到這裡）
+ *
+ * 課程隨便哪一門（「做什麼」那一排列全部的課）；n返 的那幾條（返數、一定要接健檢）照舊在呼叫端講。
+ *
+ * @returns {string[]} 不帶「第幾個時段」前綴
+ */
+function oneTimeErrors(slot, courses = []) {
+  const errors = [];
+  if (slot.entitlementId) errors.push('一次性的段不扣任何次數，不可以同時指定額度');
+  if (slot.giftKind != null) errors.push('一次性的段不是送的，也不是體驗');
+  if (!isNthSlot(slot) && slot.courseId && isFollowupCourse(slot.courseId, courses) && !slot.followupForVisitId) {
+    errors.push(`一次性的二返要接一次健檢，或按「${EXAM_NOT_MINE_LABEL}」`);
   }
   return errors;
 }

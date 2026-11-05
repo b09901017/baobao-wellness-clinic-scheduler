@@ -1,6 +1,6 @@
 # 01：一次性客人與一次性的段 —— 形狀、組時段、存檔驗證
 
-Status: todo
+Status: done
 Blocked by: 無（但**整輪的實作要等 `claude/small-fixes-2026-11-05` 合進 develop 之後才開始**，見 HANDOFF「共同的規矩」）
 
 ## 動工前先讀
@@ -63,4 +63,24 @@ Blocked by: 無（但**整輪的實作要等 `claude/small-fixes-2026-11-05` 合
 
 ## 做完時留下的
 
-（做完的那一段寫）
+段一（2026-11-05）。測試在 `tests/one-time-guest.test.js`（42 條，判準每一條一支）。
+
+- **`isOneTime()` 住在 `masterData.js`、`customers.js` 轉出去**（`export const isOneTime = oneTimeFlag`）：`visits.js` 的驗證要問它，
+  而 `customers.js` 經 `identify.js` → `legacyImport.js` 繞回 `visits.js`，直接 import 會在載入時撞到 `identify.js` 頂層的 `CHART_NO_PREFIX`（11 支測試整個載不起來）。
+  **畫面一律從 `customers.js` import**；domain 裡已經 import `masterData.js` 的照樣從那裡拿。掃描測試允許這兩支讀 `.oneTime`。
+  `export { x } from` 不行：`tests/module-names.test.js` 認不得那種寫法
+- `oneTimeCustomer({ name, chartNo, phone, lineId, flags })` 回的形狀＝新增客戶表單的空白預設（`draftToCustomer(blankDraft())`，但購買日是 `null`）＋`oneTime: true`；
+  **`active` 不在裡面**（`createWithPlan()` 自己補 —— 05 建名字卡走同一條寫入就好）。選填的沒填是 `null`
+- 轉成我的客戶：`toMyCustomer()` 回 `{ oneTime: false }`（05 用）
+- `slotFromPicks()`：`picks.oneTime === true` ＋ `picks.courseId`。一次性贏過額度與送的（那兩樣一律不看）；跟 `examNotMine` 疊得上去（課程照那一條）；
+  跟 `isNth` 疊得上去（02 讓它找得到一次性的健檢）。要選器材的課照器材重推（同送的那一條）。
+  一次性的二返（`isFollowupCourse()`、不是 n返、不是 `examNotMine`）沒接健檢 → `stop('先選這是哪一次健檢的，或按「健檢不是我排的」')`；
+  接了就留著（`followupForVisitId` 那一行多認 `guestSecond`）
+- `validateVisit()`：一次性的段走 `oneTimeErrors()`（額度、送的／體驗、一次性的二返沒接也不是 `examNotMine`）；疊著 `examNotMine` 的由 `examNotMineErrors()` 講（不重複）。
+  **一次性客人身上沒有標記也沒有額度的段**講「一次性客人的段要標成一次性」（同時不講「要選一個額度」）。
+  `giftKindOf()` 對一次性的段回 `null`
+- **呼叫端傳的客戶**：壓表（存檔前驗證與 `relinkAfterSave()` 都改成剛讀回來的 `owner` 整份＋卡片上的 `flags`）、`relinkFollowup.js`（整份）、
+  拍 Abovee 的 `checkCtxFor()`（認出的那一位整份）。來訪編輯器本來就傳整份。三處都有原始碼測試釘著（`one-time-guest.test.js` 最後一段）
+- 稽核：`FIELD_LABELS.oneTime = '一次性客人'`（布林印「是／否」），`tests/audit-field-words.test.js` 的 `HERS` 加了它
+- `sw.js` v283（origin/develop 是 v282）
+- **沒做的**：`CLAUDE.md` 連動表還沒補「一次性客人」那一列（08 寫）；E2E 這一段沒在本機跑（`--related` 挑到 60 支，段末推上去用 CI 全量跑一次，見 HANDOFF）
