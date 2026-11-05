@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 4;
+var LAYOUT_VERSION = 5;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -66,7 +66,10 @@ var COL = {
   DONE: 3,       // C 已完成
   BOOKED: 4,     // D 已排未上
   REMAINING: 5,  // E 剩餘
-  FIRST_DATE: 6, // F 以後每欄一個日期
+  // F 一條窄的空白欄（沒有字、沒有框線、白底）：數字四欄跟日期隔開（她 11/5 晚挑的「A 全白＋窄空白欄」，issues/14、
+  // `.scratch/sheet-push-gaps/mock-count-columns-2026-11-05.html`）。以前是四欄淡灰底＋剩餘右邊一條粗線
+  SPACER: 6,
+  FIRST_DATE: 7, // G 以後每欄一個日期
 };
 
 /**
@@ -82,13 +85,11 @@ var HEADER_ROWS = 4;  // 提醒、名字、號碼／購買名稱／合計、產�
 var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
 /** 產生時間那一列。沒變的那幾頁只改這一格（`render()`）—— 畫的那一側與改時間的那一側都讀這個數字。 */
 var STAMP_ROW = 4;
-/**
- * 凍結前五欄（療程項目～剩餘；她 11/5：「我確實蠻希望可以另外前五欄凍結」，issues/09）。
- * **凍結線不能穿過合併儲存格**（Google 會丟例外，`.scratch/first-real-import/issues/01`），所以**每一個合併都停在這一欄以內**：
- * 最上面四列、下面「買過什麼」「營養品」「備註」「來訪紀錄」每一行與區塊抬頭都只合併到剩餘那一欄，長的折行、那一列跟著長高（`fitRows()`）。
- * TODO（A～C）、FINISHED（K～M）本來就沒有穿過。
+/*
+ * **欄不凍結**（2026-11-05 晚，issues/14，ADR-0176 推翻 ADR-0175 的「凍結前五欄」）：她看了凍結的樣子說分裂感太重 ——
+ * 所以最上面四列與下面「買過什麼」「營養品」「備註」「來訪紀錄」又是整頁寬（`width`）。列照舊凍結到矩陣表頭（第 5 列）。
+ * **哪天要再凍結欄**：凍結線不能穿過合併儲存格（Google 會丟例外，`.scratch/first-real-import/issues/01`），那些整頁寬的合併要先收回來。
  */
-var FROZEN_COLS = 5;
 
 var STYLE = {
   font: 'Noto Sans TC',
@@ -97,6 +98,8 @@ var STYLE = {
   bodySize: 11,
   labelWidth: 190,
   countWidth: 62,
+  // 數字四欄與日期中間那一條空白欄（`COL.SPACER`）
+  spacerWidth: 8,
   // 78：「10/29(四)」一行放得下（58 的時候常被擠到第二行，issues/08）
   dateWidth: 78,
   noteWidth: 300,
@@ -118,11 +121,8 @@ var COLOR = {
   low: '#FFCDD2',      // 剩餘 0 或負數（超用）
   border: '#B0BEC5',
   noteHeader: '#ECEFF1',
-  // 應有～剩餘那四欄（issues/08：跟日期分開）：格子淡灰底、表頭比療程項目那一格淺一階、剩餘右邊一條粗線。
-  // 狀態色（已完成綠、已排未上黃、剩餘 ≤0 紅）照舊蓋在淡灰上面
-  count: '#EEF2F5',
-  countHeader: '#546E7A',
-  divider: '#546E7A',
+  // 數字四欄與日期中間那一條空白欄：表頭那一格也白（issues/14）。應有～剩餘四欄不另外上底色，跟整列一樣（斑馬紋、狀態色照舊）
+  spacer: '#FFFFFF',
   // 備註那一塊「永久限制：…」那一行（issues/12）
   flag: '#FDE7E7',
 };
@@ -673,25 +673,24 @@ function renderCustomer(ss, data, bundle, book) {
     width,
   );
   t = clockAdd('清空', t, true);
-  noticeRow(sheet, FROZEN_COLS, bundle);
+  noticeRow(sheet, width, bundle);
 
-  // 第 2 列名字大字、第 3 列號碼＋購買名稱＋合計、第 4 列產生時間 —— 都只合併到剩餘那一欄（凍結線不能穿過合併，issues/09），長的折行
-  sheet.getRange(2, 1, 1, FROZEN_COLS).merge().setValue(data.name)
+  // 第 2 列名字大字（號碼接在名字後面、一樣大，issues/14）、第 3 列購買名稱＋合計、第 4 列產生時間 —— 整頁寬，長的折行
+  sheet.getRange(2, 1, 1, width).merge().setValue(titleLine(data))
     .setFontSize(STYLE.titleSize).setFontWeight('bold')
     .setVerticalAlignment('middle');
-  sheet.getRange(3, 1, 1, FROZEN_COLS).merge()
+  sheet.getRange(3, 1, 1, width).merge()
     .setValue(infoLine(data))
     .setVerticalAlignment('middle').setWrap(true);
 
-  sheet.getRange(STAMP_ROW, 1, 1, FROZEN_COLS).merge()
+  sheet.getRange(STAMP_ROW, 1, 1, width).merge()
     .setValue(stampLine(bundle))
     .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle').setWrap(true);
 
-  // 矩陣表頭
-  var head = ['療程項目', '應有', '已完成', '已排未上', '剩餘'].concat(data.dateLabels);
+  // 矩陣表頭（第 6 欄是空白欄：沒有字）
+  var head = ['療程項目', '應有', '已完成', '已排未上', '剩餘', ''].concat(data.dateLabels);
   sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length).setValues([head]);
   styleHeader(sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length));
-  sheet.getRange(MATRIX_HEADER_ROW, COL.TOTAL, 1, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.countHeader);
 
   // 一筆額度一列。**器材與記一句不再多一列**（2026-11-05，issues/11，ADR-0175）：
   // 「這一天用了哪一台」併進那一格的字（「✓ IN」，格式 4 的 `equipmentNotes`），
@@ -708,7 +707,7 @@ function renderCustomer(ss, data, bundle, book) {
     var equipmentByDate = cellsByDate(equipmentNoteAt(data, n), one.marks.length);
     var marks = [];
     for (var m = 0; m < one.marks.length; m++) marks.push(markWithEquipment(one.marks[m], equipmentByDate[m]));
-    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(marks));
+    rows.push([one.label, one.total, one.done, one.booked, one.remaining, ''].concat(marks));
     meta.push({ row: one, slotNotesByDate: cellsByDate(noteRowAt(data.slotNotes, n), one.marks.length) });
   }
 
@@ -718,8 +717,6 @@ function renderCustomer(ss, data, bundle, book) {
     body.setValues(rows).setVerticalAlignment('middle').setWrap(true);
     sheet.getRange(top, 2, rows.length, head.length - 1).setHorizontalAlignment('center');
     banding(sheet, top, rows.length, head.length);
-    // 四個數字欄淡灰底（蓋掉斑馬紋那一格），下面的狀態色再蓋上去
-    sheet.getRange(top, COL.TOTAL, rows.length, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.count);
 
     for (var i = 0; i < meta.length; i++) {
       var r = meta[i].row;
@@ -743,23 +740,25 @@ function renderCustomer(ss, data, bundle, book) {
     }
   }
 
+  // 空白欄整條白（表頭那一格也是，蓋掉表頭色與斑馬紋）
+  sheet.getRange(MATRIX_HEADER_ROW, COL.SPACER, rows.length + 1, 1).setBackground(COLOR.spacer);
+
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
   after = renderFollowupNotes(sheet, data, after, matrixWidth);
-  after = renderPurchases(sheet, data, after);
-  after = renderProducts(sheet, data, after);
-  after = renderNotes(sheet, data, after + 1);
+  after = renderPurchases(sheet, data, after, width);
+  after = renderProducts(sheet, data, after, width);
+  after = renderNotes(sheet, data, after + 1, width);
   renderTasks(sheet, data, after, width);
 
   sheet.setColumnWidth(COL.LABEL, STYLE.labelWidth);
-  for (var c = COL.TOTAL; c < COL.FIRST_DATE; c++) sheet.setColumnWidth(c, STYLE.countWidth);
+  for (var c = COL.TOTAL; c <= COL.REMAINING; c++) sheet.setColumnWidth(c, STYLE.countWidth);
+  sheet.setColumnWidth(COL.SPACER, STYLE.spacerWidth);
   for (var d2 = 0; d2 < dateCount; d2++) {
     sheet.setColumnWidth(COL.FIRST_DATE + d2, STYLE.dateWidth);
   }
-  // 凍結五列五欄（issues/09）。**每一個合併都要停在 FROZEN_COLS 以內** —— 以前表頭三列橫跨整張表，凍結欄會丟例外、
-  // 第一位客戶之後一張都畫不出來（.scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md）。
-  // 草稿紙只記下來，`paint()` 在合併之後才凍結
+  // 凍結五列（到矩陣表頭）。**欄不凍結**（issues/14，ADR-0176）：上下那幾塊是整頁寬的合併，凍結欄會穿過它們、Google 丟例外
+  //（.scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md）。`resetSheet()` 先把凍結歸 0，第三輪凍結的五欄也跟著拿掉
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
-  sheet.setFrozenColumns(FROZEN_COLS);
   // 格線藏起來，只留矩陣的框線（issues/08，示意圖 6c）
   sheet.setHiddenGridlines(true);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
@@ -872,13 +871,13 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
  *
  * **格式 3 起它才自己一區。** 以前營養品混在矩陣裡，而那四個數字欄印的是
  * 月數 —— 「應有 2 已完成 0 已排未上 0 剩餘 2」沒有一個看得懂。
- * **2026-11-05 起一筆一行**（像「買過什麼」，issues/12）：`營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌`。
+ * **2026-11-05 起一筆一行**（像「買過什麼」，issues/12）：`0901　營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌`（購買日是 issues/14 加的）。
  * 以前那張五欄的表寬到第 E 欄以外也看不懂，而凍結五欄之後一格只剩 62 像素。
  *
  * **一筆都沒有就整段不畫** —— 大部分客戶不買，而一個永遠空著的區塊只是在
  * 每次看報表時提醒她那件事不存在。
  */
-function renderProducts(sheet, data, top) {
+function renderProducts(sheet, data, top, width) {
   var rows = data.products || [];
   if (!rows.length) return top;
   var lines = [];
@@ -889,12 +888,13 @@ function renderProducts(sheet, data, top) {
     // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
     colours.push(rows[i].done ? null : COLOR.booked);
   }
-  return noteBlock(sheet, top + 1, '營養品', lines, colours);
+  return noteBlock(sheet, top + 1, width, '營養品', lines, colours);
 }
 
 /**
  * 營養品一行。字都是 app 給的（`syncBundle()` 的 `products`），這裡只接起來 —— 「給了沒」那一段（日期＋`delivery`）
  * 跟手動貼上那條路的「給了沒」那一格一字不差（`customerReport()`）。沒有的那幾段不印。
+ * **最前面是購買日**（`0901`，跟「買過什麼」同一種寫法，issues/14）；還沒更新的 app 沒送那一格 → 照舊從名字開始。
  */
 function productLine(r) {
   var detail = [
@@ -903,7 +903,7 @@ function productLine(r) {
     (r.items || []).join('、'),
   ].filter(function (x) { return x !== ''; }).join('・');
   var gave = (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || '');
-  return [r.label || '', detail].filter(function (x) { return x !== ''; }).join('　')
+  return [r.purchasedAt || '', r.label || '', detail].filter(function (x) { return x !== ''; }).join('　')
     + (gave ? '　——　' + gave : '');
 }
 
@@ -928,11 +928,11 @@ function thousands(n) {
  *
  * 底下再接來訪紀錄：那天幾點、哪一間、誰做的、用了什麼，舊表從來記不住的東西。
  */
-function renderNotes(sheet, data, top) {
+function renderNotes(sheet, data, top, width) {
   var row = top;
 
   var marks = noteLinesOf(data);
-  row = noteBlock(sheet, row, '備註', marks.lines, marks.colours);
+  row = noteBlock(sheet, row, width, '備註', marks.lines, marks.colours);
 
   // **日期自己一行，底下一段一行、前面是那一段的狀態**（格式 6）。她 2026-09-24：
   // 「第一段會接在日期後面，然後下面的不會，能不能就是第一行是日期，然後換行後在寫每一段，
@@ -963,9 +963,9 @@ function renderNotes(sheet, data, top) {
       ].filter(function (x) { return x != null && x !== ''; }).join('　') });
     }
   }
-  var end = noteBlock(sheet, row, '來訪紀錄', lines.map(function (l) { return l.text; }));
+  var end = noteBlock(sheet, row, width, '來訪紀錄', lines.map(function (l) { return l.text; }));
   for (var k = 0; k < lines.length; k++) {
-    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, FROZEN_COLS).setFontWeight('bold');
+    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
   }
   return end;
 }
@@ -1013,11 +1013,11 @@ function logLineCount(data) {
  * 那一行在 app 組好（`purchaseLines()`，跟 app 的「買過什麼」那一頁同一支算），這裡一個字都不組。
  * **一筆都沒有就整段不畫**（同營養品）。
  */
-function renderPurchases(sheet, data, top) {
+function renderPurchases(sheet, data, top, width) {
   var lines = data.purchases || [];
   if (!lines.length) return top;
   // noteBlock 底下留了一列空白，營養品那一區自己會再空一列 —— 退一列，中間只空一列
-  return noteBlock(sheet, top + 1, '買過什麼', lines) - 1;
+  return noteBlock(sheet, top + 1, width, '買過什麼', lines) - 1;
 }
 
 /**
@@ -1077,37 +1077,44 @@ function emptyLine(sheet, row, col) {
 }
 
 /**
- * 一塊：抬頭一列、底下一行一列。**每一列只合併到剩餘那一欄**（`FROZEN_COLS`，凍結線不能穿過合併，issues/09），
+ * 一塊：抬頭一列、底下一行一列，每一列合併成整頁寬（`width`；2026-11-05 晚起，issues/14 —— 第三輪只到剩餘那一欄），
  * 長的折行、那一列由 `finish()` 照字數加高。
  * `colours`（選填）：每一行的底色（null ＝不上色；營養品沒給完、備註的顏色，issues/12）。
  *
  * **每一行都是文字格式**（`'@'`，同待辦的日期）：一則一格之後，看起來像數字、日期、公式的那一則（「0912345678」「5/20」「=…」）
  * 寫進去的那一刻會被 Google 認成數字（掉前面的 0）、日期、公式（段二審查）。`paint()` 先下數字格式再寫值。
  */
-function noteBlock(sheet, top, title, lines, colours) {
-  sheet.getRange(top, 1, 1, FROZEN_COLS).merge().setValue(title)
+function noteBlock(sheet, top, width, title, lines, colours) {
+  sheet.getRange(top, 1, 1, width).merge().setValue(title)
     .setFontWeight('bold').setBackground(COLOR.noteHeader)
     .setVerticalAlignment('middle');
 
   if (!lines.length) {
-    sheet.getRange(top + 1, 1, 1, FROZEN_COLS).merge().setValue('（沒有）')
+    sheet.getRange(top + 1, 1, 1, width).merge().setValue('（沒有）')
       .setFontColor('#90A4AE').setVerticalAlignment('middle');
     return top + 3;
   }
 
   for (var i = 0; i < lines.length; i++) {
-    var line = sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
+    var line = sheet.getRange(top + 1 + i, 1, 1, width).merge()
       .setNumberFormat('@').setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
     if (colours && colours[i]) line.setBackground(colours[i]);
   }
   return top + lines.length + 2;
 }
 
+/**
+ * 名字那一格：「客戶A　1234」—— 號碼接在名字後面、全形空白隔開、同一個 18 號粗體（她 11/5 晚：「名子旁邊直接也是一樣大的病歷號」，issues/14）。
+ * 病歷號（格式 8）從備註搬成一格之後（ADR-0160），備註那一區就不印它；只寫號碼、不寫「病歷號」（issues/08）。沒有號碼的只有名字。
+ * 手動貼上那條路（`customerReport()`）不動。
+ */
+function titleLine(data) {
+  return data.chartNo ? data.name + '　' + String(data.chartNo) : data.name;
+}
+
+/** 名字底下那一行：購買名稱、會籍、合計（號碼 2026-11-05 晚搬到名字那一格，`titleLine()`）。 */
 function infoLine(data) {
   return [
-    // 病歷號（格式 8）：它從備註搬成一格之後（ADR-0160），備註那一區就不再印它
-    // 只寫號碼（她 11/5：「不用病歷號，直接寫1234就好」；issues/08）。手動貼上那條路（customerReport）不動
-    data.chartNo ? String(data.chartNo) : '',
     data.source ? '購買名稱：' + data.source : '',
     data.membershipExpiresAt ? '會籍到期：' + data.membershipExpiresAt : '',
     '合計　應有 ' + data.totals.total + '　已完成 ' + data.totals.done
@@ -1463,13 +1470,15 @@ function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
   // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的大字、產生時間那一列與二返註記的 9 號都蓋掉了
   all.setFontFamily(STYLE.font).fillFontSize(STYLE.bodySize);
   if (rowCount) {
-    sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
+    // 框線分兩塊畫：療程項目～剩餘、日期那幾欄。**中間的空白欄（`COL.SPACER`）不畫**（issues/14）
+    sheet.getRange(headerRow, 1, rowCount + 1, COL.REMAINING)
       .setBorder(true, true, true, true, true, true, COLOR.border,
         SpreadsheetApp.BorderStyle.SOLID);
-    // 剩餘右邊一條粗線（issues/08）：數字那四欄跟日期分開。畫在格線之後（後畫的蓋掉先畫的）
-    sheet.getRange(headerRow, COL.REMAINING, rowCount + 1, 1)
-      .setBorder(null, null, null, true, null, null, COLOR.divider,
-        SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    if (matrixWidth >= COL.FIRST_DATE) {
+      sheet.getRange(headerRow, COL.FIRST_DATE, rowCount + 1, matrixWidth - COL.FIRST_DATE + 1)
+        .setBorder(true, true, true, true, true, true, COLOR.border,
+          SpreadsheetApp.BorderStyle.SOLID);
+    }
   }
   sheet.setRowHeights(1, Math.max(sheet.getLastRow(), 1), STYLE.rowHeight);
   // 折行的合併儲存格：Google 不會替合併的格子自己長高（只看得到第一行），照字數估幾行、那一列加高（issues/09）

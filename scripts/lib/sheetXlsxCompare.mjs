@@ -218,7 +218,29 @@ export function stubModel(snap) {
   for (const [ref, v] of f.wrap || []) cellAt(m, ref).wrap = v === true;
   for (const [ref, v] of f.numberFormat || []) cellAt(m, ref).numberFormat = v;
   for (const call of snap.borders || []) applyBorder(m.edges, call);
+  spreadMergeEdges(m.edges, m.merges);
   return m;
+}
+
+/**
+ * 匯出檔讀進來那一側的樣子：openpyxl 讀合併區時把左上角以外的格子換成空的、再把**左上角那一格的上下左右**抄到合併區那一邊的每一格
+ *（`MergedCellRange.format()`）。所以整頁寬的合併（例如產生時間那一列）底下只要左上角那一格底下有線，整條底邊在匯出檔裡都有線 ——
+ * 包括底下沒有框線的空白欄與矩陣右邊（issues/14）。替身這一側照同一條規則補上，兩邊才比得起來。
+ */
+function spreadMergeEdges(edges, merges) {
+  for (const ref of merges) {
+    const { top, left, bottom, right } = boundsOf(ref);
+    const sides = [
+      [`h:${top}:${left}`, (put) => { for (let c = left; c <= right; c += 1) put(`h:${top}:${c}`); }],
+      [`h:${top + 1}:${left}`, (put) => { for (let c = left; c <= right; c += 1) put(`h:${bottom + 1}:${c}`); }],
+      [`v:${top}:${left}`, (put) => { for (let r = top; r <= bottom; r += 1) put(`v:${r}:${left}`); }],
+      [`v:${top}:${left + 1}`, (put) => { for (let r = top; r <= bottom; r += 1) put(`v:${r}:${right + 1}`); }],
+    ];
+    for (const [key, each] of sides) {
+      const value = edges.get(key);
+      if (value) each((k) => putEdge(edges, k, value));
+    }
+  }
 }
 
 function applyBorder(edges, { range, args }) {

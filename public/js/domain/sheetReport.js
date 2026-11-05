@@ -716,6 +716,9 @@ export function syncBundle({
       products: alive.filter(isProduct).map((e) => {
         const gave = deliveryState(e);
         return {
+          // 購買日（2026-11-05 晚她：「營養品那一行，我想加上日期」，.scratch/sheet-push-gaps/issues/14）：寫法跟「買過什麼」那一段一樣（`0901`，
+          // `purchaseDayLabel()`），`.gs` 接在那一行最前面；沒有購買日的是 null（不印）。不升 `SYNC_FORMAT`：舊的 `.gs` 不讀它
+          purchasedAt: purchaseDayLabel(e.purchasedAt) || null,
           label: e.label ?? '',
           amount: amountOf(e),
           months: monthsOf(e),

@@ -40,7 +40,7 @@ export function page(over = {}) {
     followupNotes: [{ dateIndex: 1, text: '9/15 二返(某明)' }],
     purchases: ['0801　8萬方案x1'],
     products: [
-      { label: '營養品A', amount: 12000, months: 3, items: ['魚油', '益生菌'], deliveredAt: '9/1', delivery: '還差 益生菌', done: false },
+      { purchasedAt: '0901', label: '營養品A', amount: 12000, months: 3, items: ['魚油', '益生菌'], deliveredAt: '9/1', delivery: '還差 益生菌', done: false },
       { label: '營養品B', amount: null, months: null, items: [], deliveredAt: null, delivery: '都給了', done: true },
     ],
     flags: ['體內金屬'],
@@ -73,52 +73,86 @@ export const rowOf = (sheet, text) => {
 /** 那一個字寫在哪一格（找不到 null）。 */
 const cellOf = (sheet, pred) => [...sheet.cells.entries()].find(([, v]) => pred(String(v)))?.[0] ?? null;
 
-describe('08 欄寬、分隔、格線、抬頭', () => {
-  test('日期欄 78 寬（「10/29(四)」一行放得下）', () => {
+/** 「A5:E11」→ 欄的範圍（從 1 起）。 */
+const colsOf = (range) => {
+  const col = (ref) => [...ref.replace(/\d+$/, '')].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  const [a, b = a] = range.split(':');
+  return { left: col(a), right: col(b) };
+};
+
+describe('08／14 欄寬、數字四欄與日期中間的空白欄、格線、抬頭', () => {
+  test('日期欄 78 寬（「10/29(四)」一行放得下）；日期從第 7 欄（G）起', () => {
     const { sheet } = draw();
-    for (let c = 6; c <= 9; c += 1) assert.equal(sheet.widths.get(c), 78, `第 ${c} 欄`);
+    for (let c = 7; c <= 10; c += 1) assert.equal(sheet.widths.get(c), 78, `第 ${c} 欄`);
+    assert.equal(sheet.at('G5'), '9/1(二)');
   });
 
-  test('應有～剩餘：表頭淺一階、格子淡灰底；狀態色照舊蓋在上面', () => {
+  // 她 11/5 晚：「那個灰色巨醜」→ 挑了「A 全白＋窄空白欄」（.scratch/sheet-push-gaps/issues/14、mock-count-columns-2026-11-05.html）
+  test('應有～剩餘：不塗底色、表頭跟療程項目同色；斑馬紋跟整列一樣；狀態色照舊', () => {
     const { sheet } = draw();
-    for (const c of ['B', 'C', 'D', 'E']) assert.equal(sheet.backgrounds.get(`${c}5`), '#546E7A', `${c}5`);
-    assert.equal(sheet.backgrounds.get('A5'), '#37474F', '療程項目那一格照舊');
-    const r = rowOf(sheet, 'ILIB(60)');
-    for (const c of ['B', 'C', 'D', 'E']) assert.equal(sheet.backgrounds.get(`${c}${r}`), '#EEF2F5', `${c}${r}：沒做過那一列四格都淡灰`);
+    for (const c of ['A', 'B', 'C', 'D', 'E']) assert.equal(sheet.backgrounds.get(`${c}5`), '#37474F', `${c}5`);
+    const ilib = rowOf(sheet, 'ILIB(60)');
+    const eecp = rowOf(sheet, 'EECP(60)');
+    for (const r of [ilib, eecp]) {
+      for (const c of ['B', 'C', 'D']) {
+        if (c === 'C' && r === eecp) continue;   // EECP 已完成 1 → 綠
+        assert.equal(sheet.backgrounds.get(`${c}${r}`) ?? null, sheet.backgrounds.get(`A${r}`) ?? null, `${c}${r} 跟那一列的療程項目一樣`);
+      }
+    }
     const fn = rowOf(sheet, '復能-三選一(60)');
     assert.equal(sheet.backgrounds.get(`C${fn}`), '#C8E6C9', '已完成 > 0 綠');
     assert.equal(sheet.backgrounds.get(`D${fn}`), '#FFF2CC', '已排未上 > 0 黃');
-    assert.equal(sheet.backgrounds.get(`E${rowOf(sheet, 'EECP(60)')}`), '#FFCDD2', '剩餘 ≤ 0 紅');
-    assert.equal(sheet.backgrounds.get(`E${rowOf(sheet, '三返（不算次數）')}`), '#EEF2F5', '一槓不紅');
+    assert.equal(sheet.backgrounds.get(`E${eecp}`), '#FFCDD2', '剩餘 ≤ 0 紅');
+    const fu = rowOf(sheet, '三返（不算次數）');
+    assert.equal(sheet.backgrounds.get(`E${fu}`) ?? null, sheet.backgrounds.get(`A${fu}`) ?? null, '一槓不紅');
+    assert.ok(![...sheet.backgrounds.values()].includes('#EEF2F5'), '那層淡灰不見了');
+    assert.ok(![...sheet.backgrounds.values()].includes('#546E7A'), '淺一階的表頭色不見了');
   });
 
-  test('剩餘右邊一條粗線，畫在矩陣的格線之後', () => {
+  test('第 6 欄（F）是空白欄：寬 8、沒有字、白底（表頭那一格也白）、框線分兩塊畫、沒有粗線', () => {
     const { sheet } = draw();
+    assert.equal(sheet.widths.get(6), 8);
+    const last = rowOf(sheet, '心臟科評估（體驗）');
+    for (let r = 5; r <= last; r += 1) {
+      assert.equal(sheet.at(`F${r}`), '', `F${r} 沒有字`);
+      assert.equal(sheet.backgrounds.get(`F${r}`), '#FFFFFF', `F${r} 白底`);
+    }
     const calls = sheet.borderCalls;
-    const divider = calls.findIndex((b) => b.args[7] === 'SOLID_MEDIUM');
-    assert.ok(divider > 0, '要有一條粗線');
-    assert.match(calls[divider].range, /^E5:E\d+$/);
-    assert.deepEqual(calls[divider].args.slice(0, 6), [null, null, null, true, null, null], '只畫右邊');
-    assert.ok(calls.slice(0, divider).some((b) => b.args[7] === 'SOLID'), '格線先畫');
+    assert.ok(!calls.some((b) => b.args[7] === 'SOLID_MEDIUM'), '剩餘右邊那條粗線拿掉了');
+    const matrix = calls.filter((b) => b.args[7] === 'SOLID').map((b) => b.range);
+    assert.deepEqual(matrix, [`A5:E${last}`, `G5:J${last}`]);
+    for (const range of matrix) {
+      const { left, right } = colsOf(range);
+      assert.ok(right < 6 || left > 6, `${range} 不碰空白欄`);
+    }
+  });
+
+  test('一個日期都沒有：沒有日期那一塊的框線、空白欄照舊白', () => {
+    const { sheet } = draw([page({ dateLabels: [], rows: page().rows.map((r) => ({ ...r, marks: [] })), equipmentNotes: [], slotNotes: [], followupNotes: [] })]);
+    const last = rowOf(sheet, '心臟科評估（體驗）');
+    assert.deepEqual(sheet.borderCalls.filter((b) => b.args[7] === 'SOLID').map((b) => b.range), [`A5:E${last}`]);
+    assert.equal(sheet.backgrounds.get('F5'), '#FFFFFF');
   });
 
   test('格線藏起來', () => {
     assert.equal(draw().sheet.gridlinesHidden, true);
   });
 
-  test('名字 18 號、那一列加高', () => {
-    const { sheet } = draw();
-    assert.equal(sheet.at('A2'), '客戶A');
+  // 她 11/5 晚：「名子旁邊直接也是一樣大的病歷號」（issues/14）
+  test('名字那一格是「名字＋全形空白＋號碼」、18 號、那一列加高；沒有號碼的只有名字', () => {
+    const { app, sheet } = draw([page(), page({ name: '王小明', chartNo: null })]);
+    assert.equal(sheet.at('A2'), '客戶A　1234');
     assert.equal(sheet.formats.fontSize.get('A2'), 18);
+    assert.equal(sheet.formats.fontWeight.get('A2'), 'bold');
     assert.ok(sheet.rowHeights.get(2) >= 40, `名字那一列 ${sheet.rowHeights.get(2)} 高`);
+    assert.equal(app.ss.getSheetByName('王小明').at('A2'), '王小明');
   });
 
-  test('抬頭只寫號碼、不寫「病歷號」；沒有號碼的不寫那一段', () => {
+  test('抬頭那一行沒有號碼了（號碼在名字那一格）、也不寫「病歷號」', () => {
     const { app, sheet } = draw([page(), page({ name: '王小明', chartNo: null })]);
-    const info = cellOf(sheet, (v) => v.includes('合計'));
-    assert.match(sheet.at(info), /^1234　·　購買名稱：8萬方案/);
-    const other = app.ss.getSheetByName('王小明');
-    assert.match(other.at(cellOf(other, (v) => v.includes('合計'))), /^購買名稱：/);
+    assert.match(sheet.at('A3'), /^購買名稱：8萬方案　·　/);
+    assert.ok(!sheet.at('A3').includes('1234'));
+    assert.match(app.ss.getSheetByName('王小明').at('A3'), /^購買名稱：/);
     assert.equal(cellOf(sheet, (v) => v.includes('病歷號')), null);
   });
 
@@ -132,40 +166,57 @@ describe('08 欄寬、分隔、格線、抬頭', () => {
   });
 });
 
-describe('09 凍結前五欄', () => {
+// 2026-11-05 晚她：「這頁分裂感太重了，我寧願不要中間那個分隔線好了，不要全部都凍結線左邊（A～E）太奇怪了」
+//（.scratch/sheet-push-gaps/issues/14，ADR-0176 推翻 ADR-0175 的「凍結前五欄」）
+describe('14 欄不凍結、上下那幾塊整頁寬', () => {
   /** 日期多到超過 26 欄、底下每一塊都有東西的一頁。 */
   const widePage = () => page({
     name: '客戶B',
     dateLabels: Array.from({ length: 30 }, (_, i) => `${1 + Math.floor(i / 28)}/${1 + (i % 28)}`),
     rows: page().rows.map((r) => ({ ...r, marks: Array.from({ length: 30 }, (_, i) => (i % 3 ? '' : '✓')) })),
-    notes: '一段很長很長的備註，長到在五欄的寬度裡一定要折成好幾行才放得下，看看那一列有沒有跟著長高',
   });
 
-  test('沒有任何一個合併跨過第 5 欄與第 6 欄之間（每一頁）', () => {
+  test('每一個合併不是整頁寬，就是 TODO（A～C）／FINISHED（K～M）那兩塊（每一頁）', () => {
     const { app } = draw([page(), widePage()]);
     for (const sheet of app.ss.getSheets()) {
-      const crossing = sheet.mergeBounds.filter((m) => m.left <= 5 && m.right >= 6);
-      assert.deepEqual(crossing, [], `${sheet.name}：${sheet.merges.join(' ')}`);
+      if (sheet.name === '_data') continue;
+      const width = Math.max(...sheet.mergeBounds.map((m) => m.right));
+      // 4 個日期：矩陣到 J（10），表照舊留到 FINISHED 那一塊的右邊（M＝13）；30 個日期：6＋30
+      assert.equal(width, sheet.name === '客戶B' ? 36 : 13, sheet.name);
+      const odd = sheet.mergeBounds.filter((m) => !(m.left === 1 && m.right === width)
+        && !(m.right - m.left === 2 && (m.left === 1 || m.left === 11)));
+      assert.deepEqual(odd, [], `${sheet.name}：${sheet.merges.join(' ')}`);
+      for (const title of ['買過什麼', '營養品', '備註', '來訪紀錄']) {
+        const r = rowOf(sheet, title);
+        assert.ok(sheet.merges.includes(`A${r}:${sheet.name === '客戶B' ? 'AJ' : 'M'}${r}`), `${sheet.name} ${title}`);
+      }
     }
   });
 
-  test('凍結 5 列 5 欄，而且凍結是在合併之後才設', () => {
+  test('凍結 5 列、欄不凍結（從來沒有凍結過任何一欄）', () => {
     const app = loadAppsScript();
     const seen = [];
     const insert = app.ss.insertSheet.bind(app.ss);
     app.ss.insertSheet = (name) => {
       const sheet = insert(name);
       const freeze = sheet.setFrozenColumns.bind(sheet);
-      sheet.setFrozenColumns = (n) => { seen.push({ name, n, merges: sheet.merges.length }); freeze(n); };
+      sheet.setFrozenColumns = (n) => { seen.push(n); freeze(n); };
       return sheet;
     };
     assert.equal(app.post({ token: 'secret', bundle: bundleOf([page()]) }).ok, true);
     const sheet = app.ss.getSheetByName('客戶A');
     assert.equal(sheet.frozenRows, 5);
-    assert.equal(sheet.frozenCols, 5);
-    const last = seen.filter((s) => s.name === '客戶A').at(-1);
-    assert.equal(last.n, 5);
-    assert.equal(last.merges, sheet.merges.length, '凍結的那一刻合併已經全部在了');
+    assert.equal(sheet.frozenCols, 0);
+    assert.ok(seen.every((n) => n === 0), String(seen));
+  });
+
+  test('第三輪凍結了五欄的那一頁：重畫之後凍結的欄拿掉了', () => {
+    const app = loadAppsScript();
+    app.post({ token: 'secret', bundle: bundleOf([page()]) });
+    const sheet = app.ss.getSheetByName('客戶A');
+    sheet.frozenCols = 5;   // 假裝是第三輪畫的
+    app.post({ token: 'secret', bundle: bundleOf([page({ fingerprint: 'a2' })]) });
+    assert.equal(app.ss.getSheetByName('客戶A').frozenCols, 0);
   });
 
   test('第 1 列那句提醒照舊在 A1；沒變的那一頁改的是產生時間那一格（第 4 列）', () => {
@@ -177,15 +228,15 @@ describe('09 凍結前五欄', () => {
     const sheet = app.ss.getSheetByName('客戶A');
     assert.equal(sheet.at('A1'), NOTICE);
     assert.match(sheet.at('A4'), /^產生時間 2026\/11\/05 下午9:00:00/);
-    assert.equal(sheet.at('A2'), '客戶A');
+    assert.equal(sheet.at('A2'), '客戶A　1234');
     assert.match(sheet.at('A3'), /合計/);
   });
 
-  test('折行的列跟著長高（不再整頁固定 26）', () => {
-    const { app } = draw([widePage()]);
-    const sheet = app.ss.getSheetByName('客戶B');
-    const r = [...sheet.cells.entries()].find(([, v]) => String(v).startsWith('一段很長很長的備註'))[0].replace(/^A/, '');
-    assert.ok(sheet.rowHeights.get(Number(r)) > 26, `那一列 ${sheet.rowHeights.get(Number(r))} 高`);
+  test('折行的列跟著長高（整頁寬之後要很長才折）', () => {
+    const long = '一段很長很長的備註'.repeat(14);
+    const { sheet } = draw([page({ noteLines: [{ text: long, color: 'grey' }] })]);
+    const r = rowOf(sheet, long);
+    assert.ok(sheet.rowHeights.get(r) > 26, `那一列 ${sheet.rowHeights.get(r)} 高`);
     assert.equal(sheet.rowHeights.get(5), 26, '表頭照舊');
   });
 
@@ -235,10 +286,11 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
     const { sheet } = draw();
     const r = rowOf(sheet, '復能-三選一(60)');
     assert.equal(r, 6, '做最多的那一筆排第一（原本在第 2 個，10）');
-    assert.deepEqual(['F', 'G', 'H', 'I'].map((c) => sheet.at(`${c}${r}`)), ['✓ IN', '✓2 SIS', '✓', '△']);
-    assert.equal(sheet.backgrounds.get(`F${r}`), '#C8E6C9');
+    // 日期從 G 起（F 是空白欄，issues/14）
+    assert.deepEqual(['G', 'H', 'I', 'J'].map((c) => sheet.at(`${c}${r}`)), ['✓ IN', '✓2 SIS', '✓', '△']);
     assert.equal(sheet.backgrounds.get(`G${r}`), '#C8E6C9');
-    assert.equal(sheet.backgrounds.get(`I${r}`), '#FFF2CC');
+    assert.equal(sheet.backgrounds.get(`H${r}`), '#C8E6C9');
+    assert.equal(sheet.backgrounds.get(`J${r}`), '#FFF2CC');
     // 矩陣緊接著下一筆額度，沒有夾註記列
     assert.equal(sheet.at(`A${r + 1}`), '健檢');
     const all = [...sheet.cells.values()].map(String);
@@ -249,10 +301,10 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
   test('記一句在那一格的附註裡：全文、換行照留；同一格又有器材也兩樣都在；跟著它那一筆額度走', () => {
     const { sheet } = draw();
     const fn = rowOf(sheet, '復能-三選一(60)');
-    assert.equal(sheet.noteAt(`G${fn}`), '14:30 SIS、15:45 ILIB\n第二行');
-    assert.equal(sheet.at(`G${fn}`), '✓2 SIS');
+    assert.equal(sheet.noteAt(`H${fn}`), '14:30 SIS、15:45 ILIB\n第二行');
+    assert.equal(sheet.at(`H${fn}`), '✓2 SIS');
     const eecp = rowOf(sheet, 'EECP(60)');
-    assert.equal(sheet.noteAt(`H${eecp}`), '他忘記了');
+    assert.equal(sheet.noteAt(`I${eecp}`), '他忘記了');
     assert.equal(sheet.notes.size, 2, '只有那兩格有備註');
     const all = [...sheet.cells.values()].map(String);
     assert.ok(!all.some((v) => v.includes('他忘記了')), '記一句不再寫成格子裡的字');
@@ -265,8 +317,8 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
     app.post({ token: 'secret', bundle: bundleOf([moved]) });
     const sheet = app.ss.getSheetByName('客戶A');
     const eecp = rowOf(sheet, 'EECP(60)');
-    assert.equal(sheet.noteAt(`H${eecp}`), '');
-    assert.equal(sheet.noteAt(`I${eecp}`), '他忘記了');
+    assert.equal(sheet.noteAt(`I${eecp}`), '');
+    assert.equal(sheet.noteAt(`J${eecp}`), '他忘記了');
     assert.equal(sheet.notes.size, 1);
   });
 
@@ -278,14 +330,15 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
 });
 
 describe('12 營養品一筆一行、備註一則一列上色', () => {
-  test('營養品一筆一行、沒給完的那一行淡黃；那張五欄的表不見了', () => {
+  // 購買日在最前面（她 11/5 晚：「營養品那一行，我想加上日期」，issues/14）；沒有購買日的不印那一段
+  test('營養品一筆一行、最前面是購買日（沒有的不印）、沒給完的那一行淡黃；那張五欄的表不見了', () => {
     const { sheet } = draw();
     const top = rowOf(sheet, '營養品');
-    assert.equal(sheet.at(`A${top + 1}`), '營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌');
+    assert.equal(sheet.at(`A${top + 1}`), '0901　營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌');
     assert.equal(sheet.at(`A${top + 2}`), '營養品B　——　都給了');
     assert.equal(sheet.backgrounds.get(`A${top + 1}`), '#FFF2CC');
     assert.equal(sheet.backgrounds.get(`A${top + 2}`) ?? null, null);
-    assert.ok(sheet.merges.includes(`A${top + 1}:E${top + 1}`));
+    assert.ok(sheet.merges.includes(`A${top + 1}:M${top + 1}`), '整頁寬（issues/14）');
     assert.ok(![...sheet.cells.values()].includes('品名'));
   });
 
@@ -368,6 +421,18 @@ describe('12 營養品一筆一行、備註一則一列上色', () => {
     assert.deepEqual(one.noteLines, [{ text: '住附近', color: 'green' }, { text: '偏好早上', color: 'grey' }]);
     assert.equal(one.notes, '住附近\n偏好早上');
     assert.ok(!JSON.stringify(one).includes('很長的一段'));
+  });
+
+  test('syncBundle() 的 products：購買日寫成「買過什麼」那一種（0901）；沒有購買日的是 null', () => {
+    const product = (id, purchasedAt) => ({
+      id, type: 'product', label: `營養品${id}`, purchasedAt, totalQty: 3, amount: 1000, items: [{ name: '魚油' }],
+    });
+    const b = syncBundle({
+      customers: [{ id: 'c1', name: '客戶A' }],
+      entitlementsBy: { c1: [product('A', '2026-09-01'), product('B', null)] },
+      visitsBy: {}, today: '2026-11-05',
+    });
+    assert.deepEqual(b.sheets[0].products.map((p) => [p.label, p.purchasedAt]), [['營養品A', '0901'], ['營養品B', null]]);
   });
 
   test('syncBundle() 的 noteLines：只有舊的 notes（沒有 marks）的客戶照行拆、灰色', () => {

@@ -118,7 +118,8 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     const at = column(sheet).indexOf('三返（不算次數）') + 1;
     assert.ok(at > 0, '那一列要畫出來');
     assert.equal(at, column(sheet).indexOf('ILIB(60)') + 2, '接在額度列的下一列');
-    assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '✓']);
+    // F 是數字四欄與日期中間那一條空白欄（.scratch/sheet-push-gaps/issues/14），日期從 G 起
+    assert.deepEqual(['B', 'C', 'D', 'E', 'F', 'G'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '', '✓']);
     assert.notEqual(sheet.backgrounds.get(`E${at}`), '#FFCDD2', '一槓不是 0');
     assert.match(String(sheet.at('A3')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
     assert.equal(everything(sheet).split('報告看完了').length - 1, 1);
@@ -262,15 +263,18 @@ describe('渲染', () => {
     assert.equal(sheet.at('C6'), data.rows[0].done);
     assert.equal(sheet.at('D6'), data.rows[0].booked);
     assert.equal(sheet.at('E6'), data.rows[0].remaining);
-    assert.equal(sheet.at('F6'), '✓2', '同一天同一份額度用兩次要看得出來');
+    assert.equal(sheet.at('F6'), '', 'F 是空白欄（issues/14）');
+    assert.equal(sheet.at('G6'), '✓2', '同一天同一份額度用兩次要看得出來');
   });
 
-  test('日期欄照 syncBundle 的順序排在第 F 欄以後', () => {
+  // 2026-11-05 晚起剩餘與日期中間多一條空白欄（F），日期從 G 起（.scratch/sheet-push-gaps/issues/14）
+  test('日期欄照 syncBundle 的順序排在第 G 欄以後（F 是空白欄）', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
     const labels = bundle().sheets[0].dateLabels;
-    assert.equal(sheet.at('F5'), labels[0]);
-    assert.equal(sheet.at('G5'), labels[1]);
+    assert.equal(sheet.at('F5'), '');
+    assert.equal(sheet.at('G5'), labels[0]);
+    assert.equal(sheet.at('H5'), labels[1]);
   });
 
   test('備註區放回她手寫的那一段，底下接來訪紀錄', () => {
@@ -289,11 +293,11 @@ describe('渲染', () => {
   test('表頭與備註區有合併儲存格、有凍結列、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
-    // 2026-11-05 起凍結前五欄（.scratch/sheet-push-gaps/issues/09）：第一列只合併到剩餘那一欄 ——
-    // 凍結線不能穿過合併儲存格，以前第一列橫跨整張表（A1:M1）時凍結欄會丟例外（.scratch/first-real-import/issues/01）
-    assert.ok(sheet.merges.includes('A1:E1'), `第一列只合併到剩餘那一欄，實際：${sheet.merges.join(' ')}`);
+    // 2026-11-05 晚起欄不凍結、第一列又是整頁寬（.scratch/sheet-push-gaps/issues/14，ADR-0176）——
+    // 凍結欄的話凍結線會穿過它（.scratch/first-real-import/issues/01），所以兩件一起看
+    assert.ok(sheet.merges.includes('A1:M1'), `第一列整頁寬，實際：${sheet.merges.join(' ')}`);
     assert.equal(sheet.frozenRows, 5);
-    assert.equal(sheet.frozenCols, 5);
+    assert.equal(sheet.frozenCols, 0);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');
   });
@@ -377,11 +381,11 @@ describe('渲染', () => {
     assert.equal(app.post({ token: 'secret', bundle: withFollowup }).ok, true);
     const sheet = app.ss.getSheetByName('客戶A');
 
-    // 日期欄 8/1、8/5、8/12 → F、G、H。健檢在 8/5 那一欄，所以註記要在 G 欄。
+    // 日期欄 8/1、8/5、8/12 → G、H、I（F 是空白欄，issues/14）。健檢在 8/5 那一欄，所以註記要在 H 欄。
     // 用完整字串找，不要用「開頭是二返」—— 矩陣裡本來就有一列叫「二返」。
     const hit = [...sheet.cells.entries()].find(([, v]) => v === '8/12 二返');
     assert.ok(hit, `二返註記要寫出來，實際有的：${[...sheet.cells.values()].join('｜')}`);
-    assert.match(hit[0], /^G/, `要落在健檢那一欄（G），實際：${hit[0]}`);
+    assert.match(hit[0], /^H/, `要落在健檢那一欄（H），實際：${hit[0]}`);
   });
 
   test('不是我們產生的同名分頁不清空，而且要回報跳過了誰', () => {

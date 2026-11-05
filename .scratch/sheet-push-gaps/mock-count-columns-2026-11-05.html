@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>應有～剩餘：三種設計（示意，假資料）</title>
+<style>
+  body { font-family: 'Noto Sans TC', system-ui, sans-serif; margin: 24px; color:#222; background:#f6f6f6; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color:#666; font-size: 13px; margin-bottom: 18px; }
+  .opt { background:#fff; border:1px solid #ddd; padding:12px 14px 16px; margin-bottom:20px; display:inline-block; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .opt h2 { font-size:15px; margin:0 0 2px; }
+  .opt p { font-size:12.5px; color:#555; margin:0 0 10px; }
+  .name { font-size:19px; font-weight:700; margin: 2px 0 6px; }
+  .name span { margin-left:14px; }
+  .info { font-size:12.5px; color:#444; margin-bottom:8px; }
+  table { border-collapse: collapse; font-size:13px; }
+  th, td { height:26px; padding:0 6px; text-align:center; white-space:nowrap; }
+  th { background:#37474F; color:#fff; font-weight:700; }
+  td { border:1px solid #E3E7EA; }
+  td.label { text-align:left; min-width:150px; }
+  th.d, td.d { min-width:72px; }
+  .done{background:#C8E6C9} .booked{background:#FFF2CC} .low{background:#FFCDD2}
+  .spacer { width:8px; min-width:8px; padding:0; border:none !important; background:#fff !important; }
+  /* A：全白＋間隔欄 */
+  .A th.c { background:#37474F; }
+  /* B：淡米色 */
+  .B td.c { background:#FBF7EF; }
+  .B td.c.done{background:#C8E6C9} .B td.c.booked{background:#FFF2CC} .B td.c.low{background:#FFCDD2}
+  .B th.c { background:#8A7A66; }
+  /* C：表頭換色＋雙線 */
+  .C th.c { background:#4E7D7A; }
+  .C .dbl { border-right:3px double #78909C !important; }
+  .C th.dbl { border-right:3px double #cfd8dc !important; }
+  .tag { display:inline-block; font-size:11px; background:#eceff1; color:#455a64; padding:1px 6px; border-radius:8px; margin-left:6px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<h1>應有～剩餘那四欄：三種設計</h1>
+<div class="sub">假資料（客戶A）。三種都：不凍結欄、下面那幾塊照以前整頁寬、名字旁邊同樣大的號碼、狀態色（綠／黃／紅）照舊。</div>
+
+<div class="opt A">
+  <h2>A　全白＋一條窄空白欄 <span class="tag">建議</span></h2>
+  <p>四欄不塗底色、表頭跟其他表頭同色；「剩餘」和第一個日期中間空一條窄窄的白欄隔開。最乾淨，不多一種顏色。</p>
+  <div class="name">客戶A<span>1234</span></div>
+  <div class="info">購買名稱：顧客會　·　合計　應有 102　已完成 19　已排未上 2　剩餘 81</div>
+  <table>
+    <tr><th style="text-align:left">療程項目</th><th class="c">應有</th><th class="c">已完成</th><th class="c">已排未上</th><th class="c">剩餘</th><th class="spacer"></th><th class="d">7/8(三)</th><th class="d">7/15(三)</th><th class="d">8/27(四)</th><th class="d">10/29(四)</th></tr>
+    <tr><td class="label">復能-三選一(60)</td><td class="c">40</td><td class="c done">8</td><td class="c booked">1</td><td class="c">31</td><td class="spacer"></td><td class="d done">✓ IN</td><td class="d done">✓ SIS</td><td class="d done">✓2 SIS</td><td class="d booked">△ SIS</td></tr>
+    <tr><td class="label">ILIB(60)</td><td class="c">24</td><td class="c done">8</td><td class="c booked">1</td><td class="c">15</td><td class="spacer"></td><td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓2</td><td class="d booked">△</td></tr>
+    <tr><td class="label">12萬健檢</td><td class="c">1</td><td class="c done">1</td><td class="c">0</td><td class="c low">0</td><td class="spacer"></td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+    <tr><td class="label">身體組成分析</td><td class="c">8</td><td class="c">0</td><td class="c">0</td><td class="c">8</td><td class="spacer"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+  </table>
+</div>
+
+<div class="opt B">
+  <h2>B　很淡的米色＋暖色表頭</h2>
+  <p>四欄塗一層很淡的米白（比原本的灰暖、接近紙的顏色），表頭換成暖灰棕。跟日期分得開，又不冷冰冰。</p>
+  <div class="name">客戶A<span>1234</span></div>
+  <div class="info">購買名稱：顧客會　·　合計　應有 102　已完成 19　已排未上 2　剩餘 81</div>
+  <table>
+    <tr><th style="text-align:left">療程項目</th><th class="c">應有</th><th class="c">已完成</th><th class="c">已排未上</th><th class="c">剩餘</th><th class="d">7/8(三)</th><th class="d">7/15(三)</th><th class="d">8/27(四)</th><th class="d">10/29(四)</th></tr>
+    <tr><td class="label">復能-三選一(60)</td><td class="c">40</td><td class="c done">8</td><td class="c booked">1</td><td class="c">31</td><td class="d done">✓ IN</td><td class="d done">✓ SIS</td><td class="d done">✓2 SIS</td><td class="d booked">△ SIS</td></tr>
+    <tr><td class="label">ILIB(60)</td><td class="c">24</td><td class="c done">8</td><td class="c booked">1</td><td class="c">15</td><td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓2</td><td class="d booked">△</td></tr>
+    <tr><td class="label">12萬健檢</td><td class="c">1</td><td class="c done">1</td><td class="c">0</td><td class="c low">0</td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+    <tr><td class="label">身體組成分析</td><td class="c">8</td><td class="c">0</td><td class="c">0</td><td class="c">8</td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+  </table>
+</div>
+
+<div class="opt C">
+  <h2>C　只有表頭換色＋一條細雙線</h2>
+  <p>格子全白；四欄的表頭換成灰綠，「剩餘」右邊一條細細的雙線。顏色只在最上面那一排。</p>
+  <div class="name">客戶A<span>1234</span></div>
+  <div class="info">購買名稱：顧客會　·　合計　應有 102　已完成 19　已排未上 2　剩餘 81</div>
+  <table>
+    <tr><th style="text-align:left">療程項目</th><th class="c">應有</th><th class="c">已完成</th><th class="c">已排未上</th><th class="c dbl">剩餘</th><th class="d">7/8(三)</th><th class="d">7/15(三)</th><th class="d">8/27(四)</th><th class="d">10/29(四)</th></tr>
+    <tr><td class="label">復能-三選一(60)</td><td class="c">40</td><td class="c done">8</td><td class="c booked">1</td><td class="c dbl">31</td><td class="d done">✓ IN</td><td class="d done">✓ SIS</td><td class="d done">✓2 SIS</td><td class="d booked">△ SIS</td></tr>
+    <tr><td class="label">ILIB(60)</td><td class="c">24</td><td class="c done">8</td><td class="c booked">1</td><td class="c dbl">15</td><td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓2</td><td class="d booked">△</td></tr>
+    <tr><td class="label">12萬健檢</td><td class="c">1</td><td class="c done">1</td><td class="c">0</td><td class="c low dbl">0</td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+    <tr><td class="label">身體組成分析</td><td class="c">8</td><td class="c">0</td><td class="c">0</td><td class="c dbl">8</td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td></tr>
+  </table>
+</div>
+</body>
+</html>

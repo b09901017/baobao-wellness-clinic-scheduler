@@ -188,16 +188,13 @@ describe('一樣的說一樣、改一格說一格', () => {
     assert.deepEqual(compareBook(dump, snap).totals.diffs, { 'value.number': 1 });
   });
 
-  test('框線：剩餘右邊那條粗線變細 → border 1；格線藏起來沒套到 → sheet.gridlines 1', () => {
+  // 2026-11-05 晚起沒有那條粗線了（.scratch/sheet-push-gaps/issues/14）：改成矩陣裡一條格線變粗
+  test('框線：矩陣裡一條格線變粗 → border 1；格線藏起來沒套到 → sheet.gridlines 1', () => {
     const dump = dumpLike(snapshot);
     const sheet = sheetOf(dump, '王小明');
-    for (const [, c] of sheet.cells) {
-      if (c.border?.r?.[0] === 'medium') { c.border.r = ['thin', 'FFB0BEC5']; break; }
-    }
-    // 相鄰那一格（F 欄）的左邊也寫著粗線：一起改細，才是「那一條邊細了」
-    for (const [, c] of sheet.cells) {
-      if (c.border?.l?.[0] === 'medium') { c.border.l = ['thin', 'FFB0BEC5']; break; }
-    }
+    // 同一條邊兩格各寫一次、粗的那一條算數：改一邊就是「那一條邊粗了」
+    assert.ok(cellOf(sheet, 'C7').border?.t, 'C7 上面有格線');
+    cellOf(sheet, 'C7').border.t = ['medium', 'FFB0BEC5'];
     sheet.gridlines = true;
     assert.deepEqual(compareBook(dump, snapshot).totals.diffs, { border: 1, 'sheet.gridlines': 1 });
   });
@@ -218,8 +215,9 @@ describe('一樣的說一樣、改一格說一格', () => {
   test('凍結欄、合併、記一句的備註不見了 → 各算一個', () => {
     const dump = dumpLike(snapshot);
     const sheet = sheetOf(dump, '王小明');
-    sheet.freeze = 'A6';
-    sheet.merges = sheet.merges.filter((r) => r !== 'A2:E2');
+    sheet.freeze = 'F6';   // 2026-11-05 晚起欄不凍結（issues/14）：匯出檔凍結了五欄就是不一樣
+    assert.ok(sheet.merges.some((r) => r.startsWith('A2:')));
+    sheet.merges = sheet.merges.filter((r) => !r.startsWith('A2:'));
     for (const [, c] of sheet.cells) if (c.note) delete c.note;
     const out = compareBook(dump, snapshot);
     assert.deepEqual(out.totals.diffs, { 'sheet.frozenCols': 1, merge: 1, note: 1 });

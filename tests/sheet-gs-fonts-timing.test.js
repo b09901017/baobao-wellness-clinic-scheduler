@@ -61,18 +61,18 @@ describe('字級：名字 18 號（第三輪 08 從 14 放大）、產生時間�
   });
 
   test('器材併進那一格（第三輪 11 起不再多一列）：額度那幾列與那一格都 11 號', () => {
-    // 表頭第 5 列；第 6 列是復能那一筆（F6「✓ SIS」）、第 7 列是健檢
+    // 表頭第 5 列；第 6 列是復能那一筆（G6「✓ SIS」：F 是空白欄，issues/14）、第 7 列是健檢
     const { size, app } = render();
-    assert.equal(app.ss.getSheetByName('客戶A').at('F6'), '✓ SIS');
+    assert.equal(app.ss.getSheetByName('客戶A').at('G6'), '✓ SIS');
     assert.equal(size.A6, 11);
-    assert.equal(size.F6, 11);
+    assert.equal(size.G6, 11);
     assert.equal(size.A7, 11);
   });
 
   test('二返註記（矩陣底下那一列、寫在那次健檢那一欄）9 號', () => {
-    // 矩陣 2 列（6～7）→ 註記在第 8 列，日期第 2 個 → G 欄
+    // 矩陣 2 列（6～7）→ 註記在第 8 列，日期第 2 個 → H 欄（F 是空白欄，日期從 G 起）
     const { size } = render();
-    assert.equal(size.G8, 9);
+    assert.equal(size.H8, 9);
   });
 
   test('第 1 列的提醒、表頭照舊 11 號', () => {

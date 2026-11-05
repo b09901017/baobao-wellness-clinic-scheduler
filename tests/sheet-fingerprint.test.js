@@ -198,12 +198,14 @@ describe('.gs：沒變的那幾頁只改產生時間', () => {
     assert.equal(push(app, syncBundle(base())).skipped.length, 1);
   });
 
-  // 2026-11-05 起只寫號碼（她：「不用病歷號，直接寫1234就好」；.scratch/sheet-push-gaps/issues/08）
-  test('抬頭那一行印「1234」；沒有病歷號的那一頁不寫那一段', () => {
+  // 2026-11-05 起只寫號碼（她：「不用病歷號，直接寫1234就好」；.scratch/sheet-push-gaps/issues/08）；
+  // 同一天晚上搬到名字那一格、一樣大（issues/14）
+  test('名字那一格是「客戶A　1234」、抬頭那一行沒有號碼；沒有病歷號的那一頁只有名字', () => {
     const app = loadAppsScript();
     push(app, syncBundle(base()));
-    assert.match(sheetOf(app, '客戶A').at('A3'), /^1234　·　/);
-    assert.doesNotMatch(sheetOf(app, '王小明').at('A3'), /^\d/);
+    assert.equal(sheetOf(app, '客戶A').at('A2'), '客戶A　1234');
+    assert.doesNotMatch(sheetOf(app, '客戶A').at('A3'), /1234/);
+    assert.equal(sheetOf(app, '王小明').at('A2'), '王小明');
   });
 });
 
@@ -228,7 +230,7 @@ test('.gs 的程式碼改了，LAYOUT_VERSION 要跟著加一（然後換掉這�
     .replace(/var LAYOUT_VERSION = \d+;/, '')
     .replace(/\s+/g, ' ');
   const hash = createHash('sha256').update(code).digest('hex').slice(0, 12);
-  assert.deepEqual({ version, hash }, { version: 4, hash: 'aee2a3695f6b' },
+  assert.deepEqual({ version, hash }, { version: 5, hash: '66804c6b0c2f' },
     '改了 sheets/readonly-report.gs：畫法變了的話 LAYOUT_VERSION 加一；兩種都把這裡換成新的 version 與 hash');
 });
 

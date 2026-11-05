@@ -61,8 +61,9 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 「客戶清單卡片只看短備註」 | [0160](./0160-chart-number-is-a-field.md) |
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
+| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 第 1 點（前五欄凍結、合併停在第五欄以內、數字四欄淡灰＋粗線）與第 5 點的「抬頭只寫號碼」—— 欄不凍結、整頁寬、四欄全白＋窄空白欄、號碼接在名字後面 | [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) |
 
-## 全部（170 支）
+## 全部（171 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -239,4 +240,5 @@
 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
 | [0172](./0172-a-one-time-guest-is-a-customer-off-every-list.md) | 一次性客人：不在任何名單上的客戶，他的段標成一次性；健檢那一串用一對只在算的時候存在的額度 | 2026-11-05 | 現行 |
 | [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |
-| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) | 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 2026-11-05 | 現行 |
+| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) | 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 2026-11-05 | 部分被推翻 → ADR-0176 |
+| [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) | 試算表的版面第四輪：欄不凍結、上下那幾塊整頁寬、數字四欄全白＋一條窄空白欄、號碼接在名字後面、營養品前面有購買日 | 2026-11-05 | 現行 |
