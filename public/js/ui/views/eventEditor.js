@@ -10,7 +10,7 @@
 
 import * as eventsData from '../../data/events.js';
 import {
-  CATEGORIES, DEFAULT_CATEGORY, validateEvent, kindClass, isLeave, EVENT_COLOR_OPTIONS,
+  CATEGORIES, DEFAULT_CATEGORY, validateEvent, kindClass, isLeave, colourChoices,
 } from '../../domain/events.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
@@ -160,8 +160,9 @@ function html(e, { isNew, embedded = false }) {
  * 挑顏色。公出、宜蘭休假、高齡演講對系統來說一模一樣，那個差別只有她知道
  * （ADR-0040）。色票跟客戶備註同一組六色。
  *
- * 第一顆是「跟著類別」，也就是不挑 —— 它要長成那一類本來的顏色，
- * 所以把 kindClass() 掛在它身上讓 --kind-fg 解得出來。
+ * **第一顆是那一類本來的顏色、實心**，選它存 `null`（ADR-0171）—— 把 kindClass() 掛在它身上
+ * 讓 --kind-fg 解得出來（就是日曆上沒挑顏色時那一類的顏色）。六色裡跟它重複的那一色不列，
+ * 列哪幾色只問 `colourChoices()`。休假時整排掛 `.swatches--leave`，每一顆的圓點都畫斜線。
  */
 function colourField(e) {
   return `
@@ -169,11 +170,11 @@ function colourField(e) {
       <span class="fieldgroup__label">顏色　可以不挑${tip(
         `日曆上這一筆會用這個顏色。${isLeave(e)
           ? '休假身上的斜線不會跟著換 —— 那條紋路講的是「你不在」。' : ''}`)}</span>
-      <div class="swatches" role="group" aria-label="顏色">
-        <button class="swatch swatch--auto ${kindClass(e.category)}" type="button"
-                data-colour="" aria-pressed="${!e.color}" aria-label="跟著類別"
+      <div class="swatches swatches--event ${isLeave(e) ? 'swatches--leave' : ''}" role="group" aria-label="顏色">
+        <button class="swatch ${kindClass(e.category)}" type="button"
+                data-colour="" aria-pressed="${!e.color}" aria-label="預設的顏色"
                 style="--mark: var(--kind-fg)"></button>
-        ${EVENT_COLOR_OPTIONS.map((c) => `
+        ${colourChoices(e.category, e.color).map((c) => `
           <button class="swatch" type="button" data-colour="${c.id}"
                   aria-pressed="${c.id === e.color}" aria-label="${esc(c.label)}"
                   style="--mark: var(--evcolor-${c.id})"></button>`).join('')}

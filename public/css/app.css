@@ -2104,10 +2104,8 @@ button.mark--contact::after {
   inset: -5px;
 }
 
-/* 「不挑，跟著類別走」那一顆（行事備註的顏色，ADR-0040）。
-   空心圈而不是實心點 —— 它長成那一類本來的顏色，而那個顏色也在底下六顆裡面
-   （行事備註預設是紫，六顆裡也有紫），兩顆實心點會一模一樣。
-   空心講的是「這不是一個顏色選擇」。 */
+/* 空心圈：設定頁的警示選「空心」填法時，整排每一顆都畫空心（`masterList.js`），跟壓表上那一顆一樣。
+   行事備註以前拿它當「跟著類別」那一顆（ADR-0040），2026-11-05 拿掉了（ADR-0171）。 */
 .swatch--auto::before {
   background: transparent;
   border: 3px solid var(--mark);
@@ -2115,6 +2113,22 @@ button.mark--contact::after {
 
 .swatch[aria-pressed='true'] {
   border-color: var(--mark);
+}
+
+/* 行事備註那一排（`eventEditor.js` 的 `colourField()`，ADR-0171）。第一顆身上掛著 `kindClass()`
+   好讓 --kind-fg 解得出那一類本來的顏色 —— 而 `.kind-leave` 會把斜線畫在整顆按鈕底上，這裡拿掉。
+   只限 `.swatches--event`：`.swatch` 還有客戶備註與設定頁警示在用。 */
+.swatches--event .swatch {
+  background-image: none;
+}
+
+/* 休假時每一顆的圓點都畫斜線（她：「斜線的，所有顏色選擇就都呈現斜線的樣子」）。
+   不用 --stripe-leave：那是 20% 的霧藍，疊在 20px 的實心點上看不到 —— 同 `.kind-leave .timerow__bar`，
+   缺口用面板底色挖穿，淺色深色兩邊都看得出是斜線。 */
+.swatches--leave .swatch::before {
+  background-image: repeating-linear-gradient(
+    -45deg, transparent 0 3px, var(--surface) 3px 5px
+  );
 }
 
 /* ---------- 客戶詳情的抬頭 ---------- */

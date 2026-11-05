@@ -1,6 +1,6 @@
 # 行事備註的顏色：預設色實心擺第一、不重複、休假每顆斜線
 
-Status: todo
+Status: done
 Blocked by: 06（同一支 `eventEditor.js`，先做 06 少一次衝突）
 動工前先讀：`public/js/ui/views/eventEditor.js` 的 `colourField()` 與 `wire()` 裡 `data-colour` 那一段；`app.css` 的 `.swatch`、`.swatch--auto`、`.kind-*`、`.evcolor-*`、`--stripe-leave`；
 `tokens.css` 的 `--event-personal`、`--event-leave`、`--evcolor-*`（淺色與深色兩份）；`public/js/domain/events.js` 的 `EVENT_COLOR_OPTIONS`、`colorClass()`、`paintClass()`、`validateEvent()`；
@@ -42,3 +42,22 @@ Blocked by: 06（同一支 `eventEditor.js`，先做 06 少一次衝突）
 - 客戶備註、設定頁那幾處用 `.swatch` 的地方長相沒變？
 
 ## 做完時留下的
+
+- domain：`events.js` 的 `CATEGORIES` 每一類加 `sameAs`（行事備註 `violet`、休假 `blue`）；新的 `colourChoices(category, current)` 回六色扣掉那一色，
+  **這一筆存的就是那一色時照樣列**（原本的位置）；不認得的類別照行事備註。`validateEvent()`、`colorClass()`、`paintClass()`、日曆一個字都沒改
+- 編輯器：第一顆拿掉 `swatch--auto`，照舊掛 `kindClass()`（`--kind-fg` 就是日曆上那一類的顏色）、`aria-label="預設的顏色"`、選它存 `null`；
+  後面六色改問 `colourChoices()`；整排加 `.swatches--event`，休假再加 `.swatches--leave`。切類別本來就整張重畫，`color` 不清
+- CSS：`.swatches--event .swatch { background-image: none }`（第一顆的 `.kind-leave` 斜線不再畫在整顆按鈕底）；
+  `.swatches--leave .swatch::before` 疊一層 `repeating-linear-gradient(-45deg, transparent 0 3px, var(--surface) 3px 5px)`（同 `.kind-leave .timerow__bar` 挖穿的做法，不用 `--stripe-leave`）。
+  **`.swatch--auto` 那一條留著**：設定頁警示選「空心」填法時整排畫空心（`masterList.js`）—— 只改了註解
+- ADR-0171（推翻 ADR-0040 Consequences 最後一點），`docs/adr/README.md` 同一個 commit 補兩張表；CLAUDE.md「日曆上任何一種東西的顏色」那一列補一句 `colourChoices()`／`.swatches--event`
+- 測試：`tests/event-colour-swatches.test.js`（`sameAs`、`colourChoices()` 四種情形、編輯器不再有 `swatch--auto`）—— 改之前 import 不到、紅；
+  E2E `92-event-colour-swatches`（C1 行事備註第一顆實心、沒有第二顆紫、選第一顆存 null；C2 休假沒有藍、每一顆圓點有斜線、第一顆按鈕底 `none`；C3 以前挑紫的照樣列、選著、存完還是紫）——
+  拿舊的三支檔案跑：C1、C2 紅在真正的斷言上（「第一顆是實心的」「藍跟第一顆重複，不列」），C3 綠（舊的本來就列全部 —— 它是守「照樣列」的）；改完 3 支全綠
+- `related.js`：登記 `92`、`CSS_SCOPES` 加 `swatch`（`classes: ['swatch', 'swatches']`，owners 是 `marks.js`、`notesEditor.js`、`masterList.js`、`eventEditor.js`；這次 `app.css` 的差異 `narrowCss()` 認得是 `['swatch']`）
+- 中途撞到：第一顆的 aria-label 本來想寫「行事備註本來的顏色」（叫 `events.js` 的 `describeCategory()`），`tests/course-systems.test.js` 掃同名的課程那一支 → 改成固定的「預設的顏色」
+- `sw.js` v238
+- verify：`npm test` 5445 全過；E2E 照 `pick()`（`eventEditor.js`、`events.js`、`app.css#swatch`、`sw.js`、spec `92`）挑 11 支、外加 `14`（設定頁警示的色票）直接跑：
+  121 個裡 120 過、`74` 的 L6 紅一次（量長備註編輯卡的右緣 426 > 390，`.pbcard` 跟這次的 CSS 無關），單獨重跑 `74` 24 個全過 → 記在 HANDOFF 中途發現 段二
+- 截圖自己看過（本機模擬器、414 寬、淺色與深色）：新增行事備註那一頁沒有任何小字；行事備註第一顆實心紫＋五色；休假第一顆實心霧藍＋五色、每一顆斜線（兩個主題都看得出）；
+  日曆抽屜裡（embedded）同樣；以前挑紫的那一筆紫列在最後、選著

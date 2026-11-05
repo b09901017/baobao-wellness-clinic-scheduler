@@ -690,6 +690,10 @@ export const COVERAGE = {
     'public/js/ui/components/note.js', 'public/css/app.css', 'public/js/ui/views/home.js',
     'public/js/ui/views/customerDetail.js', 'public/js/ui/views/calendar.js',
   ],
+  // 行事備註的顏色：第一顆是實心的預設色、重複的那一色不列、休假每顆斜線（small-fixes-2026-11-05 07，ADR-0171）
+  '92-event-colour-swatches': [
+    'public/js/ui/views/eventEditor.js', 'public/js/domain/events.js', 'public/css/app.css',
+  ],
 };
 
 /**
@@ -748,6 +752,14 @@ export const CSS_SCOPES = {
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
   // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
   notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 挑顏色那一排圓點：客戶備註、長備註那幾則的編輯、設定頁警示、行事備註（ADR-0171 的 `.swatches--event`）
+  swatch: {
+    classes: ['swatch', 'swatches'],
+    owners: [
+      'public/js/ui/components/marks.js', 'public/js/ui/components/notesEditor.js',
+      'public/js/ui/views/masterList.js', 'public/js/ui/views/eventEditor.js',
+    ],
+  },
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
