@@ -134,13 +134,35 @@ function clockAdd(step, since, flush) {
   return now;
 }
 
+/** 寫進執行紀錄、回那一行（`doPost()` 再寫進 `_data` 的 B1：網頁應用程式被「所有人」叫的那幾次，執行作業那一頁常常不顯示紀錄）。 */
 function clockLog(extra) {
-  if (!CLOCK) return;
+  if (!CLOCK) return null;
   CLOCK.ms['總共'] = Date.now() - CLOCK.start;
   var out = { ms: CLOCK.ms, drawn: CLOCK.drawn, kept: CLOCK.kept };
   for (var k in (extra || {})) out[k] = extra[k];
-  console.log('計時 ' + JSON.stringify(out));
+  var line = '計時 ' + JSON.stringify(out);
+  console.log(line);
   CLOCK = null;
+  return line;
+}
+
+/**
+ * 計時那一行也寫進藏起來的 `_data` 分頁的 B1（11/5 她：執行作業那一列展不開、看不到紀錄）。
+ * 每一次推送 `stashRawData()` 都清空 `_data` 再寫原始資料，所以 B1 永遠是最近一次畫過的那一趟。寫不進去就算了 —— 它只是給人看的。
+ */
+var TIMING_SHEET = null;
+
+function noteTiming(line) {
+  // 用 `stashRawData()` 手上那一張，不再讀一次（讀會讓排著的寫入先做完，又多一次「寫完又讀」）
+  var sheet = TIMING_SHEET;
+  TIMING_SHEET = null;
+  if (!line || !sheet) return;
+  try {
+    // 一格也用 setValues：客戶那幾頁一律先畫在草稿紙上、不逐格 setValue，這一格不是畫法（測試照名字數）
+    sheet.getRange(1, 2).setValues([[line]]);
+  } catch (err) {
+    // 不影響推送的結果
+  }
 }
 
 function doPost(e) {
@@ -192,7 +214,9 @@ function doPost(e) {
         skipped: result.skipped,
       });
     } finally {
-      clockLog(staleSkip ? { stale: true } : null);
+      var timing = clockLog(staleSkip ? { stale: true } : null);
+      // 比較舊的那一包沒畫：B1 留著上一次畫的那一趟
+      if (!staleSkip) noteTiming(timing);
       lock.releaseLock();
     }
   } catch (err) {
@@ -257,7 +281,7 @@ function render(ss, bundle, force, stored) {
   var book = readBook(ss);
   var data0 = book.byName[DATA_SHEET] || null;
   var dataLock = data0 ? lockState(data0, me) : null;
-  if (data0) data0.hidden = data0.sheet.isSheetHidden();
+  if (data0 && data0.hidden == null) data0.hidden = data0.sheet.isSheetHidden();
   var plans = [];
   var inBundle = {};
   for (var p0 = 0; p0 < bundle.sheets.length; p0++) {
@@ -270,7 +294,9 @@ function render(ss, bundle, force, stored) {
       lastRowOf(entry0);
       if (isOurs(entry0.a1) || entry0.lastRow === 0) {
         sizeOf(entry0);
-        protectionsOf(entry0);
+        // 鎖對了就留著（issues/06）；不對的才要先拿到那幾道 Protection，等一下拆
+        entry0.keepLock = keepsLock(entry0, me);
+        if (!entry0.keepLock) protectionsOf(entry0);
       }
     }
   }
@@ -330,8 +356,10 @@ function render(ss, bundle, force, stored) {
     }
     // resetSheet() 已經把這一頁放進 book（新建的也是）
     var drawn = book.byName[written];
-    // resetSheet() 已經把舊的鎖拆了
-    protectSheet(drawn.sheet, me, []);
+    // 鎖對了就沒拆、不重上（issues/06）；其餘 resetSheet() 已經拆了，這裡上一道新的
+    if (!drawn.keepLock) protectSheet(drawn.sheet, me, []);
+    drawn.keepLock = false;
+    drawn.locks = null;
     drawn.protections = null;
     drawn.a1 = bundle.notice;
     drawn.lastRow = null;
@@ -364,12 +392,82 @@ function readBook(ss) {
   var byName = {};
   var list = [];
   var sheets = ss.getSheets();
+  // 開了「Google Sheets API」服務：名字、第一格、大小、藏起來了沒、整頁的鎖兩次讀完（issues/07）；沒開或失敗 → 照舊一頁一頁讀
+  var api = readBookViaApi(ss, sheets.length);
   for (var i = 0; i < sheets.length; i++) {
-    var entry = { sheet: sheets[i], name: sheets[i].getName(), a1: sheets[i].getRange(1, 1).getValue() };
+    var entry = api
+      ? {
+        sheet: sheets[i], name: api[i].name, a1: api[i].a1,
+        maxRows: api[i].maxRows, maxCols: api[i].maxCols, hidden: api[i].hidden, locks: api[i].locks,
+      }
+      : { sheet: sheets[i], name: sheets[i].getName(), a1: sheets[i].getRange(1, 1).getValue() };
     list.push(entry);
     byName[entry.name] = entry;
   }
   return { byName: byName, list: list };
+}
+
+/**
+ * 用 Google Sheets API（Apps Script 的進階服務 `Sheets`）一次讀完每一頁（issues/07）：
+ * 一次 `Spreadsheets.get`（名字、大小、藏起來了沒、整頁的鎖與誰能改）、一次 `Values.batchGet`（每一頁的 A1）。
+ * 她 11/5 量的平常推 16.5 秒裡「讀」8.4 秒，就是 35 頁各讀一次第一格與名字。
+ *
+ * **沒開服務（`Sheets` 不存在）、丟錯、回來的頁數對不上 → null**，`readBook()` 照舊一頁一頁讀：
+ * 忘了開、或 Google 那一側一時失敗，推送照樣成功，只是慢。順序跟 `getSheets()` 一樣（都是分頁由左到右）。
+ *
+ * @returns {{name: string, a1: *, maxRows: number, maxCols: number, hidden: boolean, locks: object[]}[]|null}
+ */
+function readBookViaApi(ss, count) {
+  if (typeof Sheets === 'undefined' || !Sheets || !Sheets.Spreadsheets) return null;
+  try {
+    var id = ss.getId();
+    var meta = Sheets.Spreadsheets.get(id, {
+      fields: 'sheets(properties(title,hidden,gridProperties(rowCount,columnCount)),protectedRanges(range,description,editors))',
+    });
+    var sheets = (meta && meta.sheets) || [];
+    if (sheets.length !== count) return null;
+    var out = [];
+    var ranges = [];
+    for (var i = 0; i < sheets.length; i++) {
+      var pr = sheets[i].properties || {};
+      var grid = pr.gridProperties || {};
+      out.push({
+        name: pr.title,
+        hidden: pr.hidden === true,
+        maxRows: grid.rowCount,
+        maxCols: grid.columnCount,
+        locks: wholeSheetLocks(sheets[i].protectedRanges),
+      });
+      ranges.push("'" + String(pr.title).replace(/'/g, "''") + "'!A1");
+    }
+    var got = Sheets.Spreadsheets.Values.batchGet(id, { ranges: ranges });
+    var values = (got && got.valueRanges) || [];
+    if (values.length !== count) return null;
+    for (var j = 0; j < values.length; j++) {
+      var v = values[j].values;
+      // 空的格子 Google 不回 values（跟 getValue() 回 '' 一樣當成空的）
+      out[j].a1 = v && v[0] && v[0][0] != null ? v[0][0] : '';
+    }
+    return out;
+  } catch (err) {
+    return null;
+  }
+}
+
+/** API 回的鎖裡「整頁那一種」（範圍只有 sheetId、沒有起訖）：說明、誰能改、網域能不能改。 */
+function wholeSheetLocks(ranges) {
+  var out = [];
+  for (var i = 0; i < (ranges || []).length; i++) {
+    var g = ranges[i].range || {};
+    if (g.startRowIndex != null || g.endRowIndex != null || g.startColumnIndex != null || g.endColumnIndex != null) continue;
+    var editors = ranges[i].editors || {};
+    out.push({
+      description: ranges[i].description || '',
+      users: editors.users || [],
+      domainEdit: editors.domainUsersCanEdit === true,
+    });
+  }
+  return out;
 }
 
 /** 那一頁多大（`ensureSize()`、`resetSheet()` 的拆合併用）。新建的分頁第一次問才讀。 */
@@ -381,10 +479,34 @@ function sizeOf(entry) {
   return entry;
 }
 
-/** 那一頁上面的鎖（整頁那一種）。拆掉之後要設回 null。 */
+/** 那一頁上面的鎖（整頁那一種）。拆掉之後要設回 null。API 那一份說一道都沒有就不用再問。 */
 function protectionsOf(entry) {
-  if (!entry.protections) entry.protections = entry.sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  if (!entry.protections) {
+    entry.protections = entry.locks && entry.locks.length === 0
+      ? []
+      : entry.sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  }
   return entry.protections;
+}
+
+/** API 那一份的鎖是不是已經對了（剛好一道、說明一樣、網域不能改、只有我）。 */
+function locksOk(locks, me) {
+  if (locks.length !== 1 || locks[0].description !== PROTECT_NOTE || locks[0].domainEdit) return false;
+  for (var i = 0; i < locks[0].users.length; i++) {
+    if (locks[0].users[i] !== me.email) return false;
+  }
+  return true;
+}
+
+/**
+ * 重畫的那一頁的鎖要不要留著（issues/06）：程式是用她的身分跑的，鎖擋不住它，所以**鎖對了就不拆、不重上**。
+ * 她 11/5 量的整份重畫 175 秒裡「上鎖」47 秒，就是每一頁拆了重上（`protect()`、改名單、問誰能改）。
+ * 有 API 那一份 → 跟 `_data` 一樣的四個條件（免費）；沒有 → 只看是不是剛好一道（再問說明與名單要多讀好幾次，就不問了：
+ * 那一道是這支程式上一次上的，除非她自己進去改過名單）。
+ */
+function keepsLock(entry, me) {
+  if (entry.locks) return locksOk(entry.locks, me);
+  return protectionsOf(entry).length === 1;
 }
 
 /**
@@ -398,6 +520,8 @@ function lastRowOf(entry) {
 
 /** `_data` 那一頁的鎖是不是已經對了：剛好一道、說明一樣、只有我能改、網域裡的人不能改。對了就不拆了重上。 */
 function lockState(entry, me) {
+  // API 那一份就判得出來，不用再問（鎖不對才要拿 Protection 來拆）
+  if (entry.locks) return locksOk(entry.locks, me) ? { ok: true, existing: [] } : { ok: false, existing: protectionsOf(entry) };
   var existing = protectionsOf(entry);
   if (existing.length !== 1 || existing[0].getDescription() !== PROTECT_NOTE || existing[0].canDomainEdit()) {
     return { ok: false, existing: existing };
@@ -479,6 +603,7 @@ function stashRawData(ss, bundle, book, entry) {
     book.byName[DATA_SHEET] = { sheet: sheet, name: DATA_SHEET, a1: '' };
   }
   sheet.clear();
+  TIMING_SHEET = sheet;
   // 一格最多 50000 個字元，整包塞不下就切開來放（一次寫完：一欄好幾列）
   var column = [['這一頁是 app 推過來的原始資料，給出問題時對照用。請不要編輯。']];
   var text = JSON.stringify(bundle);
@@ -1217,7 +1342,8 @@ function resetSheet(ss, name, book) {
   if (entry) {
     if (lastRowOf(entry) > 0 && !isOurs(entry.a1)) return null;
     var sheet = sizeOf(entry).sheet;
-    unprotect(entry);
+    // 鎖對了就留著（`render()` 讀的那一段判好了 `keepLock`）：用她的身分清、畫，鎖擋不住
+    if (!entry.keepLock) unprotect(entry);
     sheet.clear();
     sheet.clearConditionalFormatRules();
     // 上一次的合併留著會讓這一次的 setValues 整個炸掉

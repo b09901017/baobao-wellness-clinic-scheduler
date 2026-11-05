@@ -324,6 +324,7 @@ class FakeSpreadsheet {
 
   getSheets() { return [...this.sheets]; }
   getSheetByName(name) { return this.sheets.find((s) => s.name === name) ?? null; }
+  getId() { return 'fake-spreadsheet-id'; }
 
   insertSheet(name) {
     const sheet = new FakeSheet(name);
@@ -383,14 +384,75 @@ export function snapshotOf(ss) {
  * @param {{token?: string, sheetNames?: string[], lock?: boolean, source?: string}} [options]
  *   `source`：拿另一份 `.gs` 的原始碼來跑（比改前改後用，`scripts/sheet-gs-compare.mjs`）
  */
+/**
+ * 假的「Google Sheets API」進階服務（`Sheets`，.scratch/sheet-push-gaps/issues/07）。只做 `.gs` 用到的兩支：
+ * `Spreadsheets.get`（每一頁的名字、大小、藏起來了沒、整頁的鎖）與 `Spreadsheets.Values.batchGet`（每一頁的 A1）。
+ * `mode`：'on' 照真的回、'throw' 每一支都丟錯（`.gs` 要退回逐頁讀）。每一次呼叫記在 `calls`。
+ */
+function fakeSheetsApi(ss, mode, calls) {
+  const sheetOf = (range) => {
+    const m = String(range).match(/^'((?:[^']|'')*)'!A1$/);
+    if (!m) throw new Error(`看不懂的範圍：${range}`);
+    return ss.getSheetByName(m[1].replace(/''/g, "'"));
+  };
+  const guard = (name) => {
+    calls.push(name);
+    if (mode === 'throw') throw new Error(`Sheets API 失敗（假的）：${name}`);
+  };
+  return {
+    Spreadsheets: {
+      get(id, opts) {
+        guard('Spreadsheets.get');
+        if (id !== ss.getId()) throw new Error(`不認得的試算表：${id}`);
+        if (!opts?.fields) throw new Error('要帶 fields（只拿要用的那幾格）');
+        return {
+          sheets: ss.sheets.map((sh) => ({
+            properties: {
+              title: sh.name,
+              ...(sh.hidden ? { hidden: true } : {}),
+              gridProperties: { rowCount: sh.maxRows, columnCount: sh.maxCols },
+            },
+            // 整頁的鎖：range 只有 sheetId（沒有起訖）
+            ...(sh.protections.length ? {
+              protectedRanges: sh.protections.map((pr) => ({
+                range: { sheetId: 1 },
+                ...(pr.description ? { description: pr.description } : {}),
+                editors: {
+                  users: pr.getEditors().map((x) => x.getEmail()),
+                  ...(pr.domainEdit ? { domainUsersCanEdit: true } : {}),
+                },
+              })),
+            } : {}),
+          })),
+        };
+      },
+      Values: {
+        batchGet(id, opts) {
+          guard('Spreadsheets.Values.batchGet');
+          if (id !== ss.getId()) throw new Error(`不認得的試算表：${id}`);
+          return {
+            valueRanges: opts.ranges.map((range) => {
+              const v = sheetOf(range).get(1, 1);
+              // 空的格子 Google 不回 values
+              return v === '' || v == null ? { range } : { range, values: [[String(v)]] };
+            }),
+          };
+        },
+      },
+    },
+  };
+}
+
 export function loadAppsScript({
-  token = 'secret', sheetNames = [], lock = true, source = null,
+  token = 'secret', sheetNames = [], lock = true, source = null, now = () => 0, sheetsApi = 'off',
 } = {}) {
   const ss = new FakeSpreadsheet(sheetNames);
   // 文件屬性（格式 8 記每一頁的指紋）。同一個替身裡推好幾次都留著 —— 跟真的試算表一樣
   const docProps = new Map();
   // `console.log` 的每一行（`.gs` 把每一步花幾秒寫進執行紀錄，issues/05）
   const logs = [];
+  // 假的 Sheets API 被叫了哪幾次（issues/07）
+  const apiCalls = [];
   const code = source ?? readFileSync(new URL('../../sheets/readonly-report.gs', import.meta.url), 'utf8');
 
   const context = createContext({
@@ -421,7 +483,11 @@ export function loadAppsScript({
     Session: {
       getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }),
     },
+    // 沒開「Google Sheets API」服務的時候，`Sheets` 這個名字根本不存在（`typeof Sheets === 'undefined'`）
+    ...(sheetsApi === 'off' ? {} : { Sheets: fakeSheetsApi(ss, sheetsApi, apiCalls) }),
     console: { log: (...args) => { logs.push(args.map(String).join(' ')); } },
+    // 時鐘固定（`now`）：計時那一行寫進 `_data` 的 B1，整份試算表的雜湊才每次一樣。`.gs` 只用 `Date.now()`
+    Date: { now },
     JSON,
     String,
     Number,
@@ -433,5 +499,5 @@ export function loadAppsScript({
   });
 
   runInContext(code, context, { filename: 'readonly-report.gs' });
-  return { ss, context, docProps, logs, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
+  return { ss, context, docProps, logs, apiCalls, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
 }
