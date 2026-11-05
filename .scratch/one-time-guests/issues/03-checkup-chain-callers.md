@@ -31,12 +31,23 @@ Blocked by: 02
 - 先照 `ripple-check` 再列一次（CodeGraph `callers` ＋ grep `pairsOf(`、`chainInputs(`、`chainBy`）—— 過目列的不一定全；**`sheetReport.js:898` 不可以吃投影**（試算表）、`customerDetail.js:1065` 不用動
 - 每一處補一支測試：一次性客人走那一條路，確認框／抽屜／收尾跟一般客人講一樣的話、擋一樣的東西
 
+### 段一之後加進來的（HANDOFF 中途發現段一 1、2、6、7）
+
+- **`cannotClose()`／`closeBlocks()` 的每一個呼叫端補 `coursesById`**（段一第 1 條）：`home.js` 的 `closeGuard()`，**加上簽療程單抽屜存的那一下 `applyClose()`**
+  —— 它自己組 `{ entitlements, visits: customerVisits }`、不經過 `closeGuard()`（`closeBlocks()` 與 `closeVisit(…, guard)` 兩處，第 6 條）；`visits.js` 的 `closeVisit()` guard、
+  `consequences.js` 的 `closeConsequences()`、`aboveeImport.js` 的四處（`applyPhotoStatus`、`gateStatusChanges`、`applyPhotoMove`、`blockedInGroups`）
+- **`relinkOffer()`／`relinkSlot()`**（段一第 2 條）：照建議在投影裡比、`relinkSlot()` 只動 `followupForVisitId`，或明說不做、寫進「做完時留下的」
+- **接在一次性健檢上的 n返 標一次性**（段一第 3 條＋第 7 條）：在 `slotFromPicks()` 一處判 —— n返 接的那一次健檢是一次性的段 → 這一段也寫 `oneTime: true`
+  （轉成客戶之後的人也是）；`validateVisit()` 擋「接一次性健檢、卻沒標一次性」的 n返。三個入口（來訪編輯器、壓表、拍 Abovee 的 `nthRows`）都經過 `slotFromPicks()`，不用各判
+
 ## 判準
 
 - 一般客戶走這幾條路，每一句話、每一個擋，跟改之前一模一樣？
 - 一次性客人取消一場健檢（二返接著它）→ 確認框講「還有一場二返接在這一次上」？
 - 一次性客人簽療程單：二返接的健檢還沒做完 → 抽屜上那一段的 ✓ 按不下去、「全部 ✓」跳過它？
 - 拍 Abovee 同一張照片記一次性客人的健檢（做完）＋二返 → 存完之後有沒有留下一張用不到的「追蹤健檢報告」？（不可以）
+- 簽療程單抽屜：一次性二返接的健檢還沒做完，**按下去存的那一下**也擋（不只畫面上的 ✓）？
+- 轉成客戶的人約一場接在一次性健檢上的三返 → 那一段帶 `oneTime`？沒帶的話存得下去嗎？（不可以）一般客戶的三返（接真的健檢）→ 不帶、照舊？
 
 ## 做完時留下的
 

@@ -40,8 +40,10 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
   現在 worktree 根目錄有一個目錄連結 `.local` → 主資料夾的 `.local`（`git check-ignore -v .local` 擋得住）。**推之前跑 `node --test tests/no-secrets.test.js`，要 skipped 0**；
   commit 訊息另外過一次過濾網（`git log origin/develop..HEAD --format=%B` 經 `node .local/references/redact.mjs`，比前後一不一樣、只印「一不一樣」）。
   **不要刪那個連結、不要往裡面寫**（那是她的私人 repo）；收 worktree 時 `git worktree remove` 會把連結留在原地，要另外刪（只刪連結，不會刪到主資料夾那一份）
-- **查牽連先用圖**：CodeGraph 與 graphify 的圖在主資料夾（`<主資料夾>/.codegraph/`、`graphify-out/`），照 develop 畫的、不含這條分支 —— 查「既有函式誰在呼叫」
-  在主資料夾跑 `codegraph callers <符號>`（不 `sync`），再跟 grep 對一次（純 JS，兩邊常常不一樣：段一 `validateVisit` 圖上少了三個呼叫端）。**不要在 worktree 裡更新圖**
+- **查牽連用這個 worktree 自己的 CodeGraph 索引**（11/5 主控照 `docs/agents/worktree.md` 接好：`codegraph init -i`，`.codegraph/` 有被擋）——
+  主資料夾那一份是 develop 的、看不到 01、02 新加或改過的符號（會印「This CodeGraph index belongs to a different git working tree」就是用錯了）。
+  改了檔之後在**這個 worktree** `codegraph sync` 再查；照樣跟 grep 對一次（純 JS，兩邊常常不一樣：段一 `validateVisit` 圖上少了三個呼叫端）。
+  graphify 查主資料夾那一份：`graphify query "<問題>" --graph <主資料夾>/graphify-out/graph.json`；**不要在 worktree 裡 `graphify update`**
 - 會寫入的驗收在本機模擬器走（CLAUDE.md「上線」）；她的筆電不要跑到全滿又放著
 - **主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON**
 - 整輪的判準（ADR-0172）：**這一行會不會讓一位一般客戶或一段沒有標記的段被放寬、被藏起來，或讓一次性的段被算進任何一筆真的額度、出現在試算表上？**
@@ -87,11 +89,30 @@ spec.md「談定的」8 題（她每一題都選建議；第 2 題多「看已�
    **建議 03 做**：`relinkOffer()`／`relinkSlot()` 多收 `coursesById`、在投影裡比（`relinkSlot()` 比完換回原本那一段、只動 `followupForVisitId`）；或明說不做、讓那一句照舊。不用問她（照第 3 題「跟一般客人一模一樣」推得出來）
 3. **轉成我的客戶之後，接在一次性健檢上的 n返 要不要標一次性**：02 讓 `examChoicesForNth()` 列得出一次性的健檢（一次性的 n返 本來就要），所以轉成客戶之後壓表／編輯器的「＋ n返」也接得上一次性的那一次，
    組出來的是一段**沒有標記**的 n返。試算表會把它印在「三返（不算次數）」那一列、健檢那一欄底下的 `followupNotes` 指著一次性健檢那一天 —— 而那一天整天是一次性的、04 不畫那一欄。
-   **建議照第 6 題推（不用問她）**：接的那一次是一次性的健檢時，n返 也標一次性（跟「還欠的那一場二返照舊標一次性」同一個理由：那一串是一次性那一次的）—— 06 的三個入口組時段時判；
+   **建議照第 6 題推（不用問她）**：接的那一次是一次性的健檢時，n返 也標一次性（跟「還欠的那一場二返照舊標一次性」同一個理由：那一串是一次性那一次的）—— ~~06 的三個入口組時段時判~~ **改成 03 在 `slotFromPicks()` 一處判（主控，見第 7 條）**；
    04 的試算表另外保險：`followupNotes()` 指到的那一天沒有畫出來就不印。04、06 誰先做誰接
 4. `followups.js` 的 `examStates()` 全站沒有呼叫端（死碼）。02 沒有套投影。不影響這一輪，記著
 5. **E2E 這一段沒在本機跑**：`--related` 挑到 60 支（分支上還有設計段改的文件），本機 2 個 worker 也要二十幾分鐘。推上去用 CI 全量跑
    （`gh workflow run e2e-full.yml --ref claude/one-time-visit-design`，run `41976177226`，跑在 `ff12b4fd`）—— **六台全綠**（11/5）
+
+### 主控用這個 worktree 自己的 CodeGraph 索引重查（2026-11-05，段一做完之後；她要的）
+
+worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個檔、`.codegraph/` 有被擋）；graphify 查主資料夾的 `graphify-out/graph.json`。
+拿 `0668f0ee`、`ff12b4fd` 動到的函式（`cannotClose`、`closeBlocks`、`examChoicesForNth`、`courseIdForNth`、`slotOptionsFor`、`slotFromPicks`、`validateVisit`、
+`syncFollowupTasks`、`strandedFollowups`、`doneAheadOfExam`、`doubleClaimedExams`、`bookingStateForTask`、`giftKindOf`、`countOps`、`relinkOffer`、`relinkSlot`、
+`examChoicesFor` 與新的那幾支）跑 `codegraph callers`，跟段一列的對：
+
+6. **段一第 1 條漏了一處**：`home.js` 簽療程單抽屜「存的那一下」（`applyClose()`，`:4047` 附近）**自己組 guard**（`{ entitlements, visits: customerVisits }`），不經過 `closeGuard()`（`:3965`）——
+   只補 `closeGuard()` 的話，抽屜那一列與「全部 ✓」擋得住，按下去存的那一下（`closeBlocks()` `:4048`、`closeVisit(…, guard)` `:4055`）照樣放行。**排進段二的 03**
+7. **段一第 3 條（接在一次性健檢上的 n返）的入口不只 06**：`examChoicesForNth()` 的呼叫端是來訪編輯器 `nthExamChoices`（`visitEditor.js:772`）、壓表 `nthExamChoices`（`schedule.js:1637`）、
+   **拍 Abovee `nthRows`（`aboveeConfirm.js:900`，07）**、`slotOptionsFor()`、`slotFromPicks()`、`examNotMineWarnings()`。三個入口組時段都經過 `slotFromPicks()`（`slotDraft.js:74`）——
+   **在 `slotFromPicks()` 一處判**：n返 接的那一次健檢是一次性的段 → 這一段也標一次性；`validateVisit()` 擋「接一次性健檢、卻沒標一次性」的 n返。**排進段二的 03**（domain、小），06、07 不用各判一次
+8. 對上了、不用改的：`cannotClose()`／`closeBlocks()` 在拍 Abovee 的四處（`applyPhotoStatus`、`gateStatusChanges`、`applyPhotoMove`、`blockedInGroups`）、`closeConsequences()`、`closeVisit()`；
+   `validateVisit()` 的五個呼叫端（來訪編輯器 `paint`／`submit` 整份、壓表 `addSlot`、`relinkAfterSave`、拍 Abovee `checkMoves`／`photoDayPlan` 都經過 `checkCtxFor()`）；
+   `relinkOffer()`／`relinkSlot()`（＝段一第 2 條）；`examChoicesFor()` 的呼叫端照設計不套投影（06、07 改走 `oneTimeExamChoices()`）
+9. **知道就好**：`slotOptionsFor()` 多出來的「二返（一次性那一次）」已經流進壓表 `courseOptions`（`schedule.js:1622`）、拍 Abovee `optionsFor`（`aboveeConfirm.js:871`）、
+   `nthOffered`（`aboveeImport.js:737`，只問 `isNth`，不受影響）—— 按下去的處理在 06（壓表）、07（拍 Abovee）；**轉成客戶（05）之前到不了**（`oneTimeOwed()` 要有一次性的健檢段），
+   05、06 同一段，07 在段四，分段之間不部署所以沒事。來訪編輯器不叫 `slotOptionsFor()`，06 要自己加那一顆
 
 ## 要她決定的
 
@@ -135,15 +156,17 @@ subagent 同時最多兩個；一支一個 commit、npm run verify 通過、Stat
 這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一做完 01、02（commit 見 git log）。
 先 git fetch，落後 develop 就 rebase；這個 worktree 已經有 node_modules（rebase 之後 package-lock 變了才重跑 npm ci）。
 讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、
-.scratch/one-time-guests/HANDOFF.md（共同的規矩、過目抓到的、中途發現 —— 段一那四條）、01 與 02 的「做完時留下的」。
+.scratch/one-time-guests/HANDOFF.md（共同的規矩、過目抓到的、中途發現 —— 段一那五條＋主控重查的 6～9）、01 與 02 的「做完時留下的」。
+查牽連用這個 worktree 自己的 CodeGraph 索引（已經 codegraph init -i；改了檔之後 codegraph sync 再查），graphify 查主資料夾的 graph.json（--graph）。
 這一段做 .scratch/one-time-guests/issues/03-checkup-chain-callers.md，再做 04-lists-sheet-health-reconcile.md。不做 05 以後的。
 02 的投影在 public/js/domain/oneTimeChain.js（withOneTimeChain／originalOf／assertNoOneTimeIds），鏈的函式進來自己套；
 03 是「叫到鏈之前就先問有沒有真的二返額度」的那幾處，另外：cannotClose／closeBlocks 只在 ctx 給了 coursesById 時認得一次性客人，
-每一個呼叫端要補（HANDOFF 中途發現段一第 1 條列了在哪）；relinkOffer／relinkSlot 照中途發現第 2 條的建議做或明說不做。
-04 碰到試算表時看中途發現第 3 條（接在一次性健檢上的 n返）。
-04 要改 sheetReport.js 的 syncBundle()／customerReport() 與 ui/views/report.js，而試算表那一輪（claude/sheet-speed）正在改 sheetReport.js：
-開 04 之前 git fetch，看 claude/sheet-speed 合進 develop 了沒 —— 合了就 rebase 再做；還沒合就先做 04 裡不碰試算表的部分（名單、資料健檢、月底對帳），
-試算表那一塊最後做，或問她要不要等。永遠不改 sheetSync.js、sheetPushTiming.js、.gs。ADR 再寫新的從 0175 起。
+每一個呼叫端要補（HANDOFF 中途發現段一第 1 條列了在哪，**加上第 6 條：簽療程單抽屜存的那一下 applyClose() 自己組 guard、不經過 closeGuard()**）；
+relinkOffer／relinkSlot 照中途發現第 2 條的建議做或明說不做；**第 7 條：接在一次性健檢上的 n返 在 slotFromPicks() 一處標一次性、validateVisit() 擋沒標的**（03 一起做）。
+04 碰到試算表時看中途發現第 3 條（followupNotes() 指到沒畫出來的那一天就不印）。
+04 要改 sheetReport.js 的 syncBundle()／customerReport() 與 ui/views/report.js。試算表那一輪的 PR #204（claude/sheet-speed-2，ADR-0174）11/5 已經合進 develop、
+sheetReport.js 那幾行在裡面；claude/sheet-speed 那條分支跟 develop 只差 .gs 與 sheets/README。開 04 之前 git fetch、rebase，
+再看一次有沒有開著的 PR 動 sheetReport.js（gh pr list --state open）—— 有就先做 04 裡不碰試算表的部分（名單、資料健檢、月底對帳），試算表那一塊最後做，或問她要不要等。永遠不改 sheetSync.js、sheetPushTiming.js、.gs。ADR 再寫新的從 0175 起。
 模擬器同一時間只能一組在跑：起之前先看 port 上有沒有人，有的話不要停掉別人的，先問她。
 規矩照 HANDOFF「每一段共同的規矩」。主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
 做完要交：各一個 commit、HANDOFF 更新、段三的開場、簡短回覆。
