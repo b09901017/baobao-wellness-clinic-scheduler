@@ -1,7 +1,7 @@
 # 試算表推送的縫：交接
 
-分支 `claude/sheet-push-gaps`，在 worktree `.claude/worktrees/sheet-push-gaps-112028`（平行的一輪：主資料夾在做第一輪小修，
-一次性客人在 `claude/one-time-visit-design` —— 都不碰）。小，不分段，這個 session 做完。
+主控 session：worktree `.claude/worktrees/sheet-push-gaps-112028`（平行的幾輪：主資料夾在做第一輪小修，一次性客人在 `claude/one-time-visit-design` —— 都不碰）。
+第一輪（01）在主控 session 做完；第二輪（02～04）分兩段；05～07 主控自己做；**第三輪（版面，08～13）分兩段**，見「第三輪」。
 
 ## 狀態
 
@@ -10,7 +10,16 @@
 | 01 推失敗自己再推、回到 app／網路回來／打開 app 補推 | done（PR #201，develop `2267a8bc`） |
 | 02 平常推變快：先讀完再寫 | done（`claude/sheet-speed`，rebase 後 `c1a40e9b`） |
 | 03 重畫變快：同一種動作收成一次 | done（`881a5935`） |
-| 04 兩台同時推：比較舊的那一包不畫（ADR-0174） | done（`6c6ad420`；段二審查小修 `345bb52a`） |
+| 04 兩台同時推：比較舊的那一包不畫（ADR-0174） | done（`6c6ad420`；段二審查小修 `345bb52a`；PR #204，develop `926e5712`） |
+| 05 字級（名字 14、註記 9）＋每一步計時；之二：計時寫進 `_data` 的 B1 | done（PR #207 `f42572f9`、#208 `9b8d4356`） |
+| 06 重畫時鎖不拆了重上 | done（PR #209，develop `532c1a4d`） |
+| 07 用 Google Sheets API 一次讀完每一頁（沒開就照舊） | done（同上） |
+| 08 欄寬、分隔、格線、抬頭 | todo（第三輪段一） |
+| 09 凍結前五欄 | todo（第三輪段一） |
+| 10 療程項目照「做最多的在上面」排 | todo（第三輪段一） |
+| 11 器材併進那一格、記一句改成那一格的備註 | todo（第三輪段一） |
+| 12 營養品一筆一行、備註一則一行上色 | todo（第三輪段一） |
+| 13 用匯出的 .xlsx 驗真的 Google（工具） | todo（第三輪段二） |
 
 常見問題「刪整列、還原版本 → 整份重畫」：PR #202，develop `3dd2ee12`。
 
@@ -71,10 +80,40 @@ rebase 過的那一份推到 **`claude/sheet-speed-2`**（一般的 push）、PR
 `node scripts/sheet-gs-compare.mjs <改前的.gs> <整包.json>`：兩份 `.gs` 跑同一串推送（第一次、都沒變、一頁變了、整份重畫），逐格比值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋，只印數字。
 改前那一份：`git show 3dd2ee12:sheets/readonly-report.gs > old.gs`。正式站那一包四步都 0 個不一樣。
 
+## 量到的（她在 staging 量的；`_data` 的 B1／Apps Script 執行紀錄）
+
+| | 一開始（版本 1） | #204 | #207（含每一步 flush） | #209（鎖留著＋Sheets API） |
+|---|---|---|---|---|
+| 平常推 | 25～57 秒 | 12 秒 | 16.5 秒（讀 8.4） | **5.4 秒**（讀 0.9、上鎖 0.05） |
+| 整份重畫 | 167～176 秒 | 114 秒 | 175 秒（上鎖 47、清空 44、畫 68、讀 11） | **125.5 秒**（上鎖 3.4、讀 0.9、清空 46.3、畫 69.8） |
+
+staging 那一份 11/5 用匯出檔逐格驗過（#209 之後）：34 頁 4,340 格對、字級 2,818 格對；只有待辦區 9 格日期被 Google 認成日期格（08 處理）。
+
+## 第三輪（版面，08～13）
+
+分支 `claude/sheet-layout`（從 origin/develop `532c1a4d`），同一個 worktree。全貌與「不在這一輪」的事在 `spec.md`「第三輪」。
+
+| 段 | 做 | effort | 狀態 |
+|---|---|---|---|
+| 段一 | 08 → 09 → 10 → 11 → 12，一支一個 commit | high | 還沒開 |
+| 段二 | 13（驗的工具）→ `/matt-code-review`（起點 `532c1a4d`）→ 照建議修 → PR 進 develop → CI 綠就合 → 寫她要照順序做的事 | xhigh | 還沒開 |
+
+**要她做的（不擋段一）**：6 位健檢那一段的重複記一句在 app 裡清掉（清單 `.local/references/試算表健檢-2026-11-05/二返重複的記一句.md`）。
+
+**跟一次性客人那一輪的交界**：12 是這一輪唯一動 `syncBundle()` 的地方（多送 `noteLines`）。那一輪 issue 04 也改 `syncBundle()`／`customerReport()`／`ui/views/report.js`
+（濾掉一次性客人）—— 這一輪不碰後兩支；`syncBundle()` 改的是不同幾行，**誰後合進 develop 誰 rebase**。
+
+**她說等一下再做的四項**（不在這一輪）：見 `spec.md`「第三輪 → 不在這一輪」。
+**這一輪收尾時她要清乾淨**（11/5）：暫時的東西 —— `.local/references/試算表健檢-2026-11-05/`（先問她留不留）、用完的分支（`claude/sheet-push-gaps`、`claude/sheet-faq-structural`、
+`claude/sheet-speed`、`claude/sheet-speed-2`、`claude/sheet-timing`、`claude/sheet-timing-cell`、`claude/sheet-locks-api`，刪前問）、這個 worktree（刪之前先 `rmdir .local` 拿掉 junction）；
+計時那一段（`clock*`、`_data` 的 B1）量完要不要拿掉也問她。
+
 ## 規矩
 
 - 不起模擬器、不跑 E2E、不停 port（主資料夾那一輪在用；她的筆電會熱）。單元測試可以；E2E 交給 PR 的 CI
-- 動 `public/` 的 commit 升 `sw.js` 的 VERSION（從 v280 起）＋`npm run shell:snapshot`；開 PR 前 rebase 到 origin/develop，那一行留大的再加一
+- 動 `public/` 的 commit 升 `sw.js` 的 VERSION（develop 上現在是 v283）＋`npm run shell:snapshot`；**新增檔案先 `git add` 再跑快照**；開 PR 前 rebase 到 origin/develop，那一行留大的再加一
+- **開 PR 前不要 rebase 已經推上去的分支**（強制推會被 auto mode 擋，11/5 段二踩過）：要對齊 develop 就 `git merge origin/develop`，或還沒推之前 rebase
+- 這個 worktree 照 `docs/agents/worktree.md` 接好了（`.local` junction、自己的 CodeGraph 索引、graphify 查主資料夾那一份）：`npm test` 的 skipped 要是 0
 - 一次性客人那一輪 issue 04 改 `sheetReport.js` 的 `syncBundle()`／`customerReport()` 與 `ui/views/report.js`：這一輪不碰；非碰不可寫在這裡
 - ADR 號碼用 0174（04 寫）
 - `.gs` 不跑在 node 裡：唯一的驗法是 `tests/helpers/appsScriptStub.js` 的替身。替身做不出來的 Google 行為（真的快不快、合併的細節）只有貼到 staging 才知道 —— 交付時要講清楚哪些只在替身裡驗過
@@ -113,7 +152,35 @@ subagent 過目 01（11/5），主控對過後改了：
    建議：段二開 PR 前在主資料夾（有 `.local/`）跑一次 `node --test tests/no-secrets.test.js`，或照樣過一次過濾網
 3. （不用她決定）`LAYOUT_VERSION` 2：新的 `.gs` 部署後第一次推送每一頁都重畫一次（約 1,500 次寫，照比例估一分鐘內）—— 是預期的，她比秒數時要拿**第二次以後**的平常推來比
 
-## 段一的開場（已用掉）
+## 第三輪 段一的開場
+
+這一輪：照她看過的示意圖改試算表的版面（`sheets/readonly-report.gs` 為主）。分支 `claude/sheet-layout`（worktree `.claude/worktrees/sheet-push-gaps-112028`，已經在這條分支上）。
+上一段：主控寫好 issue 08～13（這個 commit）。
+
+**做** 08 → 09 → 10 → 11 → 12，照這個順序、一支一個 commit。**不做** 13（段二）、「不在這一輪」那五項、Sheets API 一個請求畫整頁。
+
+先讀：
+- `CLAUDE.md`（「試算表的 SYNC_FORMAT」「試算表的註記」那兩列：指紋、`LAYOUT_VERSION`、`onEdit`、註記的 `rowIndex`）、`docs/agents/lessons.md`、`docs/agents/worktree.md`
+- `.scratch/sheet-push-gaps/spec.md` 的「第三輪」、`mock-layout-2026-11-05.html`（用瀏覽器打開看；她看過、改了幾點）、這份 HANDOFF 的「第三輪」「量到的」「規矩」
+- `.scratch/sheet-push-gaps/issues/08`～`12` 整支
+- `docs/adr/0024`（照抄她舊表的樣子）、`0161`、`0174`；版面這一次推翻了 0024 的一部分（凍結欄、器材與記一句不再多一列、備註上色）→ 寫一支新的 ADR（號碼先 `ls docs/adr` 看：0171～0174 已經有主，用下一個沒人用的），登記進 `docs/adr/README.md`
+
+規矩：
+- 改已經存在、別處在用的程式碼之前照 `ripple-check` 查牽連（用這個 worktree 自己的 CodeGraph 索引）；修完找同一個形狀的地方
+- 中途發現的事不岔出去修：記進 HANDOFF「中途發現」（哪裡、什麼情境會錯、建議），繼續做原本的；段末一次列給主控
+- subagent 同時最多兩個
+- **不起模擬器、不跑 E2E、不停任何 port**（主資料夾另一輪在用；她的筆電會熱）。驗證：`npm test`（skipped 要 0）＋替身；替身做不出來的寫進「只在 staging 驗得到」
+- 畫法改了：`LAYOUT_VERSION` 4（整輪加一次）；`tests/sheet-gs-batch.test.js`、`tests/sheet-fingerprint.test.js` 釘的雜湊照它們註解寫的換（換之前先用 `scripts/sheet-gs-compare.mjs` 跟 develop 的 `.gs` 比，確定變的只有這一輪要變的）
+- 讀 `.local` 一律接 `| node .local/references/redact.mjs`；拿正式站那一包（`.local/references/試算表健檢-2026-11-05/bundle-pushed.json`）跑的結果只印數字
+- 12 動 `public/`：升 `sw.js` VERSION（v283 → v284）＋`npm run shell:snapshot`（新檔案先 `git add`）
+- 公開 repo：commit 訊息、檔案裡不帶真名（她的截圖有真名，不收進來）
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：每支一個 commit、`Status: done`、issue 底下「做完時留下的」、`npm test` 全過（0 跳過）、更新 HANDOFF（狀態、中途發現），把第三輪段二的開場寫進 HANDOFF
+（審查要特別看的：「這一行會不會讓凍結線穿過合併」「排序之後註記會不會掛到別一列」「沒拿到 `noteLines` 的舊包畫不畫得出備註」「狀態色會不會被淡灰蓋掉」；要查牽連的：`renderCustomer`、`noteBlock`、`finish`、`paint`、`render`（改時間那一格）、`syncBundle`、`infoLine`）；推到 origin（**一般的 push，不要 rebase 已經推上去的**）。最後回覆簡短說做了什麼、卡在哪。
+
+## 段一的開場（第二輪，已用掉）
 
 這一輪：讓試算表推送變快（Apps Script `.gs` 批次讀寫，畫出來一模一樣），並讓兩台同時推時比較舊的那一包不畫。分支 `claude/sheet-speed`（worktree `.claude/worktrees/sheet-push-gaps-112028`），上一段做到 `2d61b660`（issue 02～04 與量的工具）。
 
@@ -138,7 +205,7 @@ subagent 過目 01（11/5），主控對過後改了：
 
 做完要交：每支一個 commit、`Status: done`、issue 底下「做完時留下的」（含 `scripts/sheet-gs-calls.mjs` 改前改後的數字）、`npm test` 全過、更新 HANDOFF（狀態、中途發現），把段二的開場寫進 HANDOFF（審查要特別看的：「這一行會不會讓畫出來的跟改前不一樣」「會不會讓比較新的那一包被當成舊的不畫」，要查牽連的：`render`、`renderCustomer`、`noteBlock`、`finish`、`doPost`、`buildBundle`、`pushedSay`）；推到 origin。最後回覆簡短說做了什麼、卡在哪。
 
-## 段二的開場
+## 段二的開場（第二輪，已用掉）
 
 這一輪：讓試算表推送變快（`.gs` 批次讀寫，畫出來一模一樣）＋兩台同時推時比較舊的那一包不畫（ADR-0174）。分支 `claude/sheet-speed`（worktree `.claude/worktrees/sheet-push-gaps-112028`），
 段一做完 02、03、04，最新 `854bd266`、已推到 origin。這一段：**審查 → 照建議修 → 開 PR 進 develop → CI 綠就合 → 寫她要照順序做的事**。建議 effort：**xhigh**。

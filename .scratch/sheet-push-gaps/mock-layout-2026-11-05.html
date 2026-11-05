@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>試算表版面：改後的樣子（示意，假資料）</title>
+<style>
+  :root { --hdr:#37474F; --hdrtext:#fff; --count:#EEF2F5; --done:#C8E6C9; --booked:#FFF2CC; --pending:#E3F2FD; --noshow:#ECEFF1; --low:#FFCDD2; --note:#8D4E00; --line:#B0BEC5; }
+  body { font-family: 'Noto Sans TC', system-ui, sans-serif; margin: 24px; color:#222; background:#fafafa; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color:#666; font-size: 13px; margin-bottom: 18px; }
+  .sheet { background:#fff; border:1px solid #ddd; display:inline-block; padding:0 0 12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .notice { background:#FFF3E0; color:var(--note); font-weight:700; font-size:12px; padding:5px 12px; }
+  .title { display:flex; align-items:baseline; gap:14px; padding:8px 12px 2px; }
+  .title b { font-size:19px; }
+  .title span { font-size:13px; color:#444; }
+  .stamp { font-size:11px; color:#78909C; padding:0 12px 8px; }
+  table { border-collapse: collapse; font-size:13px; margin: 0 12px; }
+  th, td { height:26px; padding:0 6px; text-align:center; white-space:nowrap; }
+  th { background:var(--hdr); color:var(--hdrtext); font-weight:700; }
+  td { border:1px solid #E3E7EA; }
+  td.label { text-align:left; min-width:170px; }
+  td.c, th.c { background:var(--count); color:#222; }
+  th.c { background:#546E7A; color:#fff; }
+  .div { border-right:3px solid #546E7A !important; }
+  th.d, td.d { min-width:78px; }
+  tr.extra td.label { color:#555; }
+  .done{background:var(--done)} .booked{background:var(--booked)} .pending{background:var(--pending)} .noshow{background:var(--noshow)} .low{background:var(--low)}
+  .eq { font-size:11px; color:#2E5F3E; margin-left:2px; }
+  .hasnote { position:relative; }
+  .hasnote::after { content:''; position:absolute; top:0; right:0; border-style:solid; border-width:0 8px 8px 0; border-color:transparent #222 transparent transparent; }
+  .tip { display:none; position:absolute; top:24px; left:50%; transform:translateX(-50%); background:#FFFDE7; border:1px solid #CFC27A; color:#333; font-size:12px; padding:6px 8px; white-space:normal; width:170px; text-align:left; z-index:5; box-shadow:0 2px 6px rgba(0,0,0,.15); }
+  .hasnote:hover .tip { display:block; }
+  .fu td { border:none; font-size:11px; color:var(--note); height:20px; }
+  .block { margin: 14px 12px 0; font-size:13px; }
+  .block h3 { font-size:13px; margin:0; padding:4px 8px; background:#ECEFF1; }
+  .block div { padding:3px 8px; }
+  .amber { background:var(--booked); }
+  .callouts { margin-top: 22px; max-width: 980px; }
+  .callouts li { margin: 6px 0; font-size:14px; line-height:1.5; }
+  .n { display:inline-block; background:#37474F; color:#fff; border-radius:50%; width:20px; height:20px; text-align:center; font-size:12px; line-height:20px; margin-right:4px; }
+  .k { color:#C62828; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>試算表版面：改後的樣子（示意）</h1>
+<div class="sub">假資料（客戶A）。真的試算表上格線會藏起來，只留矩陣的框線。滑鼠移到右上角有小黑三角的那一格，看得到「記一句」。</div>
+
+<div class="sheet">
+  <div class="notice">⚠ 本表由系統自動產生，請勿手動編輯。修改請至 app。</div>
+  <div class="title"><b>客戶A</b><span>病歷號 1234　·　購買名稱：顧客會　·　合計　應有 82　已完成 19　已排未上 2　剩餘 61</span></div>
+  <div class="stamp">產生時間 2026/11/5 下午4:13　·　這一頁由 app 產生，改資料請回 app　·　✓已完成　△客戶已確認　○已壓表，等客戶回覆　✗未到</div>
+  <table>
+    <tr>
+      <th style="text-align:left">療程項目</th><th class="c">應有</th><th class="c">已完成</th><th class="c">已排未上</th><th class="c div">剩餘</th>
+      <th class="d">7/8(三)</th><th class="d">7/15(三)</th><th class="d">7/31(五)</th><th class="d">8/11(二)</th><th class="d">8/27(四)</th><th class="d">10/8(四)</th><th class="d">10/15(四)</th><th class="d">10/29(四)</th>
+    </tr>
+    <tr>
+      <td class="label">復能-三選一(60)</td><td class="c">40</td><td class="c done">8</td><td class="c booked">1</td><td class="c div">31</td>
+      <td class="d done">✓<span class="eq">IN</span></td><td class="d done">✓<span class="eq">SIS</span></td><td class="d done">✓<span class="eq">IN</span></td><td class="d done">✓<span class="eq">IN</span></td>
+      <td class="d done hasnote">✓2<span class="eq">SIS</span><span class="tip">記一句：14:30 SIS、15:45 ILIB（範例：很長的一句話也不會把這一列撐高）</span></td>
+      <td class="d done">✓<span class="eq">SIS</span></td><td class="d noshow hasnote">✗<span class="eq">IN</span><span class="tip">記一句：他忘記了</span></td><td class="d booked">△<span class="eq">SIS</span></td>
+    </tr>
+    <tr>
+      <td class="label">ILIB(60)</td><td class="c">24</td><td class="c done">8</td><td class="c booked">1</td><td class="c div">15</td>
+      <td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓</td><td class="d done">✓2</td><td class="d done hasnote">✓<span class="tip">記一句：9/10 取消，9 月沒排課</span></td><td class="d"></td><td class="d booked">△</td>
+    </tr>
+    <tr>
+      <td class="label">12萬健檢</td><td class="c">1</td><td class="c done">1</td><td class="c">0</td><td class="c div low">0</td>
+      <td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td>
+    </tr>
+    <tr>
+      <td class="label">二返（12萬健檢）</td><td class="c">1</td><td class="c done">1</td><td class="c">0</td><td class="c div low">0</td>
+      <td class="d"></td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td>
+    </tr>
+    <tr>
+      <td class="label">復健科醫師門診</td><td class="c">4</td><td class="c done">1</td><td class="c">0</td><td class="c div">3</td>
+      <td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td>
+    </tr>
+    <tr>
+      <td class="label">身體組成分析</td><td class="c">8</td><td class="c">0</td><td class="c">0</td><td class="c div">8</td>
+      <td class="d" colspan="8"></td>
+    </tr>
+    <tr>
+      <td class="label">營養師諮詢</td><td class="c">8</td><td class="c">0</td><td class="c">0</td><td class="c div">8</td>
+      <td class="d" colspan="8"></td>
+    </tr>
+    <tr class="extra">
+      <td class="label">心臟科評估（體驗）</td><td class="c">—</td><td class="c done">1</td><td class="c">0</td><td class="c div">—</td>
+      <td class="d"></td><td class="d"></td><td class="d"></td><td class="d done">✓</td><td class="d"></td><td class="d"></td><td class="d"></td><td class="d"></td>
+    </tr>
+    <tr class="fu"><td></td><td></td><td></td><td></td><td></td><td>7/15 二返(某醫師)</td><td colspan="7"></td></tr>
+  </table>
+
+  <div class="block"><h3>買過什麼</h3><div>0514　8萬方案x2+12萬健檢</div></div>
+  <div class="block"><h3>營養品</h3>
+    <div class="amber">0901　營養品A　12,000 元・3 個月・魚油、益生菌　——　給了 1／3（9/1）</div>
+    <div>0815　營養品B　8,000 元・1 個月・夜態美　——　都給了</div>
+  </div>
+  <div class="block"><h3>備註</h3><div>（她自己寫的備註照舊）</div></div>
+</div>
+
+<ol class="callouts">
+  <li><span class="n">1</span><b>二返只出現一次</b>：那 6 位健檢身上搬進來的手寫「7/17 二返(夏)」拿掉（資料，見另一題），只留系統算的那一列。</li>
+  <li><span class="n">2</span><b>日期欄變寬</b>（58 → 78），「10/29(四)」一行放得下。</li>
+  <li><span class="n">3</span><b>每一位照「做最多的在上面」排</b>：已完成＋已排未上多的在上、沒做過的在下，送的／體驗／三返永遠在最下面。</li>
+  <li><span class="n">4</span><b>營養品一筆一行</b>（跟「買過什麼」一樣），還沒給完的那一行塗黃。<span class="k">現在 34 位裡沒有人有營養品</span>，這一段平常不會出現。</li>
+  <li><span class="n">5</span><b>應有～剩餘四欄淡灰底、表頭深一階，剩餘右邊一條粗線</b>跟日期分開；<b>前五欄凍結</b>：日期往右捲時，療程名字與次數一直在左邊（要把最上面三列的合併拿掉，看起來一樣）。</li>
+  <li><span class="n">6</span><b>減少擁擠</b>：
+    <br>　a. <b>器材併進那一格</b>（「✓ IN」），不再多一列「IN／SIS」；
+    <br>　b. <b>記一句改成那一格的備註</b>（右上角小黑三角，點一下／滑過才看到），不再多一列、不再把整列撐高；
+    <br>　c. <b>格線藏起來</b>，只留矩陣的框線。</li>
+</ol>
+</body>
+</html>
