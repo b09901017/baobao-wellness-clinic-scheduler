@@ -1,6 +1,6 @@
 # 資料健檢的修正：連按、重試都只建一筆
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`.scratch/code-health-2026-11-04/issues/02-health-fix-double-press-creates-twice.md`（詳細在那一支）；
 `public/js/ui/views/health.js` 的 `applyAndReload()`；`public/js/data/health.js` 的 `applyFixes()`、`opFor()`（`addFollowup`、`addAlert`，
@@ -37,3 +37,14 @@ Blocked by: —
 測試：domain／data 的單元（`fix` 帶 id、已存在就跳過、去重）＋掃 `opFor()` 原始碼沒有 `newId(`。
 
 ## 做完時留下的
+
+- `data/health.js`：`MINTED`（`addFollowup`、`addAlert` → 路徑）＋`withFixIds()`：`run()` 掃完替那兩種 fix 鑄 id、**記在 fix 身上**；
+  `applyFixes()`、`previewFollowupChains()` 進來也叫一次（已經有的不換）—— 確認框與寫入、第一次與重試都是同一個 id。`opFor()` 裡沒有 `newId(` 了
+- `notYetWritten()`：寫之前讀那幾個路徑（**連軟刪除的一起**，`repo.listWithDeleted()`），已經在了的 create 拿掉。
+  **沒有新增 `repo.exists()`**：一開始加了，但 `repo.js` 是共用底座、`verify` 會全跑 E2E；那一位的額度、警示主檔都只有幾十筆，整份讀一樣準
+- 鏈：`withAdded()` 照 id 去重（`applyFixes()` 與 `previewFollowupChains()` 共用）
+- `views/health.js` 的 `applyAndReload()` 給 `key`（`fixKey()`：kind＋那一筆的 id／客戶／標籤 —— 不同的修正不互相擋，不用一個整頁的 key）
+- `tests/save-guards.test.js` 的 `CREATES` 認 `applyFixes`；新單元 `tests/health-fix-idempotent.test.js`（掃原始碼，`data/` import Firebase、node 跑不起來）
+- 沒有加 E2E：連按要卡在寫入還在飛的那一下，E2E 量不穩；「已經在了就跳過」那一條是單元掃的。段三的手動驗收清單要排一條（慢網路連按）
+- `sw.js` `v231` → `v233`（v232 是加了 `repo.exists()` 那一版的快照，沒有 commit）
+

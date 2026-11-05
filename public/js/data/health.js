@@ -81,10 +81,54 @@ export async function loadSnapshot() {
   };
 }
 
-/** 讀一次、算一次。 */
+/** 讀一次、算一次。要建新的一筆的那幾種修正，id 在這裡就鑄好（`withFixIds()`） */
 export async function run(today) {
-  return runHealthCheck(await loadSnapshot(), today);
+  const result = runHealthCheck(await loadSnapshot(), today);
+  withFixIds(result.checks.flatMap((c) => c.findings.map((f) => f.fix)));
+  return result;
 }
+
+/**
+ * 要建一筆新文件、而 id 不是種子上那一個的修正：kind → 那一筆的路徑。
+ *
+ * **id 在掃描時鑄好、記在 fix 身上**（2026-11-05，11/4 健檢 #2）：以前在 `opFor()` 裡每跑一次鑄一個新的（補警示詞乾脆不給），
+ * 確認框試算的那一筆與寫進去的那一筆不是同一個 id，連按、toast 重試各建一筆。`domain/health.js` 是純函式拿不到 `repo.newId()`，所以鑄在這一層。
+ * 補警示詞**不用詞本身當 id**：詞可能有「/」，而且同一個 id 會把她刪掉的那一筆救活
+ */
+const MINTED = {
+  addFollowup: (fix) => `customers/${fix.customerId}/entitlements`,
+  addAlert: () => 'config/app/clinicalFlags',
+};
+
+/** 還沒有 id 的補一個、**補在 fix 身上**（重試跑的是同一個閉包、拿的是同一批 fix → 同一個 id）。已經有的不換 */
+function withFixIds(fixes) {
+  for (const fix of fixes ?? []) {
+    const pathOf = MINTED[fix?.kind];
+    if (pathOf && !fix.id) fix.id = repo.newId(pathOf(fix));
+  }
+  return fixes;
+}
+
+/**
+ * 那幾筆掃描時鑄好 id 的，已經在了就拿掉 —— 連按的第二次、第一次寫完了卻顯示失敗按重試。
+ * 只靠 id 一樣不夠：`repo.commit()` 的 create 是 `batch.set`，id 已經在了就整份蓋掉（createdAt 重設、次數回到草稿、
+ * 她刪掉的那一筆被救活），所以**連軟刪除的一起讀**。讀的是那一位的額度、警示主檔 —— 都只有幾十筆，帶著這一台還沒送出的寫入。
+ * 種子 id 的那幾種（`addCourse`…）不在這裡：照舊（見 `.scratch/small-fixes-2026-11-05/HANDOFF.md`「中途發現 → 段一」）
+ */
+async function notYetWritten(ops, fixes) {
+  const minted = new Set((fixes ?? []).filter((f) => MINTED[f?.kind] && f.id).map((f) => f.id));
+  const isMinted = (op) => op.op === 'create' && minted.has(op.id);
+  const paths = [...new Set(ops.filter(isMinted).map((op) => op.path))];
+  const rows = await Promise.all(paths.map((p) => repo.listWithDeleted(p).then((list) => list.map((r) => `${p}/${r.id}`))));
+  const there = new Set(rows.flat());
+  return ops.filter((op) => !(isMinted(op) && there.has(`${op.path}/${op.id}`)));
+}
+
+/** 補完之後的整份額度：**照 id 去重** —— 讀回來的那一份已經有這一筆時（重試、確認框在寫完之後才開）再接一次就算兩份 */
+const withAdded = (added) => (list) => {
+  const ids = new Set(added.map((e) => e.id));
+  return [...list.filter((e) => !ids.has(e.id)), ...added];
+};
 
 /**
  * 套用修正。做得出來的是**正解不需要判斷**的那幾種（SPEC 第 6.6 節那三個條件）：
@@ -126,12 +170,14 @@ export async function applyFixes(fixes) {
   if (!snapshotWhole && (fixes ?? []).some((f) => SNAPSHOT_REWRITES.has(f?.kind))) {
     throw new IncompleteReadError('', SNAPSHOT_PARTIAL_SAY);
   }
-  const ops = opsFor(fixes);
+  // 連按、重試只建一筆（11/4 健檢 #2）：id 是掃描時鑄好的那一個，已經寫進去的不再寫
+  withFixIds(fixes);
+  const ops = await notYetWritten(opsFor(fixes), fixes);
   // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
   // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
   for (const [customerId, added] of addedFollowups(ops)) {
     // eslint-disable-next-line no-await-in-loop
-    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]);
+    const chain = await chainAfterEntitlements(customerId, withAdded(added));
     ops.push(...(chain?.ops ?? []));
   }
 
@@ -224,6 +270,8 @@ function opFor(fix) {
     return {
       op: 'create',
       path: 'config/app/clinicalFlags',
+      // 掃描時鑄好的（`withFixIds()`）：連按、重試是同一個 id，已經在了 `applyFixes()` 就不寫
+      id: fix.id,
       data: fix.data,
       note: '資料健檢：器材上的提醒詞補進警示名單',
     };
@@ -499,8 +547,9 @@ function opFor(fix) {
     return {
       op: 'create',
       path,
-      // id 先鑄好：健檢那條鏈要拿「補完之後」的整份額度重算（`addedFollowups()`，ADR-0159）
-      id: repo.newId(path),
+      // 掃描時鑄好的（`withFixIds()`）：健檢那條鏈要拿「補完之後」的整份額度重算（`addedFollowups()`，ADR-0159），
+      // 確認框試算的與寫進去的要是同一筆；連按、重試也是同一個 id
+      id: fix.id,
       data: fix.draft,
       note: '資料健檢：補上這筆健檢對應的二返額度',
     };
@@ -529,9 +578,10 @@ function addedFollowups(ops) {
  */
 export async function previewFollowupChains(fixes) {
   const out = [];
+  withFixIds(fixes);
   for (const [customerId, added] of addedFollowups(opsFor(fixes))) {
     // eslint-disable-next-line no-await-in-loop
-    const chain = await chainAfterEntitlements(customerId, (list) => [...list, ...added]).catch(() => null);
+    const chain = await chainAfterEntitlements(customerId, withAdded(added)).catch(() => null);
     if (chain && (chain.plan.create.length || chain.plan.remove.length)) out.push(chain);
   }
   return out;

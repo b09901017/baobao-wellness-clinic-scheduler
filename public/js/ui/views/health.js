@@ -798,6 +798,13 @@ async function fixAll(el, result, checkId) {
   });
 }
 
+/**
+ * 這一批修正的 key（`withSaveState()`）：寫入期間再按一次同一批，接到的是同一趟（11/4 健檢 #2）。
+ * 不同的修正不同的 key —— 一個 key 給整頁的話，她在第一筆還在寫時按另一項，那一項會安靜地不見
+ */
+const fixKey = (fix) => [fix?.kind, fix?.id, fix?.entitlementId, fix?.visitId, fix?.customerId, fix?.courseId, fix?.label]
+  .filter(Boolean).join('|');
+
 async function applyAndReload(el, fixes, { title, consequences }) {
   const ok = await confirmAction({ title, consequences, confirmLabel: '修正' });
   if (!ok) return;
@@ -806,6 +813,7 @@ async function applyAndReload(el, fixes, { title, consequences }) {
     await toast.withSaveState(() => healthData.applyFixes(fixes), {
       pending: '修正中…',
       success: `已修正 ${fixes.length} 筆`,
+      key: `health:fix:${fixes.map(fixKey).join(',')}`,
     });
     render(el);
   } catch {
