@@ -134,13 +134,35 @@ function clockAdd(step, since, flush) {
   return now;
 }
 
+/** 寫進執行紀錄、回那一行（`doPost()` 再寫進 `_data` 的 B1：網頁應用程式被「所有人」叫的那幾次，執行作業那一頁常常不顯示紀錄）。 */
 function clockLog(extra) {
-  if (!CLOCK) return;
+  if (!CLOCK) return null;
   CLOCK.ms['總共'] = Date.now() - CLOCK.start;
   var out = { ms: CLOCK.ms, drawn: CLOCK.drawn, kept: CLOCK.kept };
   for (var k in (extra || {})) out[k] = extra[k];
-  console.log('計時 ' + JSON.stringify(out));
+  var line = '計時 ' + JSON.stringify(out);
+  console.log(line);
   CLOCK = null;
+  return line;
+}
+
+/**
+ * 計時那一行也寫進藏起來的 `_data` 分頁的 B1（11/5 她：執行作業那一列展不開、看不到紀錄）。
+ * 每一次推送 `stashRawData()` 都清空 `_data` 再寫原始資料，所以 B1 永遠是最近一次畫過的那一趟。寫不進去就算了 —— 它只是給人看的。
+ */
+var TIMING_SHEET = null;
+
+function noteTiming(line) {
+  // 用 `stashRawData()` 手上那一張，不再讀一次（讀會讓排著的寫入先做完，又多一次「寫完又讀」）
+  var sheet = TIMING_SHEET;
+  TIMING_SHEET = null;
+  if (!line || !sheet) return;
+  try {
+    // 一格也用 setValues：客戶那幾頁一律先畫在草稿紙上、不逐格 setValue，這一格不是畫法（測試照名字數）
+    sheet.getRange(1, 2).setValues([[line]]);
+  } catch (err) {
+    // 不影響推送的結果
+  }
 }
 
 function doPost(e) {
@@ -192,7 +214,9 @@ function doPost(e) {
         skipped: result.skipped,
       });
     } finally {
-      clockLog(staleSkip ? { stale: true } : null);
+      var timing = clockLog(staleSkip ? { stale: true } : null);
+      // 比較舊的那一包沒畫：B1 留著上一次畫的那一趟
+      if (!staleSkip) noteTiming(timing);
       lock.releaseLock();
     }
   } catch (err) {
@@ -479,6 +503,7 @@ function stashRawData(ss, bundle, book, entry) {
     book.byName[DATA_SHEET] = { sheet: sheet, name: DATA_SHEET, a1: '' };
   }
   sheet.clear();
+  TIMING_SHEET = sheet;
   // 一格最多 50000 個字元，整包塞不下就切開來放（一次寫完：一欄好幾列）
   var column = [['這一頁是 app 推過來的原始資料，給出問題時對照用。請不要編輯。']];
   var text = JSON.stringify(bundle);

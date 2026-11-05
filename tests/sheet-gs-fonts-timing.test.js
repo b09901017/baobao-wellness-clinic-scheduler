@@ -112,6 +112,21 @@ describe('每一步花幾秒：寫進執行紀錄（console.log 一行「計時�
     assert.deepEqual({ drawn: t.drawn, kept: t.kept }, { drawn: 0, kept: 1 });
   });
 
+  test('計時那一行也寫進藏起來的 _data 分頁的 B1（執行作業那一頁看不到紀錄時，打開那一頁就看得到）', () => {
+    const { app } = render();
+    const b1 = String(app.ss.getSheetByName('_data').at('B1'));
+    assert.ok(b1.startsWith('計時 '), b1);
+    assert.equal(JSON.parse(b1.slice('計時 '.length)).drawn, 1);
+  });
+
+  test('比較舊的那一包不畫：_data 的 B1 留著上一次畫的那一趟', () => {
+    const app = loadAppsScript();
+    app.post({ token: 'secret', bundle: bundle(), dataAt: 2000 });
+    const before = app.ss.getSheetByName('_data').at('B1');
+    app.post({ token: 'secret', bundle: bundle(), dataAt: 1000 });
+    assert.equal(app.ss.getSheetByName('_data').at('B1'), before);
+  });
+
   test('比較舊的那一包不畫：也記一行（只有等鎖與總共），看得出它很快就回了', () => {
     const app = loadAppsScript();
     app.post({ token: 'secret', bundle: bundle(), dataAt: 2000 });
