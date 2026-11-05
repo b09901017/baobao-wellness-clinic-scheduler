@@ -121,7 +121,7 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
    auto mode 判成「Git Destructive」擋下來，照規矩停了沒有繞。**推上去之後**跑一次 CI 全量：`gh workflow run e2e-full.yml --ref claude/one-time-visit-design`
    （本機 `--related` 挑到 74 支、2 個 worker 也要三十幾分鐘，跟段一一樣交給 CI）。推之前的檢查做過了：`tests/no-secrets.test.js` skipped 0、commit 訊息過過濾網前後一樣；
    diff 過過濾網有 26 行被遮，看過全是數字、日期與器材代號 `sis`（`eq-sis`），沒有名字
-   → **她 11/5 准強制推一次，主控推了**   （`--force-with-lease`，`3c2d052b`）；CI 全量 E2E run `41981609898`（跑在 `3c2d052b`）—— **段三開頭看了：六台全綠**（11/5），沒有要修的
+   → **她 11/5 准強制推一次，主控推了**（`--force-with-lease`，`3c2d052b`）；CI 全量 E2E run `41981609898`（跑在 `3c2d052b`）—— **段三開頭看了：六台全綠**（11/5），沒有要修的
 2. **`strandedOnNewExamLines()` 也是同一個形狀**（issue 沒列）：它先問「新加的那一段扣不扣健檢額度」才講「有一場二返還接在被取消的那一次上」——
    一次性客人另約健檢時一句都不講，ADR-0146 那一顆也跟著沒有。**03 一起修了**（在投影裡認新加的那一段），測試在 `one-time-chain-callers.test.js`
 3. **`chainInputs()` 多了第三個參數**（這位客戶的來訪）。06（日曆新增、來訪編輯器）與 07（拍 Abovee）**新增一條會叫它的路要傳**，不然一次性客人在那一道確認框上一句鏈上的話都不講；
