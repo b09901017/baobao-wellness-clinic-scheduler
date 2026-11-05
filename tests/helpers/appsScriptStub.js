@@ -389,11 +389,15 @@ export function loadAppsScript({
   const ss = new FakeSpreadsheet(sheetNames);
   // 文件屬性（格式 8 記每一頁的指紋）。同一個替身裡推好幾次都留著 —— 跟真的試算表一樣
   const docProps = new Map();
+  // `console.log` 的每一行（`.gs` 把每一步花幾秒寫進執行紀錄，issues/05）
+  const logs = [];
   const code = source ?? readFileSync(new URL('../../sheets/readonly-report.gs', import.meta.url), 'utf8');
 
   const context = createContext({
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
+      // 真的 Google 會把排著的寫入做完；替身的寫入本來就是當下生效
+      flush: () => {},
       BorderStyle: { SOLID: 'SOLID' },
       ProtectionType: { SHEET: 'SHEET' },
     },
@@ -417,6 +421,7 @@ export function loadAppsScript({
     Session: {
       getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }),
     },
+    console: { log: (...args) => { logs.push(args.map(String).join(' ')); } },
     JSON,
     String,
     Number,
@@ -428,5 +433,5 @@ export function loadAppsScript({
   });
 
   runInContext(code, context, { filename: 'readonly-report.gs' });
-  return { ss, context, docProps, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
+  return { ss, context, docProps, logs, post: (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text) };
 }
