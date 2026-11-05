@@ -1405,7 +1405,8 @@ async function runProductAction(ctx, e, reminder, action) {
           customerName: ctx.customer.name,
           products: ctx.products ?? [],
         }),
-        { success: all ? '都給了，記起來了' : '記起來了' },
+        // 寫入還在飛的時候再記一次接到同一趟（寫完之後再記，`recordDelivery()` 重讀那一筆額度擋著）
+        { success: all ? '都給了，記起來了' : '記起來了', key: `delivery:${e.id}` },
       );
       await reload(ctx);
     }

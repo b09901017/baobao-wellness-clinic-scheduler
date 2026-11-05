@@ -681,6 +681,10 @@ export const COVERAGE = {
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/customerDetail.js',
     'public/js/data/customers.js',
   ],
+  // 營養品「記交付」寫之前重讀那一筆額度（small-fixes-2026-11-05 04，11/4 健檢 #4）
+  '89-delivery-once': [
+    'public/js/data/notes.js', 'public/js/ui/views/customerDetail.js', 'public/js/domain/products.js',
+  ],
 };
 
 /**

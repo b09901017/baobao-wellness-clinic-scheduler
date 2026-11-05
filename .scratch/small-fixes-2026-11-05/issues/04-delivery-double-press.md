@@ -1,6 +1,6 @@
 # 營養品「記交付」連按只記一次
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`.scratch/code-health-2026-11-04/issues/04-product-delivery-double-press.md`；`public/js/ui/views/customerDetail.js`（約 `:1395`，`recordDelivery` 那一段）；
 `public/js/data/notes.js` 的 `recordDelivery()`；`public/js/domain/products.js` 的 `withDelivery()`；另外三個勾隨手記的入口共用的 `ui/components/note.js` `prepareToggle()`（CLAUDE.md「營養品的形狀或交付」那一列）
@@ -31,3 +31,12 @@ Blocked by: —
 測試：data 的單元（`recordDelivery()` 寫之前有讀）或掃原始碼 ＋ 一支 E2E 連按。
 
 ## 做完時留下的
+
+- `data/notes.js` 的 `recordDelivery()`：寫之前 `repo.getOne()` 重讀那一筆額度，拿重讀的那一份 `withDelivery()`、算提醒的字（讀不到照手上那一份）—— 四個入口一次補好
+- 客戶詳情「已經給了」那一顆的 `withSaveState()` 帶 `key: delivery:<額度 id>`
+- **寫 E2E 時發現舊的寫法在「寫完還沒重讀」那個情境更糟**：`withDelivery()` 拿手上那一份接一筆、整份寫回 `deliveries`，
+  別處（或上一下）記的那一筆**被蓋掉**、筆數剛好還是 1 —— 不是只有多一筆。E2E `89-delivery-once` 比內容（別處記的那一筆原封不動），舊程式碼上紅、修完綠
+- 新單元 `tests/delivery-once.test.js`（掃原始碼）；`89` 登記在 `related.js`
+- 驗證：`verify` 因為 `related.js` 改過退回整條分支（55 支），改成照 `pick()` 對這一支動到的檔案挑的 26 支直接跑（上一輪 54 支剛全綠）
+- `sw.js` `v234` → `v235`
+
