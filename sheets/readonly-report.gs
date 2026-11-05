@@ -35,6 +35,7 @@ var DATA_SHEET = '_data';
  * 7（2026-10-05）：來訪紀錄那一行的最後面多「記一句：…」—— 沒有額度的段（n返、功醫門診）記的那一句。
  * 8（2026-10-19）：每一頁多 `fingerprint`（沒變的那幾頁不重畫）與 `chartNo`（抬頭那一行印病歷號）；
  *    請求多一個 `force`（設定頁「整份重畫」）。回報多 `kept`（沒變、只改了產生時間的幾頁）。
+ *    2026-11-05（ADR-0174，格式沒升）：請求最外層多一個選填的 `dataAt`；比上一次畫完的舊 → 不畫、回 `{ ok: true, stale: true }`。
  */
 var SUPPORTED_FORMAT = 8;
 
@@ -43,9 +44,15 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 1;
+var LAYOUT_VERSION = 2;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
+/**
+ * 上一次畫完的那一包的資料時間（ADR-0174；文件屬性，毫秒）。app 每一包附 `dataAt`（稽核紀錄最新那一則的伺服器時間，
+ * 打包之前讀的）—— 比這個舊的那一包不畫：兩台裝置幾乎同時推時，比較舊的那一包等到鎖之後會把新的蓋掉。
+ * 不是 `fp:` 開頭，`forgetStale()` 不會清掉它。
+ */
+var LAST_DATA_AT = 'lastDataAt';
 
 // ---------- 版面 ----------
 //
@@ -125,7 +132,14 @@ function doPost(e) {
     if (!lock.tryLock(30000)) return reply({ ok: false, error: '另一份同步還在進行中' });
 
     try {
-      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true);
+      // **拿到鎖之後才比、才記**（ADR-0174）：比較舊的那一包不畫 —— 整份重畫（force）也一樣
+      var props = PropertiesService.getDocumentProperties();
+      var stored = props.getProperties();
+      var dataAt = requestDataAt(body);
+      if (isStaleBundle(dataAt, stored[LAST_DATA_AT])) return reply({ ok: true, stale: true });
+      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true, stored);
+      // 畫完才記（畫到一半逾時不記）。沒帶時間的（舊版 app）照畫、不記
+      if (dataAt !== null) props.setProperty(LAST_DATA_AT, String(dataAt));
       return reply({
         ok: true,
         sheets: result.sheets,
@@ -142,6 +156,25 @@ function doPost(e) {
   }
 }
 
+/** 請求最外層的 `dataAt`（毫秒）。沒帶、不是有限的數字 → null（舊版 app、或那一則稽核還沒送上雲端）。 */
+function requestDataAt(body) {
+  var at = body && body.dataAt;
+  return typeof at === 'number' && isFinite(at) ? at : null;
+}
+
+/**
+ * 這一包是不是比上一次畫完的那一包舊。**純函式**（`tests/sheet-stale-bundle.test.js`）。
+ * 一樣的照畫（整包是冪等的）；任何一邊沒有時間照畫 —— 拿不準一律畫，最壞是跟以前一樣。
+ *
+ * @param {number|null} dataAt 這一包的
+ * @param {string|undefined|null} last 文件屬性裡記的（字串）
+ */
+function isStaleBundle(dataAt, last) {
+  if (dataAt === null || last == null || last === '') return false;
+  var before = Number(last);
+  return isFinite(before) && dataAt < before;
+}
+
 function reply(payload) {
   return ContentService
     .createTextOutput(JSON.stringify(payload))
@@ -150,6 +183,11 @@ function reply(payload) {
 
 // ---------- 渲染 ----------
 
+/** 第一列那句提醒裡一定有的字：認得出「這一頁是我們畫的」。 */
+var OURS_MARK = '系統自動產生';
+/** 鎖的說明。`_data` 那一頁的鎖已經是這一個、只有我能改，就不拆了重上。 */
+var PROTECT_NOTE = '由 app 產生，請勿手動編輯';
+
 /**
  * 畫整包。**沒變的那幾頁不重畫**（ADR-0161）：app 每一頁附一個指紋（那一頁會畫出來的每一樣），
  * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改第三列的產生時間。
@@ -157,15 +195,57 @@ function reply(payload) {
  *
  * 每畫好一頁就上鎖、記下指紋 —— Apps Script 一次最多跑 6 分鐘，逾時的話下一次推送從沒畫完的那一頁接著做。
  * `force`（設定頁「整份重畫」）忽略指紋，等於以前的行為。
+ *
+ * **先讀完再寫**（2026-11-05，.scratch/sheet-push-gaps 的 02；Google 官方的 Apps Script 最佳做法）：
+ * 每一次「寫完又讀」Google 都得先把前面排著的寫入做完才回答得了 —— 以前一頁讀四次、寫一次、下一頁又讀，
+ * 34 頁都沒變的一次推送讀 143 次、寫完又讀 38 次。現在一開始把要知道的全部讀進 `book`（分頁、第一列、
+ * 大小、鎖、指紋），之後整次推送只看這一份、寫的時候跟著改；寫完又讀只剩每畫好一頁上鎖時問一次「誰能改」。
  */
-function render(ss, bundle, force) {
-  stashRawData(ss, bundle);
+function render(ss, bundle, force, stored) {
   var props = PropertiesService.getDocumentProperties();
 
+  // ---- 先讀完 ----
+  // `stored`：doPost() 比新舊時已經讀過一次全部的文件屬性，傳進來就不再讀
+  stored = stored || props.getProperties();
+  var user = Session.getEffectiveUser();
+  var me = { user: user, email: user.getEmail() };
+  var book = readBook(ss);
+  var data0 = book.byName[DATA_SHEET] || null;
+  var dataLock = data0 ? lockState(data0, me) : null;
+  if (data0) data0.hidden = data0.sheet.isSheetHidden();
+  var plans = [];
+  var inBundle = {};
+  for (var p0 = 0; p0 < bundle.sheets.length; p0++) {
+    var name0 = sheetNameFor(bundle.sheets[p0].name);
+    inBundle[name0] = true;
+    var entry0 = book.byName[name0];
+    var plan0 = planFor(entry0, stored, name0, markOf(bundle.sheets[p0]), force);
+    if (plan0 === 'draw' && entry0) {
+      // 要重畫的那幾頁：認不認得（第一列空著才要問整頁是不是空的）、多大、上面有幾道鎖
+      lastRowOf(entry0);
+      if (isOurs(entry0.a1) || entry0.lastRow === 0) {
+        sizeOf(entry0);
+        protectionsOf(entry0);
+      }
+    }
+  }
+  for (var s0 = 0; s0 < book.list.length; s0++) {
+    // 這一包裡沒有、是我們畫的那幾頁等一下要刪：刪之前先拆鎖
+    var old = book.list[s0];
+    if (!inBundle[old.name] && old.name !== DATA_SHEET && isOurs(old.a1)) protectionsOf(old);
+  }
+
+  // ---- 再寫 ----
+  stashRawData(ss, bundle, book, data0);
   // 沒有總表。她要的是「和我原本那個一樣」，而舊表從來沒有總表（2026-08-20）。
   var keep = {};
   keep[DATA_SHEET] = true;
-  protectSheet(ss.getSheetByName(DATA_SHEET));
+  if (!dataLock || !dataLock.ok) {
+    var dataEntry = book.byName[DATA_SHEET];
+    // 剛建好的那一頁上面沒有鎖
+    protectSheet(dataEntry.sheet, me, dataLock ? dataLock.existing : []);
+    dataEntry.protections = null;
+  }
 
   var made = 0;
   var kept = 0;
@@ -175,36 +255,104 @@ function render(ss, bundle, force) {
     var data = bundle.sheets[i];
     var name = sheetNameFor(data.name);
     var mark = markOf(data);
-    var sheet = ss.getSheetByName(name);
-    var plan = sheetPlan({
-      force: force === true,
-      exists: Boolean(sheet),
-      ours: Boolean(sheet) && isOurs(sheet),
-      stored: props.getProperty(FP_PREFIX + name),
-      mark: mark,
-    });
-    if (plan === 'keep') {
-      sheet.getRange(3, 1).setValue(stamp);
+    var entry = book.byName[name];
+    if (planFor(entry, stored, name, mark, force) === 'keep') {
+      entry.sheet.getRange(3, 1).setValue(stamp);
       keep[name] = true;
       kept += 1;
       continue;
     }
     // 先拿掉舊的指紋：畫到一半逾時的話，下一次不會把半張表當成畫好了
     props.deleteProperty(FP_PREFIX + name);
-    var written = renderCustomer(ss, data, bundle);
+    delete stored[FP_PREFIX + name];
+    var written = renderCustomer(ss, data, bundle, book);
     if (written === null) {
       skipped.push(data.name);
       continue;
     }
-    protectSheet(ss.getSheetByName(written));
-    if (mark) props.setProperty(FP_PREFIX + written, mark);
+    // resetSheet() 已經把這一頁放進 book（新建的也是）
+    var drawn = book.byName[written];
+    // resetSheet() 已經把舊的鎖拆了
+    protectSheet(drawn.sheet, me, []);
+    drawn.protections = null;
+    drawn.a1 = bundle.notice;
+    drawn.lastRow = null;
+    if (mark) {
+      props.setProperty(FP_PREFIX + written, mark);
+      stored[FP_PREFIX + written] = mark;
+    }
     keep[written] = true;
     made += 1;
   }
 
-  removeStaleSheets(ss, keep);
-  forgetStale(props, keep);
+  removeStaleSheets(ss, keep, book);
+  forgetStale(props, keep, stored);
   return { sheets: made, kept: kept, skipped: skipped };
+}
+
+/**
+ * 一開始一次讀完：每一張分頁的名字與第一列那一格（認得出是不是我們畫的）。
+ * 整次推送只看這一份 —— 新建的分頁、畫好的分頁、大小變了都要回來改它（`resetSheet()`、`ensureSize()`、`render()`）。
+ * 大小、鎖、整頁是不是空的要用到才讀（`sizeOf()`、`protectionsOf()`、`lastRowOf()`），`render()` 在開始寫之前先問好。
+ */
+function readBook(ss) {
+  var byName = {};
+  var list = [];
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var entry = { sheet: sheets[i], name: sheets[i].getName(), a1: sheets[i].getRange(1, 1).getValue() };
+    list.push(entry);
+    byName[entry.name] = entry;
+  }
+  return { byName: byName, list: list };
+}
+
+/** 那一頁多大（`ensureSize()`、`resetSheet()` 的拆合併用）。新建的分頁第一次問才讀。 */
+function sizeOf(entry) {
+  if (entry.maxRows == null) {
+    entry.maxRows = entry.sheet.getMaxRows();
+    entry.maxCols = entry.sheet.getMaxColumns();
+  }
+  return entry;
+}
+
+/** 那一頁上面的鎖（整頁那一種）。拆掉之後要設回 null。 */
+function protectionsOf(entry) {
+  if (!entry.protections) entry.protections = entry.sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  return entry.protections;
+}
+
+/**
+ * 那一頁最後一列有字的是第幾列（`getLastRow()`，0 ＝整頁空著）。**第一列有字就一定不是空的**，不用問 ——
+ * 只有第一列空著的才要問：整頁空著的那一種（她清掉了、或剛建好）照舊算我們的、可以畫。
+ */
+function lastRowOf(entry) {
+  if (entry.lastRow == null) entry.lastRow = entry.a1 === '' || entry.a1 == null ? entry.sheet.getLastRow() : 1;
+  return entry.lastRow;
+}
+
+/** `_data` 那一頁的鎖是不是已經對了：剛好一道、說明一樣、只有我能改、網域裡的人不能改。對了就不拆了重上。 */
+function lockState(entry, me) {
+  var existing = protectionsOf(entry);
+  if (existing.length !== 1 || existing[0].getDescription() !== PROTECT_NOTE || existing[0].canDomainEdit()) {
+    return { ok: false, existing: existing };
+  }
+  var editors = existing[0].getEditors();
+  for (var i = 0; i < editors.length; i++) {
+    if (editors[i].getEmail() !== me.email) return { ok: false, existing: existing };
+  }
+  return { ok: true, existing: existing };
+}
+
+/** 照手上那一份判 `sheetPlan()`（不讀試算表）。 */
+function planFor(entry, stored, name, mark, force) {
+  return sheetPlan({
+    force: force === true,
+    exists: Boolean(entry),
+    ours: Boolean(entry) && isOurs(entry.a1),
+    stored: stored[FP_PREFIX + name] || null,
+    mark: mark,
+  });
 }
 
 /**
@@ -224,9 +372,12 @@ function markOf(data) {
   return data && data.fingerprint ? String(data.fingerprint) + '|' + LAYOUT_VERSION : null;
 }
 
-/** 第一列是那句提醒（「系統自動產生」）。不是的話：要嘛她清掉了、要嘛不是我們畫的 —— 都不可以當成沒變。 */
-function isOurs(sheet) {
-  return sheet.getLastRow() > 0 && String(sheet.getRange(1, 1).getValue()).indexOf('系統自動產生') !== -1;
+/**
+ * 第一列那一格是那句提醒（「系統自動產生」）。不是的話：要嘛她清掉了、要嘛不是我們畫的 —— 都不可以當成沒變。
+ * 只看第一列那一格就夠：空的分頁那一格是空字串，一樣認不出（以前多問一次 `getLastRow()`，答案一樣）。
+ */
+function isOurs(a1) {
+  return String(a1).indexOf(OURS_MARK) !== -1;
 }
 
 /** 第三列那一行。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
@@ -235,10 +386,12 @@ function stampLine(bundle) {
     + '　·　' + bundle.legend;
 }
 
-/** 分頁已經不在這一包裡的指紋拿掉 —— 留著的話，同名的分頁下次被她刪了又建回來時會被當成沒變。 */
-function forgetStale(props, keep) {
-  var all = props.getProperties();
-  for (var key in all) {
+/**
+ * 分頁已經不在這一包裡的指紋拿掉 —— 留著的話，同名的分頁下次被她刪了又建回來時會被當成沒變。
+ * `stored` 是一開始讀的那一份、這一次推送裡跟著改過（不再讀一次）。
+ */
+function forgetStale(props, keep, stored) {
+  for (var key in stored) {
     if (key.indexOf(FP_PREFIX) !== 0) continue;
     if (!keep[key.slice(FP_PREFIX.length)]) props.deleteProperty(key);
   }
@@ -250,22 +403,35 @@ function forgetStale(props, keep) {
  * 用途只有一個：渲染出來的東西看起來不對時，可以確認是「推過來就錯了」
  * 還是「排版排錯了」。沒有這一份，出事時只能兩邊瞎猜。
  */
-function stashRawData(ss, bundle) {
-  var sheet = ss.getSheetByName(DATA_SHEET) || ss.insertSheet(DATA_SHEET);
-  sheet.clear();
-  sheet.getRange(1, 1).setValue('這一頁是 app 推過來的原始資料，給出問題時對照用。請不要編輯。');
-  // 一格最多 50000 個字元，整包塞不下就切開來放
-  var text = JSON.stringify(bundle);
-  for (var i = 0; i * 45000 < text.length; i++) {
-    sheet.getRange(i + 2, 1).setValue(text.substr(i * 45000, 45000));
+function stashRawData(ss, bundle, book, entry) {
+  var sheet;
+  var hidden = false;
+  if (entry) {
+    sheet = entry.sheet;
+    hidden = entry.hidden === true;
+  } else {
+    sheet = ss.insertSheet(DATA_SHEET);
+    book.byName[DATA_SHEET] = { sheet: sheet, name: DATA_SHEET, a1: '' };
   }
-  sheet.hideSheet();
+  sheet.clear();
+  // 一格最多 50000 個字元，整包塞不下就切開來放（一次寫完：一欄好幾列）
+  var column = [['這一頁是 app 推過來的原始資料，給出問題時對照用。請不要編輯。']];
+  var text = JSON.stringify(bundle);
+  for (var i = 0; i * 45000 < text.length; i++) column.push([text.substr(i * 45000, 45000)]);
+  sheet.getRange(1, 1, column.length, 1).setValues(column);
+  if (!hidden) sheet.hideSheet();
 }
 
-function renderCustomer(ss, data, bundle) {
+/**
+ * 畫一位。`book` 是 `render()` 一開始讀的那一份（一定要給：畫好的那一頁由 `resetSheet()` 放進去，`render()` 接著上鎖、記指紋）。
+ * 回畫好的分頁名；那一頁是她自己的（認不出來）→ null，這一位這次不畫。
+ */
+function renderCustomer(ss, data, bundle, book) {
   var name = sheetNameFor(data.name);
-  var sheet = resetSheet(ss, name);
-  if (!sheet) return null;   // 這張是她自己的，不動它
+  var entry = resetSheet(ss, name, book);
+  if (!entry) return null;   // 這張是她自己的，不動它
+  // 先畫在草稿紙上，最後一次寫上去（`paint()`，03）。底下的畫法一行都沒改
+  var sheet = new Canvas();
 
   var dateCount = data.dateLabels.length;
   var matrixWidth = COL.FIRST_DATE - 1 + Math.max(dateCount, 1);
@@ -273,7 +439,7 @@ function renderCustomer(ss, data, bundle) {
   var width = Math.max(matrixWidth, FINISH_COL + 2);
 
   ensureSize(
-    sheet,
+    entry,
     MATRIX_HEADER_ROW + data.rows.length + logLineCount(data)
       + ((data.purchases || []).length + 3)
       + ((data.products || []).length + 2)
@@ -374,6 +540,7 @@ function renderCustomer(ss, data, bundle) {
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
+  paint(entry.sheet, sheet);
   return name;
 }
 
@@ -642,6 +809,254 @@ function infoLine(data) {
   ].filter(String).join('　·　');
 }
 
+// ---------- 一頁先畫在記憶體裡 ----------
+//
+// 2026-11-05（.scratch/sheet-push-gaps 的 03；Google 官方的 Apps Script 最佳做法：同一種動作收成一次）。
+// 以前一格一格下：一頁重畫叫 Google 約 190 次（34 頁整份重畫 6,506 次、約 192 秒）——
+// `noteBlock()` 每一行各自合併、寫字、換行、置中；矩陣上色逐格；欄寬逐欄。
+//
+// 現在畫法的程式碼**一行都沒改**（`renderCustomer()` 底下那幾支照舊叫 `sheet.getRange(…).merge().setValue(…)…`），
+// 只是那個 `sheet` 換成這一張草稿紙（`Canvas`）：它記下每一格最後的值與格式（後設的蓋掉先設的，跟 Google 一樣）、
+// 每一次合併、框線、欄寬、列高、凍結。畫完 `paint()` 一次寫上去 —— 值一次 `setValues`、每一種格式照值分組
+// 各一次 `RangeList`、連續的合併一次 `mergeAcross()`、同寬的欄一次 `setColumnWidths()`。
+// 畫出來一模一樣是測試釘著的（`tests/sheet-gs-batch.test.js`：雜湊是改前的 `.gs` 跑出來的）。
+//
+// **草稿紙只做畫法用到的那幾支**。畫法多叫一支它沒有的，替身裡第一次推送就會丟錯 —— 照樣補一支、記進 `paint()`。
+
+/** 每一格會記的格式：草稿紙上那一支 → 寫上去時 RangeList 的哪一支。順序就是 `paint()` 寫的順序（彼此不影響）。 */
+var CANVAS_FORMATS = [
+  ['setBackground', 'background'],
+  ['setFontFamily', 'fontFamily'],
+  ['setFontSize', 'fontSize'],
+  ['setFontWeight', 'fontWeight'],
+  ['setFontColor', 'fontColor'],
+  ['setHorizontalAlignment', 'hAlign'],
+  ['setVerticalAlignment', 'vAlign'],
+  ['setWrap', 'wrap'],
+];
+
+function Canvas() {
+  /** values[列][欄]（從 1 起）。沒寫過的是 undefined。 */
+  this.values = [];
+  this.formats = {};
+  for (var i = 0; i < CANVAS_FORMATS.length; i++) this.formats[CANVAS_FORMATS[i][1]] = [];
+  this.merges = [];
+  this.borders = [];
+  this.widths = [];
+  this.heights = [];
+  this.frozenRows = null;
+}
+
+Canvas.prototype.getRange = function (row, col, rows, cols) {
+  rows = rows == null ? 1 : rows;
+  cols = cols == null ? 1 : cols;
+  if (row < 1 || col < 1 || rows < 1 || cols < 1) {
+    throw new Error('範圍不合法：' + row + ',' + col + ',' + rows + ',' + cols);
+  }
+  return new CanvasRange(this, row, col, rows, cols);
+};
+
+Canvas.prototype.setColumnWidth = function (col, width) { this.widths[col] = width; };
+Canvas.prototype.setRowHeights = function (start, count, height) { this.heights.push([start, count, height]); };
+Canvas.prototype.setFrozenRows = function (n) { this.frozenRows = n; };
+
+/** 跟 Google 一樣：最後一列**有內容**的（寫進 '' 或 null 的不算）。 */
+Canvas.prototype.getLastRow = function () {
+  for (var r = this.values.length - 1; r >= 1; r--) {
+    var row = this.values[r];
+    if (!row) continue;
+    for (var c = 1; c < row.length; c++) {
+      if (row[c] !== '' && row[c] != null) return r;
+    }
+  }
+  return 0;
+};
+
+Canvas.prototype.put = function (grid, row, col, value) {
+  if (!grid[row]) grid[row] = [];
+  grid[row][col] = value;
+};
+
+function CanvasRange(canvas, row, col, rows, cols) {
+  this.canvas = canvas;
+  this.row = row;
+  this.col = col;
+  this.rows = rows;
+  this.cols = cols;
+}
+
+CanvasRange.prototype.setValue = function (value) {
+  this.canvas.put(this.canvas.values, this.row, this.col, value);
+  return this;
+};
+
+CanvasRange.prototype.setValues = function (grid) {
+  if (grid.length !== this.rows) throw new Error('setValues 列數不合：' + grid.length + ' vs ' + this.rows);
+  for (var r = 0; r < grid.length; r++) {
+    if (grid[r].length !== this.cols) throw new Error('setValues 欄數不合：' + grid[r].length + ' vs ' + this.cols);
+    for (var c = 0; c < grid[r].length; c++) this.canvas.put(this.canvas.values, this.row + r, this.col + c, grid[r][c]);
+  }
+  return this;
+};
+
+CanvasRange.prototype.merge = function () {
+  this.canvas.merges.push([this.row, this.col, this.rows, this.cols]);
+  return this;
+};
+
+CanvasRange.prototype.setBorder = function () {
+  this.canvas.borders.push([this.row, this.col, this.rows, this.cols, Array.prototype.slice.call(arguments)]);
+  return this;
+};
+
+CANVAS_FORMATS.forEach(function (pair) {
+  var key = pair[1];
+  CanvasRange.prototype[pair[0]] = function (value) {
+    var grid = this.canvas.formats[key];
+    for (var r = 0; r < this.rows; r++) {
+      for (var c = 0; c < this.cols; c++) this.canvas.put(grid, this.row + r, this.col + c, value);
+    }
+    return this;
+  };
+});
+
+/**
+ * 草稿紙寫上去。順序：值 → 格式 → 合併 → 框線 → 欄寬 → 列高 → 凍結。
+ * 值先寫、再合併（合併區除了左上角都是 ''）：寫進已經合併的範圍 Google 會怎樣，替身驗不出來，就不要走那條路。
+ * 凍結最後（凍結線不能穿過合併儲存格，合併要先在）。
+ */
+function paint(sheet, canvas) {
+  var rows = 0;
+  var cols = 0;
+  for (var r = 1; r < canvas.values.length; r++) {
+    if (!canvas.values[r]) continue;
+    rows = r;
+    cols = Math.max(cols, canvas.values[r].length - 1);
+  }
+  if (rows && cols) {
+    var grid = [];
+    for (var r2 = 1; r2 <= rows; r2++) {
+      var line = [];
+      var src = canvas.values[r2] || [];
+      for (var c2 = 1; c2 <= cols; c2++) line.push(c2 < src.length && src.hasOwnProperty(c2) ? src[c2] : '');
+      grid.push(line);
+    }
+    sheet.getRange(1, 1, rows, cols).setValues(grid);
+  }
+
+  for (var f = 0; f < CANVAS_FORMATS.length; f++) {
+    var groups = rectsByValue(canvas.formats[CANVAS_FORMATS[f][1]]);
+    for (var g = 0; g < groups.length; g++) {
+      sheet.getRangeList(groups[g].ranges)[CANVAS_FORMATS[f][0]](groups[g].value);
+    }
+  }
+
+  mergeAll(sheet, canvas.merges);
+
+  for (var b = 0; b < canvas.borders.length; b++) {
+    var one = canvas.borders[b];
+    var range = sheet.getRange(one[0], one[1], one[2], one[3]);
+    range.setBorder.apply(range, one[4]);
+  }
+
+  for (var w = 1; w < canvas.widths.length; w++) {
+    if (canvas.widths[w] == null) continue;
+    var end = w;
+    while (canvas.widths[end + 1] === canvas.widths[w]) end++;
+    sheet.setColumnWidths(w, end - w + 1, canvas.widths[w]);
+    w = end;
+  }
+
+  for (var h = 0; h < canvas.heights.length; h++) {
+    sheet.setRowHeights(canvas.heights[h][0], canvas.heights[h][1], canvas.heights[h][2]);
+  }
+  if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
+}
+
+/**
+ * 照先後合併。連著好幾個「同樣幾欄、一列高、一列接一列」的（備註、來訪紀錄那一行一行）收成一次 `mergeAcross()`
+ * （它把每一列各自合併）；其餘照舊一次一個 `merge()`。
+ */
+function mergeAll(sheet, merges) {
+  for (var i = 0; i < merges.length; i++) {
+    var m = merges[i];
+    var j = i;
+    while (m[2] === 1 && j + 1 < merges.length
+        && merges[j + 1][2] === 1 && merges[j + 1][1] === m[1] && merges[j + 1][3] === m[3]
+        && merges[j + 1][0] === merges[j][0] + 1) {
+      j++;
+    }
+    if (j === i) {
+      sheet.getRange(m[0], m[1], m[2], m[3]).merge();
+    } else {
+      sheet.getRange(m[0], m[1], j - i + 1, m[3]).mergeAcross();
+    }
+    i = j;
+  }
+}
+
+/**
+ * 一張「每一格的格式」照值分組，每一組收成幾塊長方形的 A1（`B3:D5`）—— 同一種值一次 `RangeList` 寫完。
+ * 先一列裡連著同一個值的收成一段，再把上下一模一樣的段疊成一塊。沒設過的格子（undefined）不碰。
+ *
+ * @returns {{value: *, ranges: string[]}[]}
+ */
+function rectsByValue(grid) {
+  var groups = {};
+  var order = [];
+  var open = {};   // 'c1,c2,key' → 這一塊從第幾列開始、到第幾列
+  function close(id) {
+    var o = open[id];
+    groups[o.key].ranges.push(a1Of(o.top, o.c1) + ':' + a1Of(o.bottom, o.c2));
+    delete open[id];
+  }
+  for (var r = 1; r <= grid.length; r++) {
+    var row = grid[r] || [];
+    var seen = {};
+    for (var c = 1; c < row.length; c++) {
+      if (row[c] === undefined) continue;
+      var value = row[c];
+      var key = typeof value + ':' + String(value);
+      var c2 = c;
+      while (c2 + 1 < row.length && row[c2 + 1] !== undefined
+          && typeof row[c2 + 1] + ':' + String(row[c2 + 1]) === key) {
+        c2++;
+      }
+      if (!groups[key]) {
+        groups[key] = { value: value, ranges: [] };
+        order.push(key);
+      }
+      var id = c + ',' + c2 + ',' + key;
+      if (open[id] && open[id].bottom === r - 1) {
+        open[id].bottom = r;
+      } else {
+        if (open[id]) close(id);
+        open[id] = { top: r, bottom: r, c1: c, c2: c2, key: key };
+      }
+      seen[id] = true;
+      c = c2;
+    }
+    for (var id2 in open) {
+      if (!seen[id2] && open[id2].bottom < r) close(id2);
+    }
+  }
+  for (var id3 in open) close(id3);
+  var out = [];
+  for (var k = 0; k < order.length; k++) out.push(groups[order[k]]);
+  return out;
+}
+
+function a1Of(row, col) {
+  var letters = '';
+  var n = col;
+  while (n > 0) {
+    var rem = (n - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters + row;
+}
+
 // ---------- 共用的排版動作 ----------
 
 function noticeRow(sheet, width, bundle) {
@@ -688,10 +1103,17 @@ function sheetNameFor(name) {
   return safe.slice(0, 90) || '（沒有名字）';
 }
 
-/** 分頁預設 1000 列 × 26 欄。日期一多就會不夠寬，寫下去會直接爆掉。 */
-function ensureSize(sheet, rows, cols) {
-  if (sheet.getMaxColumns() < cols) sheet.insertColumnsAfter(sheet.getMaxColumns(), cols - sheet.getMaxColumns());
-  if (sheet.getMaxRows() < rows) sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
+/** 分頁預設 1000 列 × 26 欄。日期一多就會不夠寬，寫下去會直接爆掉。大小讀一開始那一份（`sizeOf()`），加了就跟著改。 */
+function ensureSize(entry, rows, cols) {
+  var sheet = sizeOf(entry).sheet;
+  if (entry.maxCols < cols) {
+    sheet.insertColumnsAfter(entry.maxCols, cols - entry.maxCols);
+    entry.maxCols = cols;
+  }
+  if (entry.maxRows < rows) {
+    sheet.insertRowsAfter(entry.maxRows, rows - entry.maxRows);
+    entry.maxRows = rows;
+  }
 }
 
 /**
@@ -704,24 +1126,24 @@ function ensureSize(sheet, rows, cols) {
  * 判斷方式和 removeStaleSheets() 一樣，靠第一列那句提醒認。
  * 認不出來就不動它，回傳 null，那位客戶這次不渲染。
  */
-function resetSheet(ss, name) {
-  var sheet = ss.getSheetByName(name);
-  if (sheet) {
-    if (sheet.getLastRow() > 0
-        && String(sheet.getRange(1, 1).getValue()).indexOf('系統自動產生') === -1) {
-      return null;
-    }
-    unprotect(sheet);
+function resetSheet(ss, name, book) {
+  var entry = book.byName[name];
+  if (entry) {
+    if (lastRowOf(entry) > 0 && !isOurs(entry.a1)) return null;
+    var sheet = sizeOf(entry).sheet;
+    unprotect(entry);
     sheet.clear();
     sheet.clearConditionalFormatRules();
     // 上一次的合併留著會讓這一次的 setValues 整個炸掉
-    sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
+    sheet.getRange(1, 1, entry.maxRows, entry.maxCols).breakApart();
   } else {
-    sheet = ss.insertSheet(name);
+    entry = { sheet: ss.insertSheet(name), name: name, a1: '', lastRow: 0 };
+    book.byName[name] = entry;
+    book.list.push(entry);
   }
-  sheet.setFrozenRows(0);
-  sheet.setFrozenColumns(0);
-  return sheet;
+  entry.sheet.setFrozenRows(0);
+  entry.sheet.setFrozenColumns(0);
+  return entry;
 }
 
 /**
@@ -729,16 +1151,15 @@ function resetSheet(ss, name) {
  *
  * 但**不刪**沒見過的分頁 —— 她可能自己開了一張在旁邊算東西，
  * 而這支指令碼沒有資格判斷那張重不重要。只清掉「曾經是我們產生的」那些，
- * 靠第一列的那句提醒認。
+ * 靠第一列的那句提醒認（一開始讀的那一份，`readBook()`）。
  */
-function removeStaleSheets(ss, keep) {
-  var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    var sheet = sheets[i];
-    if (keep[sheet.getName()]) continue;
-    if (String(sheet.getRange(1, 1).getValue()).indexOf('系統自動產生') === -1) continue;
-    unprotect(sheet);
-    ss.deleteSheet(sheet);
+function removeStaleSheets(ss, keep, book) {
+  for (var i = 0; i < book.list.length; i++) {
+    var entry = book.list[i];
+    if (keep[entry.name]) continue;
+    if (!isOurs(entry.a1)) continue;
+    unprotect(entry);
+    ss.deleteSheet(entry.sheet);
   }
 }
 
@@ -750,30 +1171,34 @@ function removeStaleSheets(ss, keep) {
 /**
  * 鎖一張。**畫好一頁就鎖那一頁**（格式 8 以前是最後一次鎖全部）：沒變的那幾頁上一次畫的時候就鎖了，
  * 而畫到一半逾時的話，已經畫好、記了指紋的那幾頁不可以停在沒鎖的樣子。
+ *
+ * `existing` 是這一頁上面原本的鎖（一開始讀的那一份）—— 先拆掉。
+ * 兩個讀（誰能改、網域能不能改）擺在一起問：寫完又讀一次就好，不是兩次。
  */
-function protectSheet(sheet) {
+function protectSheet(sheet, me, existing) {
   if (!sheet) return;
-  var me = Session.getEffectiveUser();
-  var myEmail = me.getEmail();
-  unprotect(sheet);
-  var p = sheet.protect().setDescription('由 app 產生，請勿手動編輯');
-  p.addEditor(me);
+  for (var i = 0; i < existing.length; i++) existing[i].remove();
+  var p = sheet.protect().setDescription(PROTECT_NOTE);
+  p.addEditor(me.user);
 
   // 刻意**不用** setWarningOnly：那只會跳一句「你確定嗎」然後照樣讓人改。
   // 對其他人是真的鎖住；對擁有者鎖不住（Google 不讓擁有者把自己鎖在門外），
   // 所以擁有者那一種由下面的 onEdit 接住。
-  var others = [];
   var editors = p.getEditors();
+  var domain = p.canDomainEdit();
+  var others = [];
   for (var j = 0; j < editors.length; j++) {
-    if (editors[j].getEmail() !== myEmail) others.push(editors[j].getEmail());
+    if (editors[j].getEmail() !== me.email) others.push(editors[j].getEmail());
   }
   if (others.length) p.removeEditors(others);
-  if (p.canDomainEdit()) p.setDomainEdit(false);
+  if (domain) p.setDomainEdit(false);
 }
 
-function unprotect(sheet) {
-  var existing = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+/** 拆掉那一頁上面的鎖（一開始讀的那一份）。 */
+function unprotect(entry) {
+  var existing = protectionsOf(entry);
   for (var i = 0; i < existing.length; i++) existing[i].remove();
+  entry.protections = null;
 }
 
 /**

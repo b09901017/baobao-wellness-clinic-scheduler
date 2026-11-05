@@ -236,3 +236,4 @@
 | [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |
 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
+| [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |
