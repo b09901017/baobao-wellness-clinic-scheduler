@@ -226,7 +226,7 @@ test('.gs 的程式碼改了，LAYOUT_VERSION 要跟著加一（然後換掉這�
     .replace(/var LAYOUT_VERSION = \d+;/, '')
     .replace(/\s+/g, ' ');
   const hash = createHash('sha256').update(code).digest('hex').slice(0, 12);
-  assert.deepEqual({ version, hash }, { version: 2, hash: '621a53824c0c' },
+  assert.deepEqual({ version, hash }, { version: 2, hash: '4527920a5f8c' },
     '改了 sheets/readonly-report.gs：畫法變了的話 LAYOUT_VERSION 加一；兩種都把這裡換成新的 version 與 hash');
 });
 
@@ -274,7 +274,8 @@ describe('sheetSync.js（原始碼）', () => {
   test('整份重畫不被一般推送的去重併掉：路上那一份不是 force 就等它回來再推一份 force', () => {
     assert.match(src, /inFlight\?\.at === version && \(inFlight\.force \|\| !force\)/);
     assert.match(src, /inFlight = \{ at, force, promise \}/);
-    assert.match(src, /force \? \{ token, bundle, force: true \}/);
+    // 送出去的那一包由 `pushBody()` 組（ADR-0174 多一個 `dataAt`）；force 照樣帶得到（`tests/sheet-stale-bundle.test.js` 測那一支）
+    assert.match(src, /pushBody\(\{ token, bundle: built\.bundle, dataAt: built\.dataAt, force \}\)/);
   });
 });
 

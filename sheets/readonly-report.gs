@@ -35,6 +35,7 @@ var DATA_SHEET = '_data';
  * 7（2026-10-05）：來訪紀錄那一行的最後面多「記一句：…」—— 沒有額度的段（n返、功醫門診）記的那一句。
  * 8（2026-10-19）：每一頁多 `fingerprint`（沒變的那幾頁不重畫）與 `chartNo`（抬頭那一行印病歷號）；
  *    請求多一個 `force`（設定頁「整份重畫」）。回報多 `kept`（沒變、只改了產生時間的幾頁）。
+ *    2026-11-05（ADR-0174，格式沒升）：請求最外層多一個選填的 `dataAt`；比上一次畫完的舊 → 不畫、回 `{ ok: true, stale: true }`。
  */
 var SUPPORTED_FORMAT = 8;
 
@@ -46,6 +47,12 @@ var SUPPORTED_FORMAT = 8;
 var LAYOUT_VERSION = 2;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
+/**
+ * 上一次畫完的那一包的資料時間（ADR-0174；文件屬性，毫秒）。app 每一包附 `dataAt`（稽核紀錄最新那一則的伺服器時間，
+ * 打包之前讀的）—— 比這個舊的那一包不畫：兩台裝置幾乎同時推時，比較舊的那一包等到鎖之後會把新的蓋掉。
+ * 不是 `fp:` 開頭，`forgetStale()` 不會清掉它。
+ */
+var LAST_DATA_AT = 'lastDataAt';
 
 // ---------- 版面 ----------
 //
@@ -125,7 +132,14 @@ function doPost(e) {
     if (!lock.tryLock(30000)) return reply({ ok: false, error: '另一份同步還在進行中' });
 
     try {
-      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true);
+      // **拿到鎖之後才比、才記**（ADR-0174）：比較舊的那一包不畫 —— 整份重畫（force）也一樣
+      var props = PropertiesService.getDocumentProperties();
+      var stored = props.getProperties();
+      var dataAt = dataAtOf(body);
+      if (isStaleBundle(dataAt, stored[LAST_DATA_AT])) return reply({ ok: true, stale: true });
+      var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true, stored);
+      // 畫完才記（畫到一半逾時不記）。沒帶時間的（舊版 app）照畫、不記
+      if (dataAt !== null) props.setProperty(LAST_DATA_AT, String(dataAt));
       return reply({
         ok: true,
         sheets: result.sheets,
@@ -140,6 +154,25 @@ function doPost(e) {
   } catch (err) {
     return reply({ ok: false, error: String(err) });
   }
+}
+
+/** 請求最外層的 `dataAt`（毫秒）。沒帶、不是有限的數字 → null（舊版 app、或那一則稽核還沒送上雲端）。 */
+function dataAtOf(body) {
+  var at = body && body.dataAt;
+  return typeof at === 'number' && isFinite(at) ? at : null;
+}
+
+/**
+ * 這一包是不是比上一次畫完的那一包舊。**純函式**（`tests/sheet-stale-bundle.test.js`）。
+ * 一樣的照畫（整包是冪等的）；任何一邊沒有時間照畫 —— 拿不準一律畫，最壞是跟以前一樣。
+ *
+ * @param {number|null} dataAt 這一包的
+ * @param {string|undefined|null} last 文件屬性裡記的（字串）
+ */
+function isStaleBundle(dataAt, last) {
+  if (dataAt === null || last == null || last === '') return false;
+  var before = Number(last);
+  return isFinite(before) && dataAt < before;
 }
 
 function reply(payload) {
@@ -168,11 +201,12 @@ var PROTECT_NOTE = '由 app 產生，請勿手動編輯';
  * 34 頁都沒變的一次推送讀 143 次、寫完又讀 38 次。現在一開始把要知道的全部讀進 `book`（分頁、第一列、
  * 大小、鎖、指紋），之後整次推送只看這一份、寫的時候跟著改；寫完又讀只剩每畫好一頁上鎖時問一次「誰能改」。
  */
-function render(ss, bundle, force) {
+function render(ss, bundle, force, stored) {
   var props = PropertiesService.getDocumentProperties();
 
   // ---- 先讀完 ----
-  var stored = props.getProperties();
+  // `stored`：doPost() 比新舊時已經讀過一次全部的文件屬性，傳進來就不再讀
+  stored = stored || props.getProperties();
   var user = Session.getEffectiveUser();
   var me = { user: user, email: user.getEmail() };
   var book = readBook(ss);

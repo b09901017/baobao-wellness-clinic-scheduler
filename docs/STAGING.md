@@ -477,7 +477,8 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一、`npm run shell:snapshot` 跑了嗎**
       （`tests/shell-version.test.js` 擋著：程式檔先用手機裡的，忘了加一她的手機會永遠停在舊版，ADR-0167）
-- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
+- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**。**沒升版、只改了 `sheets/readonly-report.gs` 也要重貼**
+      （2026-11-05 批次讀寫與「比較舊的那一包不畫」，ADR-0174）—— 沒重貼照樣推得上去，只是跑的是舊的那一份
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
 - [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
 - [ ] 部署後確認新版真的在跑：**手機上打開 app → 最上面跳「有新版本・點一下更新」→ 點**（2026-10-21 起程式檔先用手機裡的，

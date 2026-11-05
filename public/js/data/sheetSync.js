@@ -13,10 +13,13 @@ import * as customersData from './customers.js';
 import * as visitsData from './visits.js';
 import * as tasksData from './tasks.js';
 import * as repo from './repo.js';
+import * as auditData from './audit.js';
 import { syncBundle } from '../domain/sheetReport.js';
 import { todayISO } from '../domain/dates.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
-import { retryDelay, wantsRetry, keepsPending } from '../domain/sheetPushTiming.js';
+import {
+  retryDelay, wantsRetry, keepsPending, dataAtOf, pushBody,
+} from '../domain/sheetPushTiming.js';
 
 /**
  * 寫入之後等多久才推。
@@ -112,10 +115,15 @@ export const PARTIAL_READ_SAY = '網路不穩，讀到的不是全部的資料 �
  * **讀到快取（或確定離線）就丟 `IncompleteReadError`**（before-golive-2026-10-19 中途發現 2，ADR-0158 同一個形狀）：
  * Firestore 開著本機快取，網路不穩時讀回來的是快取裡剛好有的那幾筆 —— 拿它推上去，試算表上的次數少算，
  * 而畫面上看起來推好了。`run()` 接住它、這一趟不推、留著待推標記。
+ *
+ * **回 `{ bundle, dataAt }`**（ADR-0174）：`dataAt` 是稽核紀錄最新那一則的伺服器時間，**先讀它、再讀資料** ——
+ * 資料只會比那個時間新、不會舊，所以「這一包至少包含了 `dataAt` 以前的每一次寫入」成立。`.gs` 拿它比新舊，
+ * 兩台同時推時比較舊的那一包不畫。那一讀也算進上面那一套（讀到快取就不推）。
  */
 export async function buildBundle() {
   const today = todayISO();
   const since = repo.cacheReads();
+  const [latest] = await auditData.listRecent(1);
   const [customers, entitlementsBy, visits, tasks, master] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
@@ -137,7 +145,7 @@ export async function buildBundle() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return syncBundle({
+  const bundle = syncBundle({
     customers,
     entitlementsBy,
     visitsBy,
@@ -146,6 +154,7 @@ export async function buildBundle() {
     master,
     generatedAt: new Date().toLocaleString('zh-TW'),
   });
+  return { bundle, dataAt: dataAtOf(latest) };
 }
 
 /**
@@ -158,7 +167,7 @@ export async function buildBundle() {
  * 路上那一份是一般的推送時，等它回來再推一份整份重畫的；反過來，一般的推送可以搭整份重畫那一份的便車。
  *
  * @param {{force?: boolean}} [o]
- * @returns {Promise<{ok: boolean, off?: boolean, partial?: boolean, error?: string,
+ * @returns {Promise<{ok: boolean, off?: boolean, partial?: boolean, error?: string, stale?: boolean,
  *                    at?: string, sheets?: number|null, kept?: number|null, skipped?: string[]}>}
  */
 export function push({ force = false } = {}) {
@@ -182,9 +191,9 @@ async function run(packedAt, { force = false } = {}) {
   if (!isConfigured(settings)) return { ok: false, off: true, error: '還沒設定試算表的網址與密鑰' };
 
   const { url, token } = settings.sheetSync;
-  let bundle;
+  let built;
   try {
-    bundle = await buildBundle();
+    built = await buildBundle();
   } catch (err) {
     // 讀到的不是全部（中途發現 2）：這一趟不推。待推標記與那一句照留 —— 下一次寫入或下一次開 app 再推
     if (err?.name === 'IncompleteReadError') return { ...noteFailure(err.message, { partial: true }), partial: true };
@@ -198,7 +207,7 @@ async function run(packedAt, { force = false } = {}) {
       // 刻意用 text/plain：換成 application/json 會觸發 CORS 預檢，
       // 而 Apps Script 的網頁應用程式不回應 OPTIONS，預檢一送就整個失敗。
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(force ? { token, bundle, force: true } : { token, bundle }),
+      body: JSON.stringify(pushBody({ token, bundle: built.bundle, dataAt: built.dataAt, force })),
       redirect: 'follow',
     });
   } catch (err) {
@@ -220,6 +229,14 @@ async function run(packedAt, { force = false } = {}) {
   if (!reply.ok) return noteFailure(reply.error ?? '試算表說失敗，但沒說為什麼');
 
   const at = new Date().toISOString();
+  if (reply.stale) {
+    // 另一台剛推了比較新的（ADR-0174）：試算表上已經是更新的那一份，這一包沒畫 —— 算成功。
+    // 「有幾張沒更新」不動：那是畫的那一次說的，這一次沒有畫
+    write(LAST_KEY, at);
+    if (version === packedAt) write(DIRTY_KEY, null);
+    write(ERROR_KEY, null);
+    return { ok: true, at, stale: true, sheets: 0, kept: null, skipped: [] };
+  }
   // `.gs` 的 resetSheet() 認不出來、所以沒有清空重畫的那幾張。那條守衛做出來
   // 就是為了講話的：那幾位的次數還是上一次的，而畫面上看起來跟推好了一模一樣。
   const skipped = Array.isArray(reply.skipped) ? reply.skipped : [];

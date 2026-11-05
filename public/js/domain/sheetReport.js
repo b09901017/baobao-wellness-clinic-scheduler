@@ -1121,9 +1121,11 @@ export function describeSync({
  * 推好了之後那一句（設定頁「立刻推一次」「整份重畫」）。格式 8 起分得出重畫了幾頁、幾頁沒變（ADR-0161）——
  * 「沒變」的那幾頁只改了第三列的產生時間，跟推好了一樣是對的。
  *
- * @param {{sheets?: number|null, kept?: number|null}} result `sheetSync.push()` 回的
+ * @param {{sheets?: number|null, kept?: number|null, stale?: boolean}} result `sheetSync.push()` 回的
  */
-export function pushedSay({ sheets = null, kept = null } = {}) {
+export function pushedSay({ sheets = null, kept = null, stale = false } = {}) {
+  // 兩台裝置幾乎同時推、這一包比試算表上的舊（ADR-0174）：試算表上已經是更新的那一份，這一包不畫
+  if (stale) return '推好了：試算表上已經是更新的那一份（另一台裝置剛推過），這一次沒有重畫';
   const drawn = sheets ?? 0;
   if (kept === null || kept === undefined) return `推好了，試算表更新了 ${drawn} 張分頁`;
   if (!drawn) return `推好了，${kept} 張分頁都沒變（只改了產生時間）`;

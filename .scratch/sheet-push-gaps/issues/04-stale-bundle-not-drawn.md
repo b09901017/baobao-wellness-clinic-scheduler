@@ -1,6 +1,6 @@
 # 04 兩台同時推：比較舊的那一包不畫
 
-Status: todo
+Status: done
 Blocked by: 02（同一支 `.gs` 的 `doPost()`／`render()`）
 
 ## 動工前先讀
@@ -51,4 +51,18 @@ Blocked by: 02（同一支 `.gs` 的 `doPost()`／`render()`）
 
 ## 做完時留下的
 
-（做完填）
+照「做法」做，ADR-0174 寫了為什麼安全（被擋下來的那一包多帶的寫入，各自會再推一次、時間不會更早）。
+
+- **app**：`buildBundle()` 先 `auditData.listRecent(1)`、再 `Promise.all` 讀資料，回 `{ bundle, dataAt }`；時間的換算是 `domain/sheetPushTiming.js` 的
+  `dataAtOf()`（Timestamp → 毫秒；null／沒有稽核／字串 → null），送出去那一包是同一支的 `pushBody()`（沒有時間就不帶那個鍵）。
+  `run()` 收到 `stale`：寫 `LAST_KEY`、照 `version` 清待推標記、清錯誤，**不動「有幾張沒更新」**，回 `{ ok: true, stale: true, sheets: 0, kept: null, skipped: [] }`。
+  `pushedSay()` 多一種：「推好了：試算表上已經是更新的那一份（另一台裝置剛推過），這一次沒有重畫」。`ui/views/report.js` 一行都沒動（它本來就印 `pushedSay(result)`）
+- **`.gs`**：`doPost()` 拿到鎖之後讀一次全部文件屬性（`render()` 收那一份，不再讀第二次 —— 平常推的文件屬性照舊 1 次）、`isStaleBundle()` 判、
+  畫完才 `setProperty('lastDataAt', …)`；整份重畫比較舊照樣不畫；沒帶／看不懂的時間照畫、不記
+- **測試**：`tests/sheet-stale-bundle.test.js`（先新後舊一格不動、先舊後新、一樣照畫、force、舊版 app、看不懂的時間、畫到一半不記、刪客戶那一圈不清它、拿不到鎖不記；
+  `dataAtOf()`／`pushBody()`／`pushedSay()`；原始碼：讀的順序、`buildBundle()` 與 `run()` 裡沒有 `updatedAt`、stale 那一段清什麼）。
+  `tests/sheet-fingerprint.test.js` 掃 `push()` 送什麼的那一條換成 `pushBody(...)`、程式碼雜湊換成 `4527920a5f8c`（`LAYOUT_VERSION` 照舊 2：畫法沒變）
+- 文件：ADR-0174＋索引、`docs/STAGING.md` 上線檢查表「沒升版也要重貼」、CLAUDE.md「試算表的 `SYNC_FORMAT`」那一列補一段。`sw.js` v282、快照重跑
+- `docs/常見問題.md` 的秒數照過目說的等實測再改（這一段沒動）
+
+**只在 staging 驗得到**：真的兩台同時推（替身只能一前一後模擬）；Firestore 剛寫完那一則稽核時 `at` 回 null 的頻率（null → 照畫不記，最壞跟以前一樣）。
