@@ -17,10 +17,16 @@ import { shortDate } from '../../public/js/domain/dates.js';
 
 const seed = () => [...masterDocs(), customer({ id: 'cust-a', name: '客戶A' })];
 
-/** 點「挑日期」那一顆的中間與兩頭，點到的都是它裡面那個日期框嗎？ */
+/**
+ * 點「挑日期」那一顆的中間與兩頭，點到的都是它裡面那個日期框嗎？
+ *
+ * **先等進場動畫播完**（段三：N3 本機紅過）：泡泡那一張抽屜還在往上滑的時候量，那一顆還在畫面外面
+ * （top 913、畫面高 896），`elementFromPoint()` 回 null —— 量的是動畫走到哪，不是點不點得到。lessons「查的方法」10/19 那一條
+ */
 async function hitsTheDateBox(scope) {
   const pick = scope.locator('[data-nd-pick]');
   await expect(pick).toBeVisible();
+  await pick.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))));
   return pick.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const y = r.top + r.height / 2;
