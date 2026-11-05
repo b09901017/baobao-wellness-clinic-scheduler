@@ -707,6 +707,13 @@ export const COVERAGE = {
     'public/js/domain/slotDraft.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/followups.js',
     'public/js/domain/customers.js', 'public/js/ui/views/customerDetail.js', 'public/css/app.css',
   ],
+  // 一次性客人：拍 Abovee「記成一次性客人」、一次性客人那一列、換一位標「一次性」（one-time-guests 07）
+  '96-one-time-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/followups.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/customers.js',
+    'tests-e2e/fixtures/ai/aboveeList-one-time.json',
+  ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
