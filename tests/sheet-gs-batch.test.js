@@ -144,7 +144,8 @@ describe('改後的 .gs 畫出來跟釘住的一樣（版號 3 只多了字級�
   // 09：凍結五列五欄、合併只到剩餘那一欄、折行的列照字數估高
   // 10：每一位的療程項目照「已完成＋已排未上」多到少排
   // 11：器材併進那一格、記一句改成那一格的備註
-  const BEFORE = ['b39e72fd051e746d', 'f13ff39f472373a5', 'c0a7514d84aa3753', '5f81ff79a86a31a6'];
+  // 12：營養品一筆一行、備註一則一列上色（syncBundle 多送 noteLines）
+  const BEFORE = ['c5ae1b580b7abb9c', 'a81b27af13d23bdb', '89af5f2dc9e229ac', '97ba3d8a597e7a0c'];
 
   test('四步，每一步整份試算表都一樣（值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋）', () => {
     assert.deepEqual(story(null), BEFORE);

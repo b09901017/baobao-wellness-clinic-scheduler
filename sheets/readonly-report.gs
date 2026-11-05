@@ -123,6 +123,22 @@ var COLOR = {
   count: '#EEF2F5',
   countHeader: '#546E7A',
   divider: '#546E7A',
+  // 備註那一塊「永久限制：…」那一行（issues/12）
+  flag: '#FDE7E7',
+};
+
+/**
+ * 備註一則一列的底色（issues/12）：她在 app 裡替那則短備註挑的顏色的**淡色版**（`tokens.css` 淺色主題的 `--mark-*` 跟白色 15:85 混，
+ * 黑字看得清楚）。鍵是 `domain/customerMarks.js` 的 `MARK_COLORS` 的 id —— `.gs` 讀不到 `tokens.css`，所以這裡另寫一份；
+ * 那六色改了要回來改這裡。認不得的照灰色（同 `colorToken()`）。
+ */
+var MARK_TINT = {
+  grey: '#EBEAE8',    // --mark-grey #7c7268
+  green: '#E2EBE7',   // --mark-green #3f7a5f
+  tea: '#F3EAE2',     // --mark-tea #b0763b
+  red: '#F3E3E1',     // --mark-red #b04434
+  blue: '#E4ECF0',    // --mark-blue #4d7f9c
+  violet: '#EBE7EF',  // --mark-violet #7a6096
 };
 
 // ---------- 收件口 ----------
@@ -652,6 +668,7 @@ function renderCustomer(ss, data, bundle, book) {
     MATRIX_HEADER_ROW + data.rows.length + logLineCount(data)
       + ((data.purchases || []).length + 3)
       + ((data.products || []).length + 2)
+      + ((data.noteLines || []).length || String(data.notes || '').split(String.fromCharCode(10)).length) + 1
       + data.tasks.todo.length + data.tasks.finished.length + 20,
     width,
   );
@@ -851,10 +868,12 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
 }
 
 /**
- * 營養品那一區。緊接在二返註記底下。
+ * 營養品那一區。緊接在「買過什麼」底下。
  *
  * **格式 3 起它才自己一區。** 以前營養品混在矩陣裡，而那四個數字欄印的是
  * 月數 —— 「應有 2 已完成 0 已排未上 0 剩餘 2」沒有一個看得懂。
+ * **2026-11-05 起一筆一行**（像「買過什麼」，issues/12）：`營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌`。
+ * 以前那張五欄的表寬到第 E 欄以外也看不懂，而凍結五欄之後一格只剩 62 像素。
  *
  * **一筆都沒有就整段不畫** —— 大部分客戶不買，而一個永遠空著的區塊只是在
  * 每次看報表時提醒她那件事不存在。
@@ -862,36 +881,42 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
 function renderProducts(sheet, data, top, width) {
   var rows = data.products || [];
   if (!rows.length) return top;
-
-  var head = top + 1;
-  blockHead(sheet, head, 1, '營養品');
-
-  var headers = ['品名', '金額', '幾個月', '哪幾種', '給了沒'];
-  sheet.getRange(head + 1, 1, 1, headers.length).setValues([headers]);
-  styleHeader(sheet.getRange(head + 1, 1, 1, headers.length));
-
-  var body = [];
+  var lines = [];
+  var colours = [];
   for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    body.push([
-      r.label || '',
-      r.amount == null ? '' : r.amount,
-      r.months == null ? '' : r.months,
-      (r.items || []).join('、'),
-      (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || ''),
-    ]);
+    lines.push(productLine(rows[i]));
+    // 還沒給完的那幾行標起來 —— 那是她要回去補的東西。
+    // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
+    colours.push(rows[i].done ? null : COLOR.booked);
   }
-  sheet.getRange(head + 2, 1, body.length, headers.length).setValues(body)
-    .setVerticalAlignment('middle').setWrap(true);
+  return noteBlock(sheet, top + 1, width, '營養品', lines, colours);
+}
 
-  // 還沒給完的那幾列標起來 —— 那是她要回去補的東西。
-  // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
-  for (var j = 0; j < rows.length; j++) {
-    if (rows[j].done) continue;
-    sheet.getRange(head + 2 + j, 1, 1, headers.length).setBackground(COLOR.booked);
+/**
+ * 營養品一行。字都是 app 給的（`syncBundle()` 的 `products`），這裡只接起來 —— 「給了沒」那一段（日期＋`delivery`）
+ * 跟手動貼上那條路的「給了沒」那一格一字不差（`customerReport()`）。沒有的那幾段不印。
+ */
+function productLine(r) {
+  var detail = [
+    r.amount == null || r.amount === '' ? '' : thousands(r.amount) + ' 元',
+    r.months == null || r.months === '' ? '' : r.months + ' 個月',
+    (r.items || []).join('、'),
+  ].filter(function (x) { return x !== ''; }).join('・');
+  var gave = (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || '');
+  return [r.label || '', detail].filter(function (x) { return x !== ''; }).join('　')
+    + (gave ? '　——　' + gave : '');
+}
+
+/** 12000 → 「12,000」（不靠語系）。 */
+function thousands(n) {
+  var digits = String(Math.round(Number(n)));
+  var out = '';
+  for (var i = 0; i < digits.length; i++) {
+    var left = digits.length - i;
+    out += digits.charAt(i);
+    if (left > 1 && left % 3 === 1 && digits.charAt(i) !== '-') out += ',';
   }
-
-  return head + 2 + body.length + 1;
+  return out;
 }
 
 /**
@@ -906,10 +931,8 @@ function renderProducts(sheet, data, top, width) {
 function renderNotes(sheet, data, top, width) {
   var row = top;
 
-  row = noteBlock(sheet, row, width, '備註', [
-    data.flags && data.flags.length ? '永久限制：' + data.flags.join('、') : '',
-    data.notes || '',
-  ].filter(String));
+  var said = noteLinesOf(data);
+  row = noteBlock(sheet, row, width, '備註', said.lines, said.colours);
 
   // **日期自己一行，底下一段一行、前面是那一段的狀態**（格式 6）。她 2026-09-24：
   // 「第一段會接在日期後面，然後下面的不會，能不能就是第一行是日期，然後換行後在寫每一段，
@@ -945,6 +968,36 @@ function renderNotes(sheet, data, top, width) {
     if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, FROZEN_COLS).setFontWeight('bold');
   }
   return end;
+}
+
+/**
+ * 備註那一塊：「永久限制：…」一行（淡紅）＋每一則短備註一行、用她在 app 裡替那一則挑的顏色（淡色版，issues/12）。
+ * **還沒更新的 app 沒送 `noteLines`** → 照 `notes`（短備註換行接起來的那一串）一行一列、統一淡灰 —— 新舊兩邊都合得來，不升 `SYNC_FORMAT`。
+ */
+function noteLinesOf(data) {
+  var lines = [];
+  var colours = [];
+  if (data.flags && data.flags.length) {
+    lines.push('永久限制：' + data.flags.join('、'));
+    colours.push(COLOR.flag);
+  }
+  if (Array.isArray(data.noteLines)) {
+    for (var i = 0; i < data.noteLines.length; i++) {
+      var one = data.noteLines[i] || {};
+      if (!one.text) continue;
+      lines.push(String(one.text));
+      colours.push(MARK_TINT[one.color] || MARK_TINT.grey);
+    }
+  } else {
+    var parts = String(data.notes || '').split(String.fromCharCode(10));
+    for (var j = 0; j < parts.length; j++) {
+      var text = parts[j].trim();
+      if (!text) continue;
+      lines.push(text);
+      colours.push(MARK_TINT.grey);
+    }
+  }
+  return { lines: lines, colours: colours };
 }
 
 /** 來訪紀錄會佔幾列：一天一列日期、一段一列。`ensureSize()` 要先開夠。 */
@@ -1026,8 +1079,9 @@ function emptyLine(sheet, row, col) {
 /**
  * 一塊：抬頭一列、底下一行一列。**每一列只合併到剩餘那一欄**（`FROZEN_COLS`，凍結線不能穿過合併，issues/09），
  * 長的折行、那一列由 `finish()` 照字數加高。`width` 照舊收（呼叫端不用改），不再拿來合併。
+ * `colours`（選填）：每一行的底色（null ＝不上色；營養品沒給完、備註的顏色，issues/12）。
  */
-function noteBlock(sheet, top, width, title, lines) {
+function noteBlock(sheet, top, width, title, lines, colours) {
   sheet.getRange(top, 1, 1, FROZEN_COLS).merge().setValue(title)
     .setFontWeight('bold').setBackground(COLOR.noteHeader)
     .setVerticalAlignment('middle');
@@ -1039,8 +1093,9 @@ function noteBlock(sheet, top, width, title, lines) {
   }
 
   for (var i = 0; i < lines.length; i++) {
-    sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
+    var line = sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
       .setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
+    if (colours && colours[i]) line.setBackground(colours[i]);
   }
   return top + lines.length + 2;
 }

@@ -8,6 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { loadAppsScript } from './helpers/appsScriptStub.js';
+import { syncBundle } from '../public/js/domain/sheetReport.js';
 
 const LEGEND = '✓ 做完　△ 排了還沒做　○ 待確認　✗ 沒來';
 const NOTICE = '⚠ 這張表由系統自動產生，請不要在這裡改資料 —— 改了也不會回到 app';
@@ -271,5 +272,69 @@ describe('11 器材併進那一格、記一句改成那一格的備註', () => {
     const log = [{ label: '9/15(二)', items: [{ status: '已完成', time: '15:00–15:30', course: '三返', equipment: null, ivProduct: null, room: null, bed: null, therapist: null, doctor: '某華', note: '報告看完了' }] }];
     const { sheet } = draw([page({ log })]);
     assert.ok([...sheet.cells.values()].includes('　已完成　15:00–15:30　三返　某華醫師　記一句：報告看完了'));
+  });
+});
+
+describe('12 營養品一筆一行、備註一則一列上色', () => {
+  test('營養品一筆一行、沒給完的那一行淡黃；那張五欄的表不見了', () => {
+    const { sheet } = draw();
+    const top = rowOf(sheet, '營養品');
+    assert.equal(sheet.at(`A${top + 1}`), '營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌');
+    assert.equal(sheet.at(`A${top + 2}`), '營養品B　——　都給了');
+    assert.equal(sheet.backgrounds.get(`A${top + 1}`), '#FFF2CC');
+    assert.equal(sheet.backgrounds.get(`A${top + 2}`) ?? null, null);
+    assert.ok(sheet.merges.includes(`A${top + 1}:E${top + 1}`));
+    assert.ok(![...sheet.cells.values()].includes('品名'));
+  });
+
+  test('備註一則一列，用那一則在 app 裡的顏色（淡色版）；沒挑的、認不得的灰；永久限制那一行淡紅', () => {
+    const noteLines = [
+      { text: '住附近', color: 'green' }, { text: '偏好早上', color: 'grey' },
+      { text: '怕冷', color: 'violet' }, { text: '舊的顏色', color: 'pink' },
+    ];
+    const { sheet } = draw([page({ noteLines })]);
+    const top = rowOf(sheet, '備註');
+    const rows = [1, 2, 3, 4, 5].map((i) => [sheet.at(`A${top + i}`), sheet.backgrounds.get(`A${top + i}`)]);
+    assert.deepEqual(rows, [
+      ['永久限制：體內金屬', '#FDE7E7'],
+      ['住附近', '#E2EBE7'],
+      ['偏好早上', '#EBEAE8'],
+      ['怕冷', '#EBE7EF'],
+      ['舊的顏色', '#EBEAE8'],
+    ]);
+    assert.equal(sheet.at(`A${top + 6}`), '', '後面空一列');
+  });
+
+  test('沒有 noteLines 的舊包（還沒更新的 app）：照 notes 一行一列、淡灰', () => {
+    const { sheet } = draw([page({ flags: [], notes: '住附近\n\n偏好早上' })]);
+    const top = rowOf(sheet, '備註');
+    assert.deepEqual([1, 2].map((i) => [sheet.at(`A${top + i}`), sheet.backgrounds.get(`A${top + i}`)]),
+      [['住附近', '#EBEAE8'], ['偏好早上', '#EBEAE8']]);
+    assert.equal(sheet.at(`A${top + 3}`), '');
+  });
+
+  test('一則都沒有：照舊寫「（沒有）」', () => {
+    const { sheet } = draw([page({ flags: [], notes: '', noteLines: [] })]);
+    assert.equal(sheet.at(`A${rowOf(sheet, '備註') + 1}`), '（沒有）');
+  });
+
+  test('syncBundle() 的 noteLines：照短備註的順序與顏色；長備註沒有跑進去；notes 照舊送', () => {
+    const b = syncBundle({
+      customers: [{
+        id: 'c1', name: '客戶A', notes: '住附近\n偏好早上',
+        marks: [{ text: '住附近', color: 'green' }, { text: '偏好早上', color: 'nope' }],
+        longNotes: [{ id: 'l1', title: '長的', body: '很長的一段' }],
+      }],
+      entitlementsBy: {}, visitsBy: {}, today: '2026-11-05',
+    });
+    const one = b.sheets[0];
+    assert.deepEqual(one.noteLines, [{ text: '住附近', color: 'green' }, { text: '偏好早上', color: 'grey' }]);
+    assert.equal(one.notes, '住附近\n偏好早上');
+    assert.ok(!JSON.stringify(one).includes('很長的一段'));
+  });
+
+  test('syncBundle() 的 noteLines：只有舊的 notes（沒有 marks）的客戶照行拆、灰色', () => {
+    const b = syncBundle({ customers: [{ id: 'c1', name: '客戶A', notes: '一\n二' }], entitlementsBy: {}, visitsBy: {}, today: '2026-11-05' });
+    assert.deepEqual(b.sheets[0].noteLines, [{ text: '一', color: 'grey' }, { text: '二', color: 'grey' }]);
   });
 });

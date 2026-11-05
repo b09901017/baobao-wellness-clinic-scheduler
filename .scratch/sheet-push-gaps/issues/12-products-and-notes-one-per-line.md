@@ -1,6 +1,6 @@
 # 12 營養品一筆一行、備註一則一行上色
 
-Status: todo
+Status: done
 Blocked by: 09（下面那幾塊的寬度只到 E）
 
 ## 動工前先讀
@@ -36,4 +36,14 @@ Blocked by: 09（下面那幾塊的寬度只到 E）
 
 ## 做完時留下的
 
-（做完填）
+- **營養品**：`renderProducts()` 改成 `noteBlock()` 一筆一行（`productLine()`：`品名　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌`，沒有的那幾段不印；金額的千分位自己加 `thousands()`，不靠語系），
+  沒給完的那一行琥珀色（同以前）。**跟 issue 寫的不一樣**：issue 的例子前面有購買日期（`0901　…`），但 `syncBundle()` 的 `products` 沒有那一格（只有 `label`、`amount`、`months`、`items`、`deliveredAt`、`delivery`、`done`），
+  issue 又說不改那一段 —— 就不印購買日期（那一天在上面「買過什麼」裡看得到）。「給了沒」那一段（日期＋`delivery`）跟手動貼上那條路那一格一字不差，`sheet-script` 那一條改成比結尾
+- **備註**：`syncBundle()` 每一頁多 `noteLines: readMarks(customer).map(({text, color}))`（**這一輪唯一動 `syncBundle()` 的一行**，在 `notes` 後面；一次性客人那一輪 issue 04 改的是別幾行，誰後合誰 rebase）。
+  `.gs` 的 `noteLinesOf()`：永久限制一行（`COLOR.flag` `#FDE7E7`）＋每一則一行、底色 `MARK_TINT[color]`（`--mark-*` 跟白色 15:85 混，認不得的灰）；沒有 `noteLines` 照 `notes` 拆行、淡灰。`noteBlock()` 多一個選填的 `colours`
+- `noteLines` 自動進指紋（`sheetFingerprint()` 雜湊整頁）；長備註本來就不在 `readMarks()` 裡
+- 動了 `public/`：`sw.js` v283 → **v284**（一次性客人那一支分支上是 v292，號不撞；合併時照規則留大的再加一）＋ `npm run shell:snapshot`
+- CLAUDE.md 連動表「試算表的 SYNC_FORMAT」「試算表的註記」兩列補了 ADR-0175（合併只到 `FROZEN_COLS`、`rowOrder()`、`MARK_TINT` 跟 `MARK_COLORS` 兩份）
+- 正式站那一包（只印數字；那一包是舊的 app 推的，沒有 `noteLines` → 走淡灰那一條）：29 位有短備註、共 79 則，4 位有永久限制，0 位有營養品；
+  `scripts/sheet-gs-compare.mjs` 跟 11 的 `.gs` 比：只有備註那一塊拆成一則一列、下面整塊往下搬；`scripts/sheet-gs-calls.mjs` 都沒變 讀 76／寫 37／寫完又讀 0、整份重畫 讀 178／寫 1,627／寫完又讀 0
+- **只在 staging 驗得到**：淡色版的六色在 Google 上分不分得出來、黑字看不看得清楚；新的 app（v284）推過去之後備註才有顏色（舊的 app 推的是淡灰）

@@ -25,6 +25,7 @@ import { followupsOfExam, nthLabel, nthOf, SECOND } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate, dayOf } from './dates.js';
 import { chartNosOf } from './identify.js';
+import { readMarks } from './customerMarks.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
@@ -664,6 +665,9 @@ export function syncBundle({
       membershipExpiresAt: customer.membershipExpiresAt ?? '',
       flags: customer.flags ?? [],
       notes: customer.notes ?? '',
+      // 備註一則一列、用她替那則短備註挑的顏色（2026-11-05，.scratch/sheet-push-gaps/issues/12，ADR-0175）。
+      // 跟 `readMarks()` 同一個順序、只有短備註（長備註不進試算表）；`notes` 照舊送（還沒更新的 `.gs` 讀它），所以不升 `SYNC_FORMAT`
+      noteLines: readMarks(customer).map((m) => ({ text: m.text, color: m.color })),
       dates,
       // 不是今年的帶年份（`dateLabel()`，issue 19）
       dateLabels: dates.map((d) => dateLabel(d, today)),

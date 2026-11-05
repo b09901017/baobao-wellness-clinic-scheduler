@@ -478,36 +478,25 @@ describe('營養品那一區', () => {
     return app.ss.getSheetByName('客戶A');
   };
 
-  test('抬頭與五個欄位標題照 syncBundle 送過去的排', () => {
-    const sheet = render(withProducts());
-    const top = productRowOf(sheet);
-    assert.ok(top > 0, '找不到「營養品」那一段');
-    assert.deepEqual(
-      ['A', 'B', 'C', 'D', 'E'].map((c) => sheet.at(`${c}${top + 1}`)),
-      ['品名', '金額', '幾個月', '哪幾種', '給了沒'],
-    );
-  });
-
-  test('每一格的值跟 syncBundle 送過去的一模一樣 —— .gs 一個字都不重算', () => {
+  // 2026-11-05 起一筆一行（.scratch/sheet-push-gaps/issues/12）：以前是一張五欄的表（品名、金額、幾個月、哪幾種、給了沒）
+  test('一筆一行：品名　金額・幾個月・哪幾種　——　給了沒；那張五欄的表不見了', () => {
     const b = withProducts();
     const sheet = render(b);
     const top = productRowOf(sheet);
+    assert.ok(top > 0, '找不到「營養品」那一段');
     const sent = b.sheets[0].products[0];
-
-    assert.equal(sheet.at(`A${top + 2}`), sent.label);
-    assert.equal(sheet.at(`B${top + 2}`), sent.amount);
-    assert.equal(sheet.at(`C${top + 2}`), sent.months);
-    assert.equal(sheet.at(`D${top + 2}`), sent.items.join('、'));
-    assert.match(String(sheet.at(`E${top + 2}`)), /還差 速膳淨$/);
+    assert.equal(sheet.at(`A${top + 1}`), `夜態美＋速膳淨　12,000 元・${sent.months} 個月・夜態美、速膳淨　——　8/20　${sent.delivery}`);
+    assert.equal(sheet.at(`B${top + 1}`), '', '一行合併成一格，不再分欄');
+    assert.ok(![...sheet.cells.values()].includes('品名'), '欄位標題那一列不見了');
   });
 
   // 同一份報表因為走哪條路而長得不同，她會以為其中一條壞了
   //（`domain/sheetReport.js` 的檔頭）。以前「手動貼上」印 `8/20`、
   // 「自動推送」印 `2026-08-20`。
-  test('「給了沒」那一格，手動貼上與自動推送印出同一串字', () => {
+  test('「給了沒」那一段，手動貼上與自動推送印出同一串字', () => {
     const b = withProducts();
     const sheet = render(b);
-    const pushed = String(sheet.at(`E${productRowOf(sheet) + 2}`));
+    const pushed = String(sheet.at(`A${productRowOf(sheet) + 1}`));
 
     const pasted = customerReport({
       customer: { id: 'c1', name: '客戶A' },
@@ -519,11 +508,11 @@ describe('營養品那一區', () => {
       visits: [],
     }).rows.find((r) => r[0] === '夜態美＋速膳淨');
 
-    assert.equal(pushed, pasted[4]);
-    assert.match(pushed, /^8\/20　/, '日期照她舊表的寫法，不是 ISO');
+    assert.ok(pushed.endsWith(`　——　${pasted[4]}`), `${pushed} ／ ${pasted[4]}`);
+    assert.match(pasted[4], /^8\/20　/, '日期照她舊表的寫法，不是 ISO');
   });
 
-  test('還沒給完的那一列標起來，給完的不標', () => {
+  test('還沒給完的那一行標起來，給完的不標', () => {
     const sheet = render(withProducts([{
       id: 'p2', type: 'product', label: '膠原', totalQty: 1, amountTwd: 3000,
       items: [{ productId: 'x3', name: '膠原' }],
@@ -531,9 +520,10 @@ describe('營養品那一區', () => {
     }]));
     const top = productRowOf(sheet);
     // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷）
-    assert.ok(sheet.backgrounds.get(`A${top + 2}`), '沒給完的那一列要有底色');
+    assert.equal(sheet.backgrounds.get(`A${top + 1}`), '#FFF2CC', '沒給完的那一行要有底色');
+    assert.equal(sheet.backgrounds.get(`E${top + 1}`), '#FFF2CC', '整行（到剩餘那一欄）');
     assert.equal(
-      sheet.backgrounds.get(`A${top + 3}`) ?? null, null, '都給了的那一列不要標',
+      sheet.backgrounds.get(`A${top + 2}`) ?? null, null, '都給了的那一行不要標',
     );
   });
 
@@ -573,7 +563,7 @@ describe('營養品那一區', () => {
       assert.ok(labels.includes(want), `營養品底下少了「${want}」：${labels.join(' / ')}`);
     }
     assert.ok(
-      labels.indexOf('備註') > labels.indexOf('品名'),
+      labels.indexOf('備註') > labels.indexOf('營養品'),
       '備註要排在營養品那一區底下',
     );
   });
