@@ -1055,6 +1055,13 @@ textarea {
   margin-top: var(--space-3);
 }
 
+/* 一次性客人「做什麼」那一排（`giftFold.coursesHtml()`，ADR-0172）：分類那一排、「其他 ▸」那一排、展開的那一排
+   是幾個各自換行的 row 疊在一起 —— 沒有這一條時排與排之間是 0，兩排丸子貼著（她 11/5：「感覺有點擠」）。跟 `.giftfold` 同一個間距 */
+[data-guestpicks] {
+  display: grid;
+  gap: var(--space-2);
+}
+
 /* 「換一款」自己不是一個選項，所以不長得像選項：虛線、淡字。 */
 .chip--more {
   border-style: dashed;
