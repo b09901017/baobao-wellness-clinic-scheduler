@@ -19,7 +19,7 @@
 | 10 療程項目照「做最多的在上面」排 | done（`675a76d1`） |
 | 11 器材併進那一格、記一句改成那一格的備註 | done（`7cf8bde4`） |
 | 12 營養品一筆一行、備註一則一行上色 | done（`40706bb5`；之後一個 commit 補文件與註解、sw v285） |
-| 13 用匯出的 .xlsx 驗真的 Google（工具） | todo（第三輪段二） |
+| 13 用匯出的 .xlsx 驗真的 Google（工具） | done（第三輪段二） |
 
 常見問題「刪整列、還原版本 → 整份重畫」：PR #202，develop `3dd2ee12`。
 
@@ -79,6 +79,9 @@ rebase 過的那一份推到 **`claude/sheet-speed-2`**（一般的 push）、PR
 
 `node scripts/sheet-gs-compare.mjs <改前的.gs> <整包.json>`：兩份 `.gs` 跑同一串推送（第一次、都沒變、一頁變了、整份重畫），逐格比值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋，只印數字。
 改前那一份：`git show 3dd2ee12:sheets/readonly-report.gs > old.gs`。正式站那一包四步都 0 個不一樣。
+
+`node scripts/sheet-xlsx-verify.mjs <匯出的.xlsx> [--gs <試算表上貼的那一版.gs>]`（issue 13）：拿她匯出的 .xlsx 裡 `_data` 那一包讓替身畫一次，跟匯出檔逐頁逐格比，只印數字；
+細節（有真名）寫進 `.local/references/試算表驗證/`。11/5 兩份匯出檔對過：只有待辦那 9／10 格日期被 Google 認成日期，其餘 0 個不一樣。
 
 ## 量到的（她在 staging 量的；`_data` 的 B1／Apps Script 執行紀錄）
 
