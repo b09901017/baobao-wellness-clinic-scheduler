@@ -8,9 +8,9 @@
 | issue | 狀態 |
 |---|---|
 | 01 推失敗自己再推、回到 app／網路回來／打開 app 補推 | done（PR #201，develop `2267a8bc`） |
-| 02 平常推變快：先讀完再寫 | todo |
-| 03 重畫變快：同一種動作收成一次 | todo |
-| 04 兩台同時推：比較舊的那一包不畫（ADR-0174） | todo |
+| 02 平常推變快：先讀完再寫 | done（`claude/sheet-speed` `039edd61`） |
+| 03 重畫變快：同一種動作收成一次 | done（`3bfdefd6`） |
+| 04 兩台同時推：比較舊的那一包不畫（ADR-0174） | done（`854bd266`，已推到 origin） |
 
 常見問題「刪整列、還原版本 → 整份重畫」：PR #202，develop `3dd2ee12`。
 
@@ -20,7 +20,7 @@
 
 | 段 | 做 | effort | 狀態 |
 |---|---|---|---|
-| 段一 | 02 → 03 → 04 | high | 還沒開 |
+| 段一 | 02 → 03 → 04 | high | 做完（11/5，`854bd266`） |
 | 段二 | `/matt-code-review` 審 02～04、照建議修、開 PR、CI 綠合進 develop、寫她要照順序做的「貼 .gs 到 staging → 看執行紀錄比秒數」 | xhigh | 還沒開 |
 
 之後（不在這一輪的段裡）：她把新的 `.gs` 貼到 staging 的試算表、重新部署 → 比 Apps Script 執行紀錄改前改後的秒數 → 夠快就貼正式版；
@@ -31,6 +31,10 @@
 `node scripts/sheet-gs-calls.mjs <整包.json>`：用測試的替身數一次推送讀幾次、寫幾次、寫完又馬上讀幾次（只印數字）。
 正式站 11/5 那一包在主資料夾的 `.local/references/試算表健檢-2026-11-05/bundle-pushed.json`（在這個 worktree 裡是 `../../../.local/...`；**有真名，結果只印數字**）。
 改前（develop `3dd2ee12`）：都沒變 讀 143／寫 46／寫完又讀 38；整份重畫 讀 619／寫 6,506／寫完又讀 276。
+段一做完（`854bd266`）：都沒變 讀 76／寫 36／寫完又讀 **0**／文件屬性 35 → 1；整份重畫 讀 246／寫 **1,498**／寫完又讀 **34**（數法在 `tests/helpers/countGsCalls.js`）。
+
+`node scripts/sheet-gs-compare.mjs <改前的.gs> <整包.json>`：兩份 `.gs` 跑同一串推送（第一次、都沒變、一頁變了、整份重畫），逐格比值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋，只印數字。
+改前那一份：`git show 3dd2ee12:sheets/readonly-report.gs > old.gs`。正式站那一包四步都 0 個不一樣。
 
 ## 規矩
 
@@ -67,7 +71,14 @@ subagent 過目 01（11/5），主控對過後改了：
 1. **試算表每一頁的字其實全是 11 號**：`.gs` 的 `finish()` 最後整頁 `setFontSize(11)`，把名字那一格的 14 號（大字）、註記列（器材、記一句、二返註記）的 9 號小灰字的「9」都蓋掉了 ——
    程式本來想讓名字大一點、註記小一點，畫出來沒有。這一輪批次化照現在的樣子畫（一個像素都不變）。建議：問她要不要讓名字變大、註記變小（改的話 `LAYOUT_VERSION` 再加一，每一頁重畫一次）
 
-## 段一的開場
+### 段一（02～04）做的時候
+
+2. **這個 worktree 裡 `npm test` 有 1 支跳過**：`tests/no-secrets.test.js` 的別名表那一條（worktree 底下沒有 `.local/`）。不是這一輪弄的、CI 上也是跳過。
+   段一推之前另外把三個 commit 的 diff 與 commit 訊息整份過一次 `redact.mjs`：被遮的只有數字串與 `.gs` 註解裡本來就有的 `高能/sis`，沒有名字。
+   建議：段二開 PR 前在主資料夾（有 `.local/`）跑一次 `node --test tests/no-secrets.test.js`，或照樣過一次過濾網
+3. （不用她決定）`LAYOUT_VERSION` 2：新的 `.gs` 部署後第一次推送每一頁都重畫一次（約 1,500 次寫，照比例估一分鐘內）—— 是預期的，她比秒數時要拿**第二次以後**的平常推來比
+
+## 段一的開場（已用掉）
 
 這一輪：讓試算表推送變快（Apps Script `.gs` 批次讀寫，畫出來一模一樣），並讓兩台同時推時比較舊的那一包不畫。分支 `claude/sheet-speed`（worktree `.claude/worktrees/sheet-push-gaps-112028`），上一段做到 `2d61b660`（issue 02～04 與量的工具）。
 
@@ -91,3 +102,35 @@ subagent 過目 01（11/5），主控對過後改了：
 主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
 
 做完要交：每支一個 commit、`Status: done`、issue 底下「做完時留下的」（含 `scripts/sheet-gs-calls.mjs` 改前改後的數字）、`npm test` 全過、更新 HANDOFF（狀態、中途發現），把段二的開場寫進 HANDOFF（審查要特別看的：「這一行會不會讓畫出來的跟改前不一樣」「會不會讓比較新的那一包被當成舊的不畫」，要查牽連的：`render`、`renderCustomer`、`noteBlock`、`finish`、`doPost`、`buildBundle`、`pushedSay`）；推到 origin。最後回覆簡短說做了什麼、卡在哪。
+
+## 段二的開場
+
+這一輪：讓試算表推送變快（`.gs` 批次讀寫，畫出來一模一樣）＋兩台同時推時比較舊的那一包不畫（ADR-0174）。分支 `claude/sheet-speed`（worktree `.claude/worktrees/sheet-push-gaps-112028`），
+段一做完 02、03、04，最新 `854bd266`、已推到 origin。這一段：**審查 → 照建議修 → 開 PR 進 develop → CI 綠就合 → 寫她要照順序做的事**。建議 effort：**xhigh**。
+
+先讀：
+- `CLAUDE.md`（「試算表的 SYNC_FORMAT」那一列，段一補了一段）、`docs/agents/lessons.md`
+- `.scratch/sheet-push-gaps/HANDOFF.md`（「量的工具」「規矩」「中途發現」）、`spec.md` 的「第二輪」
+- `.scratch/sheet-push-gaps/issues/02`、`03`、`04` 整支 —— 每一支的「做完時留下的」寫了做法、跟 issue 寫的不一樣的地方、只在 staging 驗得到的
+- `docs/adr/0174-older-sheet-bundle-is-not-drawn.md`、`0161`、`0013`
+
+做：
+1. `/matt-code-review`，起點 `5050997e`（段一開始之前）。**審查要特別看**：
+   - 「這一行會不會讓畫出來的跟改前不一樣？」—— `Canvas`／`paint()`／`rectsByValue()`／`mergeAll()`：格式只記最後一次、沒設過的格子不碰、值先寫再合併、凍結最後；
+     `getLastRow()` 照 Google 的算法（替身也改成不算 `''`）。比法：`tests/sheet-gs-batch.test.js` 的雜湊（改前的 `.gs` 跑出來的）、`scripts/sheet-gs-compare.mjs` 跑正式站那一包（只印數字）
+   - 「會不會讓比較新的那一包被當成舊的不畫？」—— `dataAtOf()`、`isStaleBundle()`、`buildBundle()` 先讀稽核再讀資料、`doPost()` 拿到鎖之後才比、畫完才記、沒帶時間照畫
+   - 先讀完再寫那一套（`readBook()`、`sizeOf()`、`protectionsOf()`、`emptyOf()`）：**整頁空著的分頁照舊算我們的**、她自己的同名分頁照舊跳過、畫到一半逾時那一頁的指紋照舊不在、
+     `_data` 的鎖對了才不重上、`forgetStale()` 不用 `setProperties(…, true)`（`onEdit` 同時拿掉的指紋會被救回來）
+   - 要查牽連的：`render`、`renderCustomer`（測試會單獨包它、少傳 `book`）、`noteBlock`、`finish`、`doPost`、`buildBundle`（只有 `run()` 叫，回傳改成 `{ bundle, dataAt }`）、`pushedSay`（`ui/views/report.js` 一行沒動）
+   - 替身改了什麼（`tests/helpers/appsScriptStub.js`）：會不會讓既有的測試變得比 Google 寬鬆（`getLastRow`、`removeEditors` 真的拿掉人、`Protection.remove()` 只拿掉自己）
+2. 照建議修（範圍內、小的順手修；要她決定的段末一次問）。動 `public/` 要再升 `sw.js` VERSION（現在 v282）＋`npm run shell:snapshot`
+3. 開 PR 進 **develop**（rebase 到 origin/develop，`sw.js` 那一行留大的再加一）。PR 內文與 commit 不帶真名；推之前在主資料夾跑一次 `node --test tests/no-secrets.test.js`
+   （這個 worktree 沒有 `.local/`，那一條會跳過 —— HANDOFF「中途發現」2）。CI 綠就合（不用再問）。E2E 交給 CI，**本機不跑 E2E、不起模擬器、不停 port**
+4. 寫她要照順序做的事（白話、一步一步）：**貼新的 `.gs` 到 staging 的試算表 → 重新部署（同一個網址）→ 第一次推送會每一頁重畫（`LAYOUT_VERSION` 2，正常）→
+   之後在 app 改一筆、看 Apps Script「執行作業」那一頁平常推與「整份重畫」各幾秒，跟改前（平常推 25–48 秒、整份重畫約 192 秒）比** → 夠快再貼正式版；
+   不夠快再談 Sheets API 進階服務。另外列出「只在 staging 驗得到」的那幾件（02、03、04 的「做完時留下的」最後一段）
+5. 段末一次問她：HANDOFF「中途發現」1（名字大字、註記小字現在都被蓋成 11 號，要不要改）
+
+規矩：讀 `.local` 一律接 `| node ../../../.local/references/redact.mjs`、正式站那一包的結果只印數字；subagent 同時最多兩個；中途發現記進 HANDOFF 不岔出去修。
+
+做完：PR 合進 develop、HANDOFF 狀態更新、她的步驟寫在 HANDOFF 與回覆裡；回覆簡短說做了什麼、卡在哪。
