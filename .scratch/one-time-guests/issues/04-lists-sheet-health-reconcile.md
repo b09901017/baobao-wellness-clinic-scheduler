@@ -1,6 +1,6 @@
 # 04：名單排除、試算表、資料健檢、月底對帳
 
-Status: todo
+Status: done
 Blocked by: 01（資料健檢鏈上那兩項另外要 02、03）
 
 ## 先看：試算表那一輪合了沒（她 11/5）
@@ -61,4 +61,38 @@ Blocked by: 01（資料健檢鏈上那兩項另外要 02、03）
 
 ## 做完時留下的
 
-（做完的那一段寫）
+段二（2026-11-05）。開工前 `git fetch`：develop 沒動（`926e5712`，PR #204 已在裡面）、**沒有開著的 PR**，所以試算表那一塊照做、沒等。
+測試在 `tests/one-time-lists.test.js`（23 條；名單每一條都**替他手動加一筆額度**再問）與 `tests/month-end-reconciliation.test.js` 最後一塊（4 條，整支跑 `reconcile.mjs`）。
+
+**名單**（每一處明寫 `isOneTime()`，跟「停用」「刪掉」同一行）：
+- `scheduling.js` 五支：`buildCustomerQueue()`、`customersToAsk()`、`customersToAskForMonth()`、`customersToBook()`、`candidatesFor()`（時段反查：不在名單上、也不在「為什麼不在」裡）。
+  `scheduling.js` 從 `masterData.js` import（domain 裡已經 import 它的照樣從那裡拿，01 的約定）
+- 開著的那一批：`batchRows()` 接新的人之前濾掉（`buildCustomerQueue()` 已經不算他，這裡照樣明寫）
+- 看這個月的進度：`ui/views/progress.js` 讀 `customers` 那一行。**刻意不放進 `domain/progress.js` 的 `buildProgress()`** —— 客戶詳情一位一位問它（`customerDetail.js:481`），
+  05 的名字卡那一頁要畫他的來訪紀錄的話會被濾成空的
+- 長備註「寫給誰？」：`views/longNotes.js` 的挑人那一排（長備註清單本身不濾 —— 名字卡不給長備註，他身上不會有）
+- 手動貼上「要哪一份」：`ui/views/report.js` 的 `load()` 回的 `customers` 濾掉
+
+**試算表**（`sheetReport.js`；沒動 `sheetSync.js`、`sheetPushTiming.js`、`.gs`；**不升 `SYNC_FORMAT`**，指紋照 `syncBundle()` 的資料算、跟著對）：
+- `syncBundle()` 的客戶跳過 `isOneTime()`（排在 `sheetNames()` 之前 —— 一次性客人跟一般客戶同名時不替一般客戶加尾巴）
+- 新的 `sheetVisits(visits)`：一次性的段拿掉；整天都是 → 整筆拿掉（日期欄不畫）；混著一般的段 → 只留一般的、整筆狀態照留下來的段重推（`withSlotStatuses()` → `visitStatusFrom()`）——
+  不重推的話「一次性那一段做完、一般那一段取消」那一天照樣被 `isActive()` 當成有來。沒有一次性的段的來訪原封不動（同一個物件）。**兩條路都先過它**（`syncBundle()`、`customerReport()`）
+- 待辦（`taskBlocks()`，兩條路共用）：新的 `guestTask()` —— 帶 `slotIndexes` 的看那幾段、沒有的（健檢鏈那幾種、舊任務）看那一天每一段，全是一次性才不印。
+  **混著一般的段的那一天，沒有 `slotIndexes` 的鏈上待辦照印**（拿不準就印；只有「轉成客戶那一天同一天又記了一般的段」才會發生）
+- 中途發現段一第 3 條的保險：`followupNotes()` 的 `add()` 本來就跳過 `dateIndex < 0`，而日期欄從濾過的來訪算 —— 接在一次性健檢上的那幾場不會印（測試釘住）；
+  03 之後接一次性健檢的 n返 也標一次性，整段被 `sheetVisits()` 拿掉
+
+**資料健檢**：`checkStaleAvailability()` 跳過一次性客人；`followupLinks`／`followupDouble` 不用改 —— `strandedFollowups()`／`doneAheadOfExam()`／`doubleClaimedExams()` 02 就在裡面套投影了（測試釘住：一次性的二返接還排著的一次性健檢不列、健檢取消了照列）。
+其餘照查（孤兒資料：他是一份客戶文件，他的來訪不是孤兒 —— 測試釘住）。查過沒有別的一項會把一次性的段當成問題（沒有額度的段只有 EECP 體驗那一項看，只認那一門課）
+
+**月底對帳**（`reconcile.mjs`、`SKILL.md`）：
+- 認人本來就是 `readAbovee()` 對 `ctx.customers`（含一次性客人）→ 認得就是 `recorded`／`new`，`strangers` 只剩 `identifyCustomer()` 認不出的（這一條不用改，測試釘住）
+- 新的 `guestSlot()`／`guestItem()`：app 那一段標一次性、或這一列的人是一次性客人而 app 上還沒有那一段。次數表兩側（Abovee 課程完成、app 做完的段）都不數它
+- 講次數的那幾句換成「一次性的段，不扣次數」：`unsigned`（次數還沒扣）、`stillBooked`（佔著一次）、`appDoneStays`（扣了一次）、`extra`（扣了一次）；`missing`（app 少算一次）換成「一次性客人，不扣次數」
+- `SKILL.md`「那一頁每一塊是什麼」那一列改成「沒建名字卡的人（體驗、別人的客人、還沒記成一次性客人的）」，並補一句一次性的段不進次數表。
+  `report.mjs` 那一塊的小字（「不是妳的客人就不用管」）沒改 —— 要不要多一句「要記進 app 就建一次性客人」等名字卡做好（05／07）再說，記在 HANDOFF 中途發現
+- 「一天一格」那一排（`days`：Abovee 幾列、app 幾段）**照數一次性的段** —— 那是來訪，不是次數
+
+**備份、還原**：不用改（客戶集合本來就在 `exportAll()` 與 `restore-backup.mjs` 的 `SECTIONS` 裡；`oneTime` 是客戶與時段身上的一格，跟著整份走）。
+
+`sw.js` v287。E2E 沒在本機跑，推上去用 CI 全量跑（見 HANDOFF）。

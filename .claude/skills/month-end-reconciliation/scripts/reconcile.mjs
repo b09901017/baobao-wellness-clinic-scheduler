@@ -22,7 +22,7 @@ const { counts, slotOutcome, isProduct } = await D('entitlements.js');
 const { syncBundle } = await D('sheetReport.js');
 const { slotStatus, isActive, isLiveSlot, markFor } = await D('visits.js');
 const { slotName } = await D('naming.js');
-const { giftKindOf, giftLabel } = await D('masterData.js');
+const { giftKindOf, giftLabel, isOneTime, isOneTimeSlot } = await D('masterData.js');
 const { nthOf } = await D('nthFollowup.js');
 const { todayISO } = await D('dates.js');
 const { bookingSystemOf } = await D('taskRules.js');
@@ -161,6 +161,14 @@ function appSlotOf(item) {
   const slot = visit?.slots?.[ex.slotIndex];
   return slot ? { visit, slot, index: ex.slotIndex } : null;
 }
+
+/**
+ * 一次性客人（ADR-0172）：認得就是有記（他是一份客戶文件，`readAbovee()` 照樣認），**但他的段不扣次數** ——
+ * 講次數的那幾句換一句、次數表不數那幾段。app 那一段標一次性、或這一列的人是一次性客人（app 上還沒有那一段）都算。
+ */
+const guestSlot = (slot) => isOneTimeSlot(slot);
+const guestItem = (item) => guestSlot(appSlotOf(item)?.slot) || (!appSlotOf(item) && isOneTime(customersById[item.customerId]));
+const GUEST_NO_COUNT = '一次性的段，不扣次數';
 
 const STATUS_WORD = { pending_confirm: '待確認', confirmed: '已確認', done: '已完成', no_show: '未到', cancelled: '已取消' };
 const md = (iso) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
@@ -340,7 +348,7 @@ for (const item of items) {
 
   if (item.kind === 'unknown') {
     // 認不出的人照人收成一份（`strangers`），不算進「要處理的」：Abovee 上本來就有不是她客人的預約（體驗、別人的客人），
-    // 每個月都會出現。名字跟病歷號對到不同人、同名兩位 —— 那兩種是 app 的資料要修，照舊算要處理的
+    // 每個月都會出現。**建了名字卡的一次性客人不在這裡**（ADR-0172）：`identifyCustomer()` 認得他，那一列是有記或「app 沒有這一段」。名字跟病歷號對到不同人、同名兩位 —— 那兩種是 app 的資料要修，照舊算要處理的
     const how = item.who?.how;
     if (how === 'conflict' || how === 'ambiguous') {
       push('fix', 'unknown', base, how === 'conflict' ? '名字跟病歷號在 app 裡對到不同的人' : 'app 裡同名的不只一位，病歷號也沒對上',
@@ -368,12 +376,13 @@ for (const item of items) {
       if (ch.to === 'done' && from === 'no_show') {
         push('fix', 'status', base, `${photoWord(item)}，app 記「未到」（沒扣）`, '確認客人那天有沒有來：有來的話日曆上那一段「退回簽療程單」再簽成做了');
       } else if (ch.to === 'done') {
-        push('fix', 'unsigned', base, `${photoWord(item)}，app 還是「${STATUS_WORD[from]}」—— 療程單還沒簽，次數還沒扣`,
+        push('fix', 'unsigned', base, `${photoWord(item)}，app 還是「${STATUS_WORD[from]}」—— 療程單還沒簽，`
+          + `${guestItem(item) ? `${GUEST_NO_COUNT}` : '次數還沒扣'}`,
           '待辦中心 → 簽療程單，把這一段勾成做了');
       } else if (ch.to === 'no_show') {
         push('fix', 'unsigned', base, `${photoWord(item)}，app 還是「${STATUS_WORD[from]}」`, '待辦中心 → 簽療程單，這一段選「沒來」');
       } else if (ch.to === 'cancelled') {
-        push('fix', 'stillBooked', base, `${photoWord(item)}，app 還排著（佔著一次）`, '日曆 → 那一段 → 取消這一段');
+        push('fix', 'stillBooked', base, `${photoWord(item)}，app 還排著（${guestItem(item) ? GUEST_NO_COUNT : '佔著一次'}）`, '日曆 → 那一段 → 取消這一段');
       }
     } else if (item.move) {
       push('note', 'moved', base, `時間不一樣：app 是 ${item.movedFrom?.startsAt ?? item.move?.from ?? ''}`, '以 Abovee 為準的話去日曆改期');
@@ -396,7 +405,7 @@ for (const item of items) {
         break;
       }
       case 'appDoneStays':
-        push('fix', 'status', base, `${photoWord(item)}，app 已經是「已完成」（扣了一次）`,
+        push('fix', 'status', base, `${photoWord(item)}，app 已經是「已完成」（${guestItem(item) ? GUEST_NO_COUNT : '扣了一次'}）`,
           ps === 'cancelled' ? '如果真的沒做：日曆上那一段要更正（已完成的鎖著，找我幫忙）' : '確認客人那天有沒有來');
         break;
       case 'aboveeNotDone':
@@ -449,7 +458,9 @@ for (const item of items) {
     continue;
   }
   if (ps === 'done') {
-    push('fix', 'missing', base, `${photoWord(item)}，app 上沒有這一段 —— app 少算一次`, '在 app 拍一次 Abovee 補記，或去日曆新增');
+    // 一次性客人沒有額度：app 沒有這一段不是「少算一次」，只是日曆上少了那一次來訪
+    push('fix', 'missing', base, `${photoWord(item)}，app 上沒有這一段 —— ${guestItem(item) ? '一次性客人，不扣次數' : 'app 少算一次'}`,
+      '在 app 拍一次 Abovee 補記，或去日曆新增');
   } else if (ps === 'no_show') {
     push('note', 'missingNoShow', base, `${photoWord(item)}，app 上沒有這一段（不扣次數）`, '要留紀錄的話在 app 補記');
   } else if (past(item.date)) {
@@ -471,7 +482,8 @@ for (const s of absent.slots) {
   };
   if (inGap(s.date, s.startsAt)) continue; // 在可能少截的那一頁裡 —— `gaps` 列出來了
   if (s.status === 'done') {
-    push('fix', 'extra', base, 'app 是「已完成」（扣了一次），Abovee 上找不到這一段', '確認那天有沒有做：沒做的話 app 要更正；有做的話是 Abovee 漏壓');
+    push('fix', 'extra', base, `app 是「已完成」（${guestSlot(slot) ? GUEST_NO_COUNT : '扣了一次'}），Abovee 上找不到這一段`,
+      '確認那天有沒有做：沒做的話 app 要更正；有做的話是 Abovee 漏壓');
   } else if (s.status === 'no_show') {
     push('note', 'extraNoShow', base, 'app 記「未到」，Abovee 上找不到這一段（不扣次數）', '不影響次數');
   } else if (past(s.date)) {
@@ -508,6 +520,8 @@ const bucketIn = (person, key) => {
 // Abovee：課程完成的列，算進它在 app 上對到的那一段的桶（沒對到就算進 app 預選的那一筆）
 for (const item of items) {
   if (!item.customerId || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
+  // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
+  if (guestItem(item)) continue;
   const hit = appSlotOf(item);
   const b = bucketIn(personOf(item.customerId, item.row?.name), hit ? bucketOfSlot(hit.slot) : bucketOfItem(item));
   b.abovee += 1;
@@ -517,7 +531,7 @@ for (const item of items) {
 for (const v of visitsAlive) {
   if (!fullDay(v.date) || !isActive(v)) continue;
   for (const slot of v.slots ?? []) {
-    if (slotOutcome(v, slot) !== 'done') continue;
+    if (slotOutcome(v, slot) !== 'done' || guestSlot(slot)) continue;
     const b = bucketIn(personOf(v.customerId, v.customerName), bucketOfSlot(slot));
     b.app += 1;
     // 不壓 Abovee 的課（健檢壓 Examine、HRV 不用壓）Abovee 上本來就不會有 —— 那一桶不拿 Abovee 比

@@ -18,6 +18,7 @@ import { overlaps, toMinutes } from './visitTime.js';
 import { addMonths, daysBetween, isValidDate, lastDayOf, monthLabel } from './dates.js';
 import { readMarks } from './customerMarks.js';
 import { bookingSystemOf } from './taskRules.js';
+import { isOneTime } from './masterData.js';
 
 export const DEFAULT_WEIGHTS = { w1: 1.0, w2: 0.8, w3: 0.6, w4: 0.3 };
 
@@ -253,7 +254,8 @@ export function buildCustomerQueue({
 
   const rows = [];
   for (const customer of customers) {
-    if (customer.active === false || customer.deletedAt) continue;
+    // 一次性客人不在任何名單上（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」：替他加了一筆也不會漏出來
+    if (customer.active === false || customer.deletedAt || isOneTime(customer)) continue;
 
     const visits = visitsBy[customer.id] ?? [];
     const { pools, totalRemaining, soonestExpiry } = customerPools({
@@ -500,7 +502,8 @@ export function customersToAsk({
   const rows = [];
 
   for (const customer of customers) {
-    if (customer.active === false || customer.deletedAt) continue;
+    // 一次性客人不在任何名單上（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」：替他加了一筆也不會漏出來
+    if (customer.active === false || customer.deletedAt || isOneTime(customer)) continue;
 
     const { totalRemaining } = customerPools({ entitlements: entitlementsBy[customer.id] ?? [] });
     if (totalRemaining <= 0) continue;
@@ -574,7 +577,8 @@ export function customersToAskForMonth({
   const rows = [];
 
   for (const customer of customers) {
-    if (customer.active === false || customer.deletedAt) continue;
+    // 一次性客人不在任何名單上（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」：替他加了一筆也不會漏出來
+    if (customer.active === false || customer.deletedAt || isOneTime(customer)) continue;
 
     const collections = (availabilityBy[customer.id] ?? []).filter((c) => !c.deletedAt);
     const collection = collectionFor(collections, range.from, range.to);
@@ -644,7 +648,8 @@ export function customersToBook({
   const rows = [];
 
   for (const customer of customers) {
-    if (customer.active === false || customer.deletedAt) continue;
+    // 一次性客人不在任何名單上（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」：替他加了一筆也不會漏出來
+    if (customer.active === false || customer.deletedAt || isOneTime(customer)) continue;
 
     const { pools } = customerPools({ entitlements: entitlementsBy[customer.id] ?? [] });
     const visits = visitsBy[customer.id] ?? [];
@@ -845,7 +850,9 @@ export function batchRows(batch, { all = [], customers = [] } = {}) {
   // 新加入的門檻跟開批那一刻同一道：身上還有剩的才算（`buildCustomerQueue()`
   // 預設的那一條）。**已經在名單裡的用完了照樣留著** —— 處理到一半人從畫面上
   // 消失是最難懂的一種畫面，所以 `all` 是帶著 includeUsedUp 算的。
-  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0));
+  // 一次性客人不接進開著的那一批（ADR-0172 決定一）：`buildCustomerQueue()` 已經不算他，這裡照樣明寫
+  const guests = new Set((customers ?? []).filter(isOneTime).map((c) => c.id));
+  const { queue, added } = mergeIntoQueue(batch, all.filter((r) => r.totalRemaining > 0 && !guests.has(r.customerId)));
   const present = presentQueue(queue, customers);
 
   return {
@@ -933,7 +940,8 @@ export function candidatesFor({
   const drop = (customer, why) => excluded.push({ customerId: customer.id, customerName: customer.name, why });
 
   for (const customer of customers) {
-    if (customer.active === false || customer.deletedAt) continue;
+    // 一次性客人不在任何名單上（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」：替他加了一筆也不會漏出來
+    if (customer.active === false || customer.deletedAt || isOneTime(customer)) continue;
 
     const entitlements = entitlementsBy[customer.id] ?? [];
     const visits = visitsBy[customer.id] ?? [];
