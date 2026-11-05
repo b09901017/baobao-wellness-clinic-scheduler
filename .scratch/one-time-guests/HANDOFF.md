@@ -10,7 +10,7 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 |---|---|---|---|
 | 設計 | 談定 8 題、ADR-0172、CONTEXT.md、spec、issue 01–08、subagent 過目 | xhigh | **做完**（commit 見 git log） |
 | 一 | 01 形狀與驗證、02 健檢那一串（domain：虛擬的一對） | xhigh | **做完**（11/5，`0668f0ee`、`ff12b4fd`；單元 5552 全過；CI 全量 E2E 六台全綠） |
-| 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | **做完**（11/5，`7389fb7b`、`9ea77263`；單元 5634 全過、真名掃描 skipped 0；**還沒推上去**：rebase 之後要 `--force-with-lease`，被 auto mode 擋下來 —— 推了之後跑 CI 全量 E2E，見中途發現段二第 1 條） |
+| 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | **做完**（11/5，`7389fb7b`、`9ea77263`；單元 5634 全過、真名掃描 skipped 0；被 auto mode 擋下來之後，**她 11/5 准主控強制推一次**（`--force-with-lease`），推上去了；CI 全量 E2E 見中途發現段二第 1 條） |
 | 三 | 05 客戶清單最底下、名字卡那一頁（含表單元件）、轉成我的客戶；06 日曆新增、來訪編輯器與壓表、讀取卡片、「約二返」的按鈕 | high | todo |
 | 四 | 07 拍 Abovee；08 文件；CI 全量 E2E；手動驗收清單草稿 | high | todo |
 | 五 | `/matt-code-review` 審查這一輪全部 | xhigh | todo |
@@ -18,7 +18,8 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 
 ## 每一段共同的規矩
 
-- **動工前先 `git fetch`**，這一條分支落後 `origin/develop` 就 `git rebase origin/develop`（不重做）
+- **動工前先 `git fetch`**；這一條分支落後 `origin/develop` 就**合併、不要 rebase**（11/5 起）：這個 worktree 是 app 開的，用 ccd_host 的 `sync_with_base_branch` 工具（沒有那個工具就 `git merge origin/develop`），解完衝突照常 commit、push。rebase 會換掉已經推上去的 commit，之後只能強制推送 ——
+  auto mode 把它當成有破壞性的操作擋下來（段二被擋過；她 11/5 准過一次，**不是之後都准**）
 - 小修那一輪（PR #203）已經在 develop：**來訪編輯器按儲存一律重讀這位客戶的全部來訪**、資料健檢「補上二返額度／補警示詞」的 id 掃描時鑄好、
   重算次數帶 `ifUpdatedAt`、營養品交付寫之前重讀、隨手記挑日期、行事備註顏色（ADR-0171）。**03、04、06 碰到 `data/visits.js`、`data/health.js`、`visitEditor.js` 的地方先看現在長怎樣**
 - **還在平行做的兩輪**（各在自己的 worktree，**不碰它們的資料夾與分支**）：
@@ -193,10 +194,10 @@ sheetReport.js 那幾行在裡面；claude/sheet-speed 那條分支跟 develop �
 
 ```
 這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一、二做完 01–04（commit 見 git log）。
-先確認段二那兩個 commit（03 7389fb7b、04 9ea77263）推上去了沒：git fetch 之後 git status -sb 還寫 ahead 的話，那是段二 rebase 過、
-要 git push --force-with-lease origin claude/one-time-visit-design（段二被 auto mode 擋下來 —— 擋了就停下來問她，不要換寫法繞）；
-推上去之後跑一次 CI 全量 E2E（gh workflow run e2e-full.yml --ref claude/one-time-visit-design），結果寫回 HANDOFF。
-接著 git fetch，落後 develop 就 rebase（rebase 之後推這條分支用 --force-with-lease；package-lock 變了才重跑 npm ci）。
+段二那兩個 commit（03、04）主控 11/5 推上去了（她准強制推一次），也跑了 CI 全量 E2E（run 編號在 HANDOFF 中途發現段二第 1 條）：
+先 gh run view <那個編號> 看結果 —— 紅了先修（那是 03、04 的），每一條先紅燈、寫回 HANDOFF，再開始 05。
+接著 git fetch；落後 develop 就合併、不要 rebase（用 ccd_host 的 sync_with_base_branch 工具，沒有就 git merge origin/develop；package-lock 變了才重跑 npm ci）——
+rebase 之後只能強制推送，auto mode 會擋。
 讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、
 .scratch/one-time-guests/HANDOFF.md（共同的規矩、過目抓到的、中途發現 —— 段一、主控重查、段二那七條）、01–04 的「做完時留下的」。
 查牽連用這個 worktree 自己的 CodeGraph 索引（改了檔之後 codegraph sync 再查，照樣跟 grep 對一次），graphify 查主資料夾的 graph.json（--graph）。
