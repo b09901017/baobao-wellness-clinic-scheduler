@@ -21,6 +21,7 @@ import {
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import { assertNoOneTimeIds } from '../domain/oneTimeChain.js';
 
 const PATH = 'visits';
 const TASK_PATH = 'tasks';
@@ -743,6 +744,9 @@ function toOps({ create = [], update = [], remove = [] }) {
 }
 
 function countOps(customerId, touched, visitsAfter) {
+  // **存檔那一道防線**（ADR-0172 決定三）：一次性客人的那一對額度只在算健檢那一串的時候存在 —— 投影過的那一份被拿來存，
+  // 這裡就會去改一筆不存在的額度。`save()`、`remove()`、`restore()` 都經過這一支；丟錯、不悄悄清掉
+  assertNoOneTimeIds([...touched.filter(Boolean), ...(visitsAfter ?? [])]);
   const ids = touchedEntitlementIds(...touched.filter(Boolean));
   const recounted = recount(ids, visitsAfter);
   const at = new Date().toISOString();

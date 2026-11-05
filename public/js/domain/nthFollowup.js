@@ -42,6 +42,8 @@
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
 import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
+// 一次性客人的 n返 接他的一次性健檢（ADR-0172）：找健檢的那兩支吃投影過的那一份。n返 自己**不填**那一對的 id
+import { withOneTimeChain } from './oneTimeChain.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -161,8 +163,11 @@ export function examVisits(entitlements = [], coursesById = {}, visits = []) {
  * @returns {string|null} 課程 id。那一次健檢對不到健檢額度就是 null
  */
 export function courseIdForNth(examVisit, entitlements = [], coursesById = {}) {
-  const byId = new Map((entitlements ?? []).map((e) => [e.id, e]));
-  for (const slot of examVisit?.slots ?? []) {
+  if (!examVisit) return null;
+  // 那一次是一次性客人的健檢的話，用那一對認出它是健檢（ADR-0172）。只投影這一筆：要的只是課程
+  const chain = withOneTimeChain({ entitlements, visits: [examVisit], coursesById });
+  const byId = new Map((chain.entitlements ?? []).map((e) => [e.id, e]));
+  for (const slot of chain.visits[0]?.slots ?? []) {
     const course = coursesById[byId.get(slot.entitlementId)?.courseId];
     const followupId = followupCourseIdOf(course);
     if (followupId) return followupId;
@@ -255,8 +260,10 @@ export function nextNthFor(examVisitId, visits = [], followupEntitlementIds = []
  *   日期舊的在前
  */
 export function examChoicesForNth({
-  entitlements = [], coursesById = {}, visits = [], excludeVisitId = null,
+  entitlements: givenEntitlements = [], coursesById = {}, visits: givenVisits = [], excludeVisitId = null,
 } = {}) {
+  // 一次性客人的健檢也列（ADR-0172）：一次性的 n返 接得上，轉成客戶之後的 n返 也接得上。回的 `visitId` 是真的來訪 id
+  const { entitlements, visits } = withOneTimeChain({ entitlements: givenEntitlements, visits: givenVisits, coursesById });
   const second = secondFollowupIds(entitlements);
   const others = (visits ?? []).filter((v) => v.id !== excludeVisitId);
   const examIds = examEntitlementIds(entitlements, coursesById);

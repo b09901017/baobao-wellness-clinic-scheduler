@@ -726,6 +726,8 @@ export const FOLLOWS = {
     'public/js/ui/views/schedule.js', 'public/js/ui/views/trash.js',
   ],
   'public/js/domain/lineText.js': ['public/js/ui/views/playbook.js'],
+  // 一次性客人的那一對額度（ADR-0172）：健檢那一串（followups.js）、n返（nthFollowup.js）進來先套它
+  'public/js/domain/oneTimeChain.js': ['public/js/domain/followups.js', 'public/js/domain/nthFollowup.js'],
   // 圖示只在兩個地方被讀：`manifest.webmanifest`（裝到主畫面）與 `index.html` 的 `<link rel="icon">`。
   // 後者是共用底座，但它載不到圖示的症狀是一句 console error —— `00-smoke`（CORE）本來就在抓那個
   'public/icons/': ['public/manifest.webmanifest'],

@@ -24,6 +24,8 @@ import {
   examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks, isFollowupCourse,
 } from './followups.js';
 import { slotName, fullNameOf } from './naming.js';
+// 一次性客人的那一對額度（ADR-0172 決定三）：只有「二返接哪一次健檢」那幾道吃投影
+import { withOneTimeChain } from './oneTimeChain.js';
 import {
   isNthSlot, nthOf, nthLabel, examEntitlementIds, isExamVisit,
   followupsOfExam, secondFollowupIds, examChoicesForNth, MIN_NTH, MAX_NTH,
@@ -1707,11 +1709,18 @@ function visitErrors(visit, {
   const slots = visit.slots ?? [];
   if (!slots.length) errors.push('一次來訪至少要有一個時段');
 
+  // **「二返接哪一次健檢」那幾道吃一次性客人的那一對**（ADR-0172 決定三）：一次性的二返接一次性的健檢，
+  // 「指到取消／未到」「一次只接一場」照樣擋。**其餘照原本那一份驗** —— 拿投影過的去驗「一次性的段沒有額度」或超用，
+  // 會驗出一筆虛擬的額度。正在存的這一筆接在最後（蓋掉資料庫裡的舊版本）；沒有一次性的段時三份都是原本那一份
+  const link = withOneTimeChain({ entitlements, visits: [...(customerVisits ?? []), visit], coursesById });
+  const linkVisit = link.visits.at(-1);
+  const linkVisits = link.visits.slice(0, -1);
+  const linkEntsById = byId(link.entitlements);
   // 哪幾筆額度是健檢。n返 指到的那一筆來訪要靠它驗（判斷跟
   // `domain/followups.js` 走同一條路：課程主檔上設了 followupCourseId 的）。
-  const examIds = examEntitlementIds(entitlements, coursesById);
+  const examIds = examEntitlementIds(link.entitlements, coursesById);
   // 存著的那一份（改既有的一天時才有）—— 二返的連結是新接上的、還是本來就在，靠它分（issues/11）
-  const stored = visit.id ? ((customerVisits ?? []).find((v) => v.id === visit.id) ?? null) : null;
+  const stored = visit.id ? (linkVisits.find((v) => v.id === visit.id) ?? null) : null;
 
   slots.forEach((slot, i) => {
     const at = slotLabel(i);
@@ -1840,22 +1849,30 @@ function visitErrors(visit, {
     // （見 assignmentWarnings）—— 舊資料一筆都沒有這個欄位，擋下來等於
     // 她連改一個時間都存不回去。但指到一筆對不上的健檢是資料壞了，那要擋。
     if (slot.followupForVisitId && !notMine) {
-      const exam = (customerVisits ?? []).find((v) => v.id === slot.followupForVisitId) ?? null;
+      // 這一圈讀投影過的那一份（`link`）：一次性的二返在那裡扣著那一對的二返、接的健檢扣著那一對的健檢。一般客人就是原本那一份
+      const lslot = linkVisit.slots?.[i] ?? slot;
+      const lent = linkEntsById[lslot.entitlementId];
+      const exam = linkVisits.find((v) => v.id === slot.followupForVisitId) ?? null;
       // 這個連結是這一次新接上的嗎。**不是新的只有兩種**：同一段本來就指著它；或這一次存檔把本來指著它的那一段取消掉了
       // （改時間＝`rebookSlot()`：舊的那一段取消、新的接在尾巴、帶著同一個連結 —— 所以不能只比位置）。
       // 兩種都要是**同一種段**（同一筆二返額度，或都是 n返）。以前問「存著的那一份這一天有沒有任何一段指著它」：
       // 取消掉的段、n返 都算，那一天再加一場接同一次的二返時底下兩道都跳過（10/9 審查）
       const was = stored?.slots ?? [];
       const same = (s) => s?.followupForVisitId === slot.followupForVisitId
-        && (s.entitlementId ?? null) === (slot.entitlementId ?? null);
+        && (s.entitlementId ?? null) === (lslot.entitlementId ?? null);
       const carried = same(was[i]) || was.some((s, j) => j !== i && same(s)
-        && slotStatus(stored, s) !== 'cancelled' && slots[j] && slotStatus(visit, slots[j]) === 'cancelled');
+        && slotStatus(stored, s) !== 'cancelled' && linkVisit.slots?.[j]
+        && slotStatus(linkVisit, linkVisit.slots[j]) === 'cancelled');
       if (!exam) errors.push(`${at}：指定的健檢來訪不存在`);
+      // 一次性的二返只接一次性的健檢（ADR-0172）：那一天裡沒有，投影就填不上那一對 —— 底下那幾道全部會跳過，這裡先講
+      else if (guest && !nth && !lent?.followupForEntitlementId && isFollowupCourse(slot.courseId, courses)) {
+        errors.push(`${at}：指定的那一天裡沒有一次性的健檢`);
+      }
       // 指到的那一筆要真的用掉這一段二返所配的那筆健檢額度 —— 不然
       // 試算表會把二返註記寫到一個不相干的日期底下。
-      else if (ent?.followupForEntitlementId
-          && !(exam.slots ?? []).some((x) => x.entitlementId === ent.followupForEntitlementId)) {
-        errors.push(`${at}：指定的那一天裡沒有「${ent.label}」對應的健檢`);
+      else if (lent?.followupForEntitlementId
+          && !(exam.slots ?? []).some((x) => x.entitlementId === lent.followupForEntitlementId)) {
+        errors.push(`${at}：指定的那一天裡沒有「${lent.label}」對應的健檢`);
       }
       // n返 沒有額度可以比，所以改問「那一筆是不是一次健檢」—— 每一次都驗（那是資料對不對）。
       else if (nth && !isExamVisit(exam, examIds)) {
@@ -1871,15 +1888,15 @@ function visitErrors(visit, {
       // 「這是哪一次健檢」那一排同一條（`PICKABLE_EXAM`），這裡擋住繞過去的那一條。
       // **只擋這一次新接上、或換過的連結**（`carried`）：那一段本來就指著它的是舊資料（ADR-0011 那一條原則）——
       // 健檢後來取消了，擋下來的話她改同一天別段的一個時間都存不回去
-      else if (ent?.followupForEntitlementId && !carried
-          && !PICKABLE_EXAM.has(examStatusIn(exam, [ent.followupForEntitlementId]))) {
-        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [ent.followupForEntitlementId]))}」，不會有報告`);
+      else if (lent?.followupForEntitlementId && !carried
+          && !PICKABLE_EXAM.has(examStatusIn(exam, [lent.followupForEntitlementId]))) {
+        errors.push(`${at}：指定的那一次健檢是「${shortStatus(examStatusIn(exam, [lent.followupForEntitlementId]))}」，不會有報告`);
       }
       // **一次健檢配一場二返**（ADR-0022：額度成對、次數一樣）—— 以前只靠畫面那一排把被佔走的那一顆關掉，
       // 而壓表那一排讀的來訪只到目標月份月底：佔走它的那一場約在更後面時那一顆照樣按得下去。
       // 這裡拿全部來訪驗（`customerVisits`），只驗新接上的（兩場本來就接同一次的是舊資料，資料健檢列）
-      else if (ent?.followupForEntitlementId && !carried) {
-        const by = followupHolding(slot.followupForVisitId, ent.id, visit, i, customerVisits);
+      else if (lent?.followupForEntitlementId && !carried) {
+        const by = followupHolding(slot.followupForVisitId, lent.id, linkVisit, i, linkVisits);
         if (by) {
           errors.push(`${at}：指定的那一次健檢已經接了 ${isValidDate(by.date) ? shortDate(by.date) : '另一天'} 那一場${course?.name ?? '二返'}`
             + ' —— 一次健檢配一場，要再約一場請選「＋ n返」');
@@ -2170,6 +2187,9 @@ function assignmentWarnings(visit, {
   const coursesById = byId(courses);
   const entsById = byId(entitlements);
   const ivById = byId(ivProducts);
+  // 「排在接的那一次健檢之前」吃一次性客人的那一對（ADR-0172，同 `visitErrors()` 的連結那幾道）；其餘照原本那一份
+  const link = withOneTimeChain({ entitlements, visits: [...(customerVisits ?? []), visit], coursesById });
+  const linkVisit = link.visits.at(-1);
 
   (visit.slots ?? []).forEach((slot, i) => {
     const course = coursesById[slot.courseId];
@@ -2188,7 +2208,11 @@ function assignmentWarnings(visit, {
       say(`${at}：${course.name} ${unlinkedFollowupSay(visit, slot, followup, entsById, customerVisits, course.name)}`);
     }
     // 排在接的那一次健檢之前（ADR-0145：接得上排著的健檢之後才會發生）。**只提醒不擋**（她：「只提醒不擋」）
-    const ahead = slot.followupForVisitId ? examAfter(visit, slot, { customerVisits, entitlements, coursesById }) : null;
+    const ahead = slot.followupForVisitId
+      ? examAfter(linkVisit, linkVisit.slots?.[i] ?? slot, {
+        customerVisits: link.visits.slice(0, -1), entitlements: link.entitlements, coursesById,
+      })
+      : null;
     if (ahead) say(`${at}：${name} 排在接的那一次健檢（${shortDate(ahead.date)}）之前`);
 
     // 哪些課程選得到醫師只寫在 `masterData.js` 的 `picksDoctor()`（課程自己選，ADR-0120；
