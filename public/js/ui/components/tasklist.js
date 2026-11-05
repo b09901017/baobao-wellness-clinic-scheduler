@@ -44,7 +44,7 @@ export function taskRow(task, visit = null, {
   const line = taskLine(task, visit, master);
 
   return `
-    <div class="taskrow ${task.done ? 'taskrow--done' : ''}">
+    <div class="taskrow ${task.done ? 'taskrow--done' : ''}${actions ? ' taskrow--actions' : ''}">
       <button class="note ${task.done ? 'note--done' : ''}" type="button"
               data-task="${esc(task.id)}" style="flex: 1; min-width: 0">
         <span class="note__box">${icon('check', { size: 13, width: 3.2 })}</span>

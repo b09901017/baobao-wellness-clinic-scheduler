@@ -5158,6 +5158,22 @@ body:has(.deck) > .toast > .btn {
   min-width: 0;
 }
 
+/* 待辦那一頁「約二返」那一列：左邊那一塊至少要 16rem，不夠的話右邊兩顆鈕整組換到下一行、靠右
+   （`home.js` 的 `taskRow()`；她 11/5：「這個太擠了」）。iPad 寬的時候照舊同一行 */
+.row--actions {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.row--actions > .choice {
+  /* 那個 label 身上寫著行內的 `flex: 1`（每一列都是），只有這一種要蓋掉 */
+  flex: 1 1 16rem !important;
+}
+
+.row--actions > .choice + .btn {
+  margin-left: auto;
+}
+
 /* 待辦中心「依客戶」的那一列。**它是按鈕不是連結**（2026-09-02）——
    點下去原地展開抽屜，不換頁（`views/home.js` 的 byCustomerHtml()）。
    `<button>` 自己帶一整套瀏覽器預設，這裡把它壓回一張卡的樣子。 */
@@ -6048,6 +6064,22 @@ body:has(.deck) > .toast > .btn {
 
 .taskrow:first-child {
   border-top: none;
+}
+
+/* 多一顆鈕的那一列（依客戶抽屜「約二返」的「去壓表／去日曆排」，`actions`）：鈕與「詳情」整組在下一行靠右 ——
+   擠在同一行的話「約二返」三個字被擠成一字一行（她 11/5：「太擠了」）。抽屜本來就窄，所以一律換行 */
+.taskrow--actions {
+  flex-wrap: wrap;
+  padding-bottom: var(--space-2);
+}
+
+.taskrow--actions > .note {
+  /* 那顆 button 身上寫著行內的 `flex: 1`（每一列都是），只有這一種要蓋掉 */
+  flex: 1 1 100% !important;
+}
+
+.taskrow--actions > .note + * {
+  margin-left: auto;
 }
 
 .taskrow .note {
