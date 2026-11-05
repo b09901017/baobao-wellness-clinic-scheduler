@@ -712,6 +712,8 @@ export const COVERAGE = {
  * 右邊每一條都要至少挑得到一支（`tests/e2e-related.test.js` 盯著）。
  */
 export const FOLLOWS = {
+  // 試算表推送什麼時候再推（失敗重試、回到 app、打開 app）：只有 sheetSync.js import 它
+  'public/js/domain/sheetPushTiming.js': ['public/js/data/sheetSync.js'],
   // 底下那一條滑掉的門檻與 12 秒（staging-polish 05）：只有 toast.js import 它
   'public/js/ui/toastSwipe.js': ['public/js/ui/toast.js'],
   'public/js/data/audit.js': [

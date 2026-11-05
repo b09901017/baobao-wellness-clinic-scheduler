@@ -790,7 +790,8 @@ function onEdit(e) {
 
   var previous = typeof e.oldValue === 'undefined' ? '' : e.oldValue;
   e.range.setValue(previous);
-  // 還原不了的那幾種（選一塊格子按刪除、貼上一整塊 —— 多格編輯沒有 oldValue；刪列不會叫這一支）要靠下一次推送畫回來。
+  // 還原不了的那幾種（選一塊格子按刪除、貼上一整塊 —— 多格編輯沒有 oldValue）要靠下一次推送畫回來。
+  // **刪列、插列、版本記錄還原不會叫這一支**：指紋沒被拿掉，下一次推送當成沒變 —— 要她按「整份重畫」（常見問題「試算表沒有更新」）。
   // 格式 8 起沒變的那幾頁不重畫（ADR-0161），所以改過的那一頁拿掉指紋：下一次推送它照樣重畫，上面那一句才是真的
   try {
     PropertiesService.getDocumentProperties().deleteProperty(FP_PREFIX + name);
