@@ -13,7 +13,7 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 | 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | **做完**（11/5，`7389fb7b`、`9ea77263`；單元 5634 全過、真名掃描 skipped 0；被 auto mode 擋下來之後，**她 11/5 准主控強制推一次**（`--force-with-lease`），推上去了；CI 全量 E2E 見中途發現段二第 1 條） |
 | 三 | 05 客戶清單最底下、名字卡那一頁（含表單元件）、轉成我的客戶；06 日曆新增、來訪編輯器與壓表、讀取卡片、「約二返」的按鈕 | high | **做完**（11/5，`42b054f6`、`f2fc82a0`，都推上去了（一般的 push，沒有改寫）；單元 5664 全過、真名掃描 skipped 0；E2E `94`、`95` 本機全綠；CI 全量 run `41986269764` 見中途發現段三第 1 條） |
 | 四 | 07 拍 Abovee；08 文件；CI 全量 E2E；手動驗收清單草稿 | high | **做完**（11/5，`3f460c42`（07）與 08 那一個 commit；單元 5700 全過、真名掃描 skipped 0；E2E `96`、`85` 與碰確認層的九支本機全綠；CI 全量 run 見中途發現段四第 7 條） |
-| 五 | `/matt-code-review` 審查這一輪全部 | xhigh | todo |
+| 五 | `/matt-code-review` 審查這一輪全部 | xhigh | **做完**（11/5，結果在 `REVIEW.md`：14 條，R1 高、R2–R4 中；段四 CI 全量六台全綠；合進 develop 之後單元 5712 全過、skipped 0） |
 | 六 | 照審查修、手動驗收清單在模擬器走一次、開 PR 進 develop、CI 綠了合併 | medium | todo |
 
 ## 每一段共同的規矩
@@ -41,6 +41,8 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
   現在 worktree 根目錄有一個目錄連結 `.local` → 主資料夾的 `.local`（`git check-ignore -v .local` 擋得住）。**推之前跑 `node --test tests/no-secrets.test.js`，要 skipped 0**；
   commit 訊息另外過一次過濾網（`git log origin/develop..HEAD --format=%B` 經 `node .local/references/redact.mjs`，比前後一不一樣、只印「一不一樣」）。
   **不要刪那個連結、不要往裡面寫**（那是她的私人 repo）；收 worktree 時 `git worktree remove` 會把連結留在原地，要另外刪（只刪連結，不會刪到主資料夾那一份）
+  —— **段五：這一條跟 `docs/agents/lessons.md` 第十六節衝突**（同一天晚 5 分鐘進 develop：有些刪 worktree 的方式會順著連結刪進主資料夾的 `.local`；
+  `tests/helpers/localDir.js` 已經會自己去主資料夾找，連結不需要了）。**段六拆掉它**：`cmd /c rmdir .local`（只拆連結），再跑 `node --test tests/no-secrets.test.js` 要照樣 skipped 0（REVIEW R14）。收 worktree 之前一定要先拆
 - **查牽連用這個 worktree 自己的 CodeGraph 索引**（11/5 主控照 `docs/agents/worktree.md` 接好：`codegraph init -i`，`.codegraph/` 有被擋）——
   主資料夾那一份是 develop 的、看不到 01、02 新加或改過的符號（會印「This CodeGraph index belongs to a different git working tree」就是用錯了）。
   改了檔之後在**這個 worktree** `codegraph sync` 再查；照樣跟 grep 對一次（純 JS，兩邊常常不一樣：段一 `validateVisit` 圖上少了三個呼叫端）。
@@ -160,6 +162,19 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
 6. E2E：本機跑了 `96`、`85` 與碰確認層的九支（`41`、`51`、`57`、`62`、`65`、`67`、`68`、`86`、`87`）；`--related` 挑到 92 支（幾乎全量），全量交給段末的 CI
 7. **CI 全量 E2E**：07、08 推上去之後跑了 `gh workflow run e2e-full.yml --ref claude/one-time-visit-design`，run `41990743459`（跑在 `cfb60ed3`）——
    段四結束時還在跑，**段五開頭先看**（紅了先記進段五的發現、段六修；那是 07 的，或 08 動到的 `report.mjs`）
+   → **段五開頭看了：六台全綠**
+
+### 段五（2026-11-05）
+
+0. 開頭 develop 多了試算表那一輪的 PR #208、#209（只動 `.gs` 與它的測試），**合併**進來（`git merge origin/develop`，`c06e7867`，沒有衝突）。
+   ccd_host 的 `sync_with_base_branch` 不給用（「這個 session 不在 app 替它開的 worktree 裡」），照規矩自己合。合完 `npm test` 5712 全過、skipped 0
+1. **審查結果全部在 `REVIEW.md`**（R1–R14，每一條：在哪裡、什麼情境會錯、建議怎麼修、嚴重程度、重現了沒）。最要緊的三條：
+   - **R1（高）拍訂購單**：同名的一次性客人變成「加購到那一位」，額度加到一張還是一次性的卡上、哪一份名單都看不到（兩軸 subagent 各自抓到、主控重現）
+   - **R2（中）**：一次性客人身上一旦有真的額度，來訪編輯器拿它當預設、沒標記扣額度的段驗證放行
+   - **R3（中）**：轉成我的客戶之後，一次性那一次健檢的「約二返」按「去壓表」是死路（過目第 5 條的形狀）
+2. 段三第 2 條 → R5（擋法不改、句子換）；段四第 1 條 → R4（關掉復原）。都照她說過的規則推得出來，不用問她
+3. R1 的另一條路（拍訂購單按「加購到那一位」時一起轉成我的客戶）是第二個轉成客戶的入口，spec 沒談到 —— **預設不做**，她問起再說
+4. 共同規矩裡 `.local` 連結那一條跟 lessons 第十六節衝突（R14）—— 段六拆掉、收 worktree 之前一定要先拆
 
 ## 手動驗收清單（草稿，段四整理；段六在本機模擬器走一次再交給她）
 
@@ -181,6 +196,8 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
 13. 點那一列 → 「是誰」寫名字＋「一次性」；「要做什麼」那一排是全部的課、照片上那一門按著、沒有「送的／體驗」；照片上是二返的話「接哪一次健檢」已經選好同一張照片上他的健檢
 14. 底下「記錄這 N 段」→ 確認框**沒有**任何「扣」→ 已確認，記錄 → 日曆上那幾天看得到他、讀取卡片最上面「一次性」；客戶 → 看一次性客人 → 有他
 15. 同一張再拍一次 → 那幾列是「已經記了」；換一位：點一列 →「換一位」→ 打一位一次性客人的名字 → 結果那一顆名字後面有「一次性」、一般客戶沒有
+
+16～19：段五加的（R1、R3、R4、R8 修完之後），草稿在 `REVIEW.md` 最後一節 —— 段六走過、寫好選擇器再併進來。
 
 ## 要她決定的
 
@@ -335,8 +352,39 @@ guestOptions、oneTimeExamChoices、guestExamChoices、recordGuestOnPhoto、pick
 做完要交：REVIEW.md 與 HANDOFF 更新（一個 commit，推到 origin 的同一條分支）、段六的開場、簡短回覆。
 ```
 
-### 段六（effort：medium）—— 段五做完時對過再用
+### 段六（effort：medium；R1–R3 卡住再升 high）—— 段五做完時寫（11/5）
 
-段六：照 REVIEW.md 修（每條先紅燈、照 ripple-check 查牽連）、HANDOFF「手動驗收清單（草稿）」在本機模擬器走一次（會寫入的在模擬器走；走不通的那一步改清單）、
-`sw.js` 的 VERSION 照共同的規矩再升、推之前 `node --test tests/no-secrets.test.js` skipped 0 並看一眼有沒有真名／公司名（commit 訊息、PR 內文也是）、
-開 PR 進 **develop**（內文附手動驗收清單）、CI 綠了合併（CLAUDE.md：不用再問）。
+```
+這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一～四做完 01–08，段五審查做完（結果在 .scratch/one-time-guests/REVIEW.md）。
+這一段：照 REVIEW.md 修、手動驗收清單在本機模擬器走一次、開 PR 進 develop、CI 綠了合併。
+
+先做：
+1. git fetch；落後 develop 就合併、不要 rebase（ccd_host 的 sync_with_base_branch；不給用就 git merge origin/develop）—— rebase 之後只能強制推送，auto mode 會擋；擋了就停下來問她
+2. 讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、REVIEW.md（整份）、
+   HANDOFF（共同的規矩 —— 注意 .local 連結那一條段五加的註、中途發現段五、手動驗收清單草稿）
+3. 拆掉 worktree 根目錄的 .local 連結（REVIEW R14）：cmd /c rmdir .local（只拆連結，不會動到主資料夾那一份），
+   再跑 node --test tests/no-secrets.test.js 要照樣 skipped 0（tests/helpers/localDir.js 會自己去主資料夾找）
+
+要修的（REVIEW 的編號；R1–R3 動到存檔驗證與 domain，先開 .scratch/one-time-guests/issues/09-review-fixes.md 照這個編號列）：
+- R1（高）拍訂購單的同名比對不收一次性客人（orderForm.js 的 sameNameCustomers() 或 openOrderConfirm() 收到之前，選一處）、同名的是一次性客人時講 GUEST_SAME_NAME；
+  SPEC 規則 13 與 CLAUDE.md 一次性客人那一列補「拍訂購單」。另一條路（一起轉成我的客戶）預設不做
+- R2（中）validateVisit()：一次性客人身上任何一段沒標一次性就擋（拿掉 && !slot.entitlementId）；來訪編輯器 blankVisit()／withNewSlot() 對一次性客人永遠不拿額度當預設
+- R3（中）home.js 的 bookFollowup()／labelGuestBookings()：接的那一次健檢是一次性的健檢（isOneTimeExamVisit()）也走「去日曆排」；操作手冊七之六補一句
+- R4 calendar.js newGuest() 的 withSaveState 給 undoable: false；R7 customerDetail.js convertToMine() 同樣
+- R5 oneTimeErrors() 兩句換成「這一段是當一次性客人時記的……要扣次數就取消這一段、另約一段」那種講怎麼辦的句子
+- R6 toMyCustomerConsequences() 前兩句合成「會出現在客戶清單與試算表上；加購之後才會進壓表、問這輪的時間」
+- R8 日曆「要幫誰排？」：列出來的沒有一位名字一模一樣就照樣畫「＋ 新增一次性客人」
+- R9 三處「妳」→「你」；R10 consequences.js 兩處 n返 那一句跳過 isOneTimeSlot() 的段；R11 health.js moved() 對一次性的段 giftKind 寫 null；
+  R12 CLAUDE.md 那一列與 slotDraft.js:154 註解改成「slotFromPicks() 與 readNthSlot() 兩處」；R13 有餘力再做
+每一條先紅燈、照 ripple-check 查牽連（這個 worktree 自己的 CodeGraph，改了檔 codegraph sync，照樣跟 grep 對一次）；修完找同一個形狀的地方。
+public/ 有動：sw.js 的 VERSION 用 origin/develop 上的與這條分支上的大的那一個再加一（段四結束時這條分支是 v290）、重跑 npm run shell:snapshot。
+
+手動驗收：HANDOFF「手動驗收清單（草稿）」1～15 ＋ REVIEW 最後一節的 16～19，在本機模擬器走一次（npm run emulators ＋ seed:staging 對模擬器；
+起之前先看 port 上有沒有人，有的話不要停掉別人的，先問她；跑完照那幾組的 port 停）。走不通的那一步改清單、寫好選擇器，併進 HANDOFF。
+E2E：npm run verify（相關的那幾支）；全量交 CI（gh workflow run e2e-full.yml --ref claude/one-time-visit-design）。
+
+推之前 node --test tests/no-secrets.test.js 要 skipped 0，並看一眼 diff、commit 訊息、PR 內文有沒有真名或公司名（公司名寫「一次性員工券」）。
+開 PR 進 develop（內文附手動驗收清單 —— 她照順序點的那一份）；CI 全綠就合進 develop（CLAUDE.md：不用再問）。進 main 要她另外說。
+規矩照 HANDOFF「每一段共同的規矩」。不要自己開 session，也不要存 limit-guard 的開場 JSON。
+做完要交：修的 commit、PR 連結、HANDOFF 更新（分段表、中途發現段六、手動驗收清單定稿）、簡短回覆。
+```
