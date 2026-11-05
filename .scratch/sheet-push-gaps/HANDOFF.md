@@ -21,7 +21,7 @@
 | 段 | 做 | effort | 狀態 |
 |---|---|---|---|
 | 段一 | 02 → 03 → 04 | high | 做完（11/5，`854bd266`） |
-| 段二 | `/matt-code-review` 審 02～04、照建議修、開 PR、CI 綠合進 develop、寫她要照順序做的「貼 .gs 到 staging → 看執行紀錄比秒數」 | xhigh | 審查與小修做完、rebase 到 origin/develop（`f5fb7b0a`）；**推不上去**：改寫過的分支要強制推，被 auto mode 擋下，等主控／她決定（見「段二」） |
+| 段二 | `/matt-code-review` 審 02～04、照建議修、開 PR、CI 綠合進 develop、寫她要照順序做的「貼 .gs 到 staging → 看執行紀錄比秒數」 | xhigh | 審查與小修做完、rebase 到 origin/develop（`f5fb7b0a`）；推到新分支 `claude/sheet-speed-2` 開 PR（見「段二」） |
 
 之後（不在這一輪的段裡）：她把新的 `.gs` 貼到 staging 的試算表、重新部署 → 比 Apps Script 執行紀錄改前改後的秒數 → 夠快就貼正式版；
 不夠快再談「Google Sheets API 進階服務」（她說多按一個設定沒關係）。
@@ -41,8 +41,8 @@
   正式站那一包 `sheet-gs-compare.mjs` 四步 0 個不一樣、`sheet-gs-calls.mjs` 數字跟段一一樣（平常推 讀 76／寫 36／寫完又讀 0；整份重畫 讀 246／寫 1,498／寫完又讀 34）
 - rebase 到 origin/develop `f5fb7b0a`：`docs/adr/README.md` 兩支 ADR 都留；`sw.js` 兩邊都是 v282 → **v283**、快照重跑
 
-**卡住的**：rebase 之後分支要 `git push --force-with-lease` 才推得上去，auto mode 擋下（Git Destructive）。照她的規矩停下來沒繞。
-選項：她允許強制推這一條分支（只有這一輪在用）；或改推到新分支 `claude/sheet-speed-2` 開 PR（舊的分支留著不動）。
+**分支換名**：rebase 之後 `claude/sheet-speed` 要強制推才推得上去，auto mode 擋下（Git Destructive）；她選「推到新分支」——
+rebase 過的那一份推到 **`claude/sheet-speed-2`**（一般的 push）、PR 從那裡開；`origin/claude/sheet-speed` 停在段一的 `da588134`，不動、不刪。
 
 **她要照順序做的**（PR 合進 develop、staging 自動部署之後）：
 1. 打開 staging 那一份 Google 試算表 → 擴充功能 → Apps Script → 左邊「執行作業」：先記下最近幾次 `doPost` 的「持續時間」（改前的秒數；正式站 11/5 是平常推 25–48 秒、整份重畫約 192 秒）
@@ -89,7 +89,6 @@
 ## 要她決定的
 
 - 試算表的字級（「中途發現」1）—— 段二末，主控問
-- 段二的分支怎麼推上去（強制推被擋）—— 見「段二」
 
 ## 過目抓到的
 
