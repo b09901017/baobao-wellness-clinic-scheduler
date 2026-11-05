@@ -1,6 +1,6 @@
 # 一次性客人 —— 交接
 
-分支：`claude/one-time-visit-design`（設計段從 develop `3bd4611d` 開；11/5 小修合進 develop 之後 rebase 到 `f5fb7b0a`）。
+分支：`claude/one-time-visit-design`（設計段從 develop `3bd4611d` 開；11/5 小修合進 develop 之後 rebase 到 `f5fb7b0a`；段二開頭再 rebase 到 `926e5712`（試算表那一輪 PR #204 合進來了）—— 撞了 ADR 索引那一行與 `sw.js` 快照，`sw.js` 重新編號：01 v284、02 v285、03 v286、04 v287）。
 checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一個資料夾，一次只有一段在寫）。
 主控：設計段那個 session（2026-11-05）。小修那一輪 11/5 合進 develop 了（PR #203，`f5fb7b0a`），主控同一天開段一。
 
@@ -10,7 +10,7 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
 |---|---|---|---|
 | 設計 | 談定 8 題、ADR-0172、CONTEXT.md、spec、issue 01–08、subagent 過目 | xhigh | **做完**（commit 見 git log） |
 | 一 | 01 形狀與驗證、02 健檢那一串（domain：虛擬的一對） | xhigh | **做完**（11/5，`0668f0ee`、`ff12b4fd`；單元 5552 全過；CI 全量 E2E 六台全綠） |
-| 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | todo |
+| 二 | 03 健檢那一串（呼叫端：先問有沒有真的二返額度就收手的那幾處）、04 名單、試算表、資料健檢、月底對帳 | xhigh | **做完**（11/5，`7389fb7b`、`9ea77263`；單元 5634 全過、真名掃描 skipped 0；**還沒推上去**：rebase 之後要 `--force-with-lease`，被 auto mode 擋下來 —— 推了之後跑 CI 全量 E2E，見中途發現段二第 1 條） |
 | 三 | 05 客戶清單最底下、名字卡那一頁（含表單元件）、轉成我的客戶；06 日曆新增、來訪編輯器與壓表、讀取卡片、「約二返」的按鈕 | high | todo |
 | 四 | 07 拍 Abovee；08 文件；CI 全量 E2E；手動驗收清單草稿 | high | todo |
 | 五 | `/matt-code-review` 審查這一輪全部 | xhigh | todo |
@@ -114,6 +114,23 @@ worktree 照 `docs/agents/worktree.md` 接好了：`codegraph init -i`（501 個
    `nthOffered`（`aboveeImport.js:737`，只問 `isNth`，不受影響）—— 按下去的處理在 06（壓表）、07（拍 Abovee）；**轉成客戶（05）之前到不了**（`oneTimeOwed()` 要有一次性的健檢段），
    05、06 同一段，07 在段四，分段之間不部署所以沒事。來訪編輯器不叫 `slotOptionsFor()`，06 要自己加那一顆
 
+### 段二（2026-11-05）
+
+1. **兩個 commit 還沒推上去**：段二開頭 rebase 到 `926e5712`（落後 54 個），所以推這條分支要 `git push --force-with-lease origin claude/one-time-visit-design`——
+   auto mode 判成「Git Destructive」擋下來，照規矩停了沒有繞。**推上去之後**跑一次 CI 全量：`gh workflow run e2e-full.yml --ref claude/one-time-visit-design`
+   （本機 `--related` 挑到 74 支、2 個 worker 也要三十幾分鐘，跟段一一樣交給 CI）。推之前的檢查做過了：`tests/no-secrets.test.js` skipped 0、commit 訊息過過濾網前後一樣；
+   diff 過過濾網有 26 行被遮，看過全是數字、日期與器材代號 `sis`（`eq-sis`），沒有名字
+2. **`strandedOnNewExamLines()` 也是同一個形狀**（issue 沒列）：它先問「新加的那一段扣不扣健檢額度」才講「有一場二返還接在被取消的那一次上」——
+   一次性客人另約健檢時一句都不講，ADR-0146 那一顆也跟著沒有。**03 一起修了**（在投影裡認新加的那一段），測試在 `one-time-chain-callers.test.js`
+3. **`chainInputs()` 多了第三個參數**（這位客戶的來訪）。06（日曆新增、來訪編輯器）與 07（拍 Abovee）**新增一條會叫它的路要傳**，不然一次性客人在那一道確認框上一句鏈上的話都不講；
+   `one-time-chain-callers.test.js` 掃 `visitsData.chainInputs(` 每一處都有三個參數（新的那一處沒傳會紅）
+4. **`relinkOffer()` 回的那一格叫 `guestSlot`、不叫 `oneTime`**：`one-time-guest.test.js` 掃全站沒有人自己讀 `.oneTime`（只准 `isOneTime()`／`isOneTimeSlot()`），
+   `offer.oneTime` 會被當成違規。只有一次性的那一場才有那一格，一般客人回的形狀一個字都沒變
+5. **試算表：混著一般的段的那一天，沒有 `slotIndexes` 的鏈上待辦照印**（`sheetReport.js` 的 `guestTask()`，拿不準就印）。只有「轉成客戶那一天同一天又記了一般的段」才會發生，不修
+6. 月底對帳那一頁「Abovee 上有、app 裡沒有這個人」那一塊的小字（`report.mjs`：「不是妳的客人就不用管。」）可以多一句「要記進 app 就建一次性客人」——
+   等名字卡（05）與拍 Abovee 的「記成一次性客人」（07）做好再決定，**08 寫文件時一起看**
+7. 知道就好：`home.js` 的 `bookFollowup()`（「約二返」那一張的「去壓表」）只認真的二返額度 —— 那是過目第 5 條，06 換成「去日曆排」
+
 ## 要她決定的
 
 （目前沒有）
@@ -172,16 +189,33 @@ sheetReport.js 那幾行在裡面；claude/sheet-speed 那條分支跟 develop �
 做完要交：各一個 commit、HANDOFF 更新、段三的開場、簡短回覆。
 ```
 
-### 段三（effort：high）—— 段二做完時再對一次
+### 段三（effort：high）—— 段二做完時對過了（11/5）
 
 ```
-這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一、二做完 01–04。
-先 git fetch，落後 develop 就 rebase。讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、
-.scratch/one-time-guests/HANDOFF.md、01–04 的「做完時留下的」。
+這一輪在做「一次性客人」（ADR-0172）。分支 claude/one-time-visit-design，資料夾就是這個 worktree；段一、二做完 01–04（commit 見 git log）。
+先確認段二那兩個 commit（03 7389fb7b、04 9ea77263）推上去了沒：git fetch 之後 git status -sb 還寫 ahead 的話，那是段二 rebase 過、
+要 git push --force-with-lease origin claude/one-time-visit-design（段二被 auto mode 擋下來 —— 擋了就停下來問她，不要換寫法繞）；
+推上去之後跑一次 CI 全量 E2E（gh workflow run e2e-full.yml --ref claude/one-time-visit-design），結果寫回 HANDOFF。
+接著 git fetch，落後 develop 就 rebase（rebase 之後推這條分支用 --force-with-lease；package-lock 變了才重跑 npm ci）。
+讀 CLAUDE.md、docs/agents/lessons.md、ADR-0172、.scratch/one-time-guests/spec.md、
+.scratch/one-time-guests/HANDOFF.md（共同的規矩、過目抓到的、中途發現 —— 段一、主控重查、段二那七條）、01–04 的「做完時留下的」。
+查牽連用這個 worktree 自己的 CodeGraph 索引（改了檔之後 codegraph sync 再查，照樣跟 grep 對一次），graphify 查主資料夾的 graph.json（--graph）。
 這一段做 .scratch/one-time-guests/issues/05-name-card-page-and-convert.md，再做 06-calendar-new-editor-read-card.md。不做 07、08。
+段二留給這一段的：
+- data/visits.js 的 chainInputs(customerId, coursesById, visits) 多了第三個參數 —— 06 新增一條會叫它的路要傳這位客戶的來訪（連要存的那一筆），
+  tests/one-time-chain-callers.test.js 掃每一處都有三個參數
+- 05 轉成我的客戶的確認框講鏈上的事：試算拿 followups.js 的 hasFollowupChain()／syncFollowupTasks()（03 起認得那一對），句子放 consequences.js
+- 名字卡那一頁畫來訪紀錄可以照客戶詳情用 domain/progress.js 的 buildProgress()：它刻意沒濾一次性客人（濾在 ui/views/progress.js 那一行，04）
+- 客戶清單（05）要自己明寫 isOneTime() 排除（04 只做了進度、長備註、手動貼上那幾張）；「看已停用的」那一份也不列一次性客人
+- 06：約二返那一張的「去壓表」（home.js 的 bookFollowup()）換成「去日曆排」（過目 5）；日曆新增另約一次一次性健檢時，
+  ADR-0146 那一顆「順便把那一場二返接到這一次」03 已經認得一次性客人（relinkOffer／relinkSlot）
+- 接在一次性健檢上的 n返：slotFromPicks() 會自己標一次性（03），三個入口不用各判；validateVisit() 擋標法跟健檢對不上的
 05 的名字卡表單做成元件（06、07 重用）。畫面的判準寫 E2E；手動驗收的路要寫實際的選擇器（她照著點）。
+public/ 有動：sw.js 的 VERSION 用 origin/develop 上的與這條分支上的大的那一個再加一（段二結束時這條分支是 v287）；新檔案進 SHELL 與 tests-e2e/related.js。
+ADR 再寫新的從 0175 起。模擬器同一時間只能一組在跑：起之前先看 port 上有沒有人，有的話不要停掉別人的，先問她。
+推之前 node --test tests/no-secrets.test.js 要 skipped 0。
 規矩照 HANDOFF「每一段共同的規矩」。主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
-做完要交：各一個 commit、HANDOFF 更新、段四的開場、簡短回覆。
+做完要交：各一個 commit（推到 origin 的同一條分支）、HANDOFF 更新、段四的開場、簡短回覆。
 ```
 
 ### 段四（high）、段五（xhigh，審查單獨一段）、段六（medium）
