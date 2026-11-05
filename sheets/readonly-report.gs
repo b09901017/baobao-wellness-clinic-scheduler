@@ -679,9 +679,14 @@ function renderCustomer(ss, data, bundle, book) {
   // 每一列的內容與它是什麼。**「這一天用了哪一台」那一列夾在它那一筆額度的
   // 正下方**（格式 4，她的原話：「在當天的那一列下面」），所以不能先把
   // `data.rows` 直接攤成矩陣 —— 上色那一圈的 index 要對得上真正的列號。
+  //
+  // **照「做最多的在上面」畫**（她 11/5，issues/10）：`n` 照舊是 `data.rows` 裡原本的位置 —— 兩份註記的 `rowIndex` 指的是它，
+  // 所以註記跟著它那一筆額度走。
   var rows = [];
   var meta = [];
-  for (var n = 0; n < data.rows.length; n++) {
+  var order = rowOrder(data.rows);
+  for (var o = 0; o < order.length; o++) {
+    var n = order[o];
     var one = data.rows[n];
     rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(one.marks));
     meta.push(one);
@@ -760,6 +765,29 @@ function renderCustomer(ss, data, bundle, book) {
   clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
   return name;
+}
+
+/**
+ * 矩陣要照什麼順序畫：回 `data.rows` 的位置（issues/10）。**純函式**（`tests/sheet-layout.test.js`）。
+ *
+ * 額度那幾列照「已完成＋已排未上」由多到少，一樣多的照原本的先後（自己比位置，不靠排序穩不穩、不靠語系）；
+ * 沒有額度的那幾列（n返、送的／體驗、額度被刪的 —— `syncBundle()` 接在後面的 `extraRows()`，帶 `extra: true`、應有是一槓）
+ * 照舊在最下面、照原本的先後。**在這裡排、不在 `syncBundle()` 排**：只是畫的順序，月底對帳照 `syncBundle()` 的列順序對額度。
+ */
+function rowOrder(rows) {
+  var counted = [];
+  var extras = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.extra === true || typeof r.total !== 'number') extras.push(i);
+    else counted.push(i);
+  }
+  var used = function (i) {
+    var r = rows[i];
+    return (typeof r.done === 'number' ? r.done : 0) + (typeof r.booked === 'number' ? r.booked : 0);
+  };
+  counted.sort(function (a, b) { return used(b) - used(a) || a - b; });
+  return counted.concat(extras);
 }
 
 /** 符號決定顏色，不是「有沒有東西」決定顏色。 */

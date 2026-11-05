@@ -1,6 +1,6 @@
 # 10 每一位的療程項目照「做最多的在上面」排
 
-Status: todo
+Status: done
 Blocked by: 08（同一支 `.gs`）
 
 ## 動工前先讀
@@ -33,4 +33,10 @@ Blocked by: 08（同一支 `.gs`）
 
 ## 做完時留下的
 
-（做完填）
+- `.gs` 多一支 `rowOrder(rows)`（純函式）：回 `data.rows` 的位置。`renderCustomer()` 照它的順序走，但 `n` 照舊是原本的位置 —— `equipmentNoteAt(data, n)`、`noteRowAt(data.slotNotes, n)` 一行沒改，註記跟著它那一筆額度走
+- **分「額度列」與「extras」用 `extra: true`**（`extraRows()` 每一列都帶，比「應有是不是數字」穩：那是 `extraRows()` 自己留給「之後要把這幾列畫得不一樣的那一天」的旗子）；
+  沒帶 `extra`、應有不是數字的也算 extras（手造的包、萬一哪天少帶）。一樣多的照原本的先後：比較函式自己比位置，不靠排序穩不穩
+- `syncBundle()` 一個字都沒改；月底對帳讀的是 `syncBundle()`，不經過 `.gs`
+- 正式站那一包（只印數字）：34 位裡 22 位的順序變了；`scripts/sheet-gs-compare.mjs` 跟 09 的 `.gs` 比，只有矩陣裡的值與底色、註記列的字級字色跟著搬（值 1,292、底色 652、字級 586、字色 586），合併、列高、欄寬一個都沒變
+- 測試：`tests/sheet-layout.test.js` 的「10」那一組（順序、合計沒變、`rowOrder()`）。註記跟著走在 11 一起驗（11 把註記列拿掉、併進那一格）
+- 替身驗得完（只是順序），沒有只在 staging 才知道的

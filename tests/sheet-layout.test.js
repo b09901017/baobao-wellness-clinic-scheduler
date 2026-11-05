@@ -195,3 +195,34 @@ describe('09 凍結前五欄', () => {
     assert.ok(context.rowHeightFor('a'.repeat(40), 438, 11) === 26, '半形字比較窄');
   });
 });
+
+describe('10 療程項目照「做最多的在上面」排', () => {
+  /** 矩陣那幾列的療程項目（表頭底下、「買過什麼」上面，應有那一格是數字或一槓的）。 */
+  const labels = (sheet) => {
+    const out = [];
+    for (let r = 6; r < rowOf(sheet, '買過什麼'); r += 1) {
+      const total = sheet.at(`B${r}`);
+      if (typeof total === 'number' || total === '—') out.push(sheet.at(`A${r}`));
+    }
+    return out;
+  };
+
+  test('已完成＋已排未上多的在上面、沒做過的在下面；沒有額度的那幾列永遠在最下面、照原本的先後', () => {
+    const { sheet } = draw();
+    // 復能 3+1、健檢 1+0、EECP 1+0（一樣多照原本的先後）、ILIB 0；心臟科評估做了 5 次但沒有額度 → 照舊在三返後面
+    assert.deepEqual(labels(sheet), ['復能-三選一(60)', '健檢', 'EECP(60)', 'ILIB(60)', '三返（不算次數）', '心臟科評估（體驗）']);
+  });
+
+  test('合計（抬頭那一行）沒變', () => {
+    const { sheet } = draw();
+    assert.match(sheet.at('A3'), /合計　應有 17　已完成 5　已排未上 1　剩餘 11/);
+  });
+
+  test('rowOrder()：一樣多的照原本的先後；沒帶 extra 但應有是一槓的也算沒有額度', () => {
+    const { context } = loadAppsScript();
+    const row = (done, booked, total = 1, extra) => ({ done, booked, total, ...(extra ? { extra } : {}) });
+    assert.deepEqual([...context.rowOrder([row(0, 0), row(1, 0), row(0, 1), row(2, 0)])], [3, 1, 2, 0]);
+    assert.deepEqual([...context.rowOrder([row(9, 0, '—'), row(0, 0), row(1, 1, 3, true), row(1, 0)])], [3, 1, 0, 2]);
+    assert.deepEqual([...context.rowOrder([])], []);
+  });
+});
