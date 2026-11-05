@@ -28,6 +28,7 @@ description: 動到已經存在、別處在用的程式碼時「透視關聯」�
 ## 改之前
 
 1. `codegraph sync`（不開背景程序，所以查之前先同步，約一秒）。
+   **在 git worktree 裡（`.claude/worktrees/<名字>/`）先看 `.codegraph/` 在不在這個 worktree**：不在的話 CodeGraph 往上找到主資料夾那一份，查的是主資料夾那條分支的程式碼 —— `query`、`callers`、`impact` **一句警告都不印**，只是這裡改過的符號找不到、行號是舊的（2026-11-05 實測；只有 `codegraph status` 會講「belongs to a different git working tree」）。這時不要跑 `sync`，在 worktree 裡建自己的：`codegraph init --yes`（`.codegraph/` 被 `.gitignore` 擋著，刪 worktree 時一起走）。
 2. 不熟那一區：`codegraph explore "<問題>"`。它回傳的是磁碟上的原始碼原文、呼叫路徑與波及範圍，當作已經讀過，不要再 grep 一遍確認。
 3. `codegraph impact <符號>`（預設深度 2，牽連深的加 `--depth 3`）、`codegraph callers <符號>`；同名的用 `--file <路徑>` 指定。
 4. **把清單逐條寫下來**：每個呼叫端會怎麼受影響，不受影響的也寫一句為什麼。寫進 issue 的「為什麼會這樣」或回覆裡，不要只放在腦中。
@@ -51,6 +52,7 @@ description: 動到已經存在、別處在用的程式碼時「透視關聯」�
 - **INFERRED 的邊是推出來的**：動手前回原始碼或原文確認。圖是用來找路的，不是標準答案。
 - **查**：中文可以直接問（要裝 `graphifyy[chinese]`）；結果被截斷時照提示加 `--budget N`。整體架構才讀 `graphify-out/GRAPH_REPORT.md`。
 - **圖是快照**：`GRAPH_REPORT.md` 寫了建圖時的 commit，跟 `git rev-parse HEAD` 差很多就先更新再查。
+- **在 git worktree 裡沒有 `graphify-out/`**（被 `.gitignore` 擋著）：查圖用主資料夾那一份（`graphify --graph <主資料夾>/graphify-out/graph.json`，主資料夾是 `git rev-parse --git-common-dir` 的上一層），而且講清楚它是哪一個 commit 建的（`GRAPH_REPORT.md` 的「Built from commit」，再 `git branch --contains <commit>`）—— 那是主資料夾那條分支的內容，這個 worktree 改的不在裡面。不要在 worktree 裡重建整份圖（文件那一段會花額度）；圖找到路之後回 worktree 的原始碼確認。
 - **更新圖**（階段結束時；改了很多程式碼、要用圖之前也可以）：
   1. 程式碼：`GRAPHIFY_BACKEND=none GRAPHIFY_MAX_WORKERS=8 graphify update .`（不用 LLM、不花額度）。不設 `GRAPHIFY_MAX_WORKERS` 會用滿所有核心（使用者的電腦曾經過熱斷電）；小 repo 不到一分鐘，上千個檔的先跟使用者說。
   2. 私人資料夾的檢查網：`node .claude/skills/ripple-check/scripts/private-index-check.mjs`，列出目錄還沒寫到的檔（只印檔名）。每一份歸類後跟使用者說怎麼處理（見下一節）。

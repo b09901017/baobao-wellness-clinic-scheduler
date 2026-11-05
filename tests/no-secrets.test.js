@@ -28,10 +28,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 import { fromRoot } from './helpers/paths.js';
 import { realNames } from './helpers/realNames.js';
+import { findLocalDir } from './helpers/localDir.js';
 
 const ROOT = fromRoot();
 
@@ -199,8 +200,9 @@ test('別名表裡的真名沒有出現在任何被追蹤的檔案裡', (t) => {
   // **兩個位置都試。** `.local/references/` 是現在的（skill 那一側寫在那裡），
   // `.local/` 是舊的 —— 2026-09-16 之前這裡只看舊的那一個，於是這條測試在她
   // 那台機器上**一直是跳過的**，而 2026-09-08 那次外洩正是它該擋的那一種。
-  const dir = [`${ROOT}.local/references/`, `${ROOT}.local/`]
-    .find((d) => existsSync(`${d}aliases.json`));
+  // **在 git worktree 裡再去主資料夾找**（`helpers/localDir.js`）：worktree 沒有 `.local/`，
+  // 2026-11-05 這條在 worktree 裡就是安靜地跳過的。
+  const dir = findLocalDir(ROOT, 'aliases.json');
 
   if (!dir) {
     // **這是三條裡唯一擋得住 2026-09-08 那種外洩的**（名字沒有黏著數字，
