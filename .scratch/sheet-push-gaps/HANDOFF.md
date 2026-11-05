@@ -20,6 +20,7 @@
 | 11 器材併進那一格、記一句改成那一格的備註 | done（`7cf8bde4`） |
 | 12 營養品一筆一行、備註一則一行上色 | done（`40706bb5`；之後一個 commit 補文件與註解、sw v285） |
 | 13 用匯出的 .xlsx 驗真的 Google（工具） | done（第三輪段二） |
+| 14 版面第四輪：不凍結欄、號碼跟名字一樣大、四欄全白＋窄空白欄、營養品加日期 | todo（第四輪） |
 
 常見問題「刪整列、還原版本 → 整份重畫」：PR #202，develop `3dd2ee12`。
 
@@ -348,3 +349,22 @@ subagent 過目 01（11/5），主控對過後改了：
 規矩：讀 `.local` 一律接 `| node ../../../.local/references/redact.mjs`、正式站那一包的結果只印數字；subagent 同時最多兩個；中途發現記進 HANDOFF 不岔出去修。
 
 做完：PR 合進 develop、HANDOFF 狀態更新、她的步驟寫在 HANDOFF 與回覆裡；回覆簡短說做了什麼、卡在哪。
+
+## 第四輪（版面微調，issue 14）
+
+她 11/5 晚看了 staging 第三輪的樣子（第三輪的 `.gs` 已貼到 staging）：分裂感太重、不要凍結欄；號碼跟名字一樣大；灰色太醜（主控畫了三種，她挑 **A 全白＋窄空白欄**，`mock-count-columns-2026-11-05.html`）；營養品加日期。
+分支 `claude/sheet-layout-2`（從 develop `7666220b`），同一個 worktree。一段做完（實作＋自己審＋PR＋合進 develop）：小，不另開審查段 —— 段裡做完照 `/matt-code-review` 的兩個方向（Standards、Spec）自己對一次，寫進 issue。
+
+### 第四輪的開場
+
+這一輪：試算表版面第四輪微調（issue 14）。分支 `claude/sheet-layout-2`（已經在這條分支上），主控做到這個 commit。
+
+做：`.scratch/sheet-push-gaps/issues/14-layout-round-four.md` 一支（四件事可以分幾個 commit，一件一個最好）→ 自己對一次（Standards：CLAUDE.md 連動表「試算表的 SYNC_FORMAT」「試算表的註記」兩列、`docs/agents/lessons.md`；Spec：issue 的判準一條一條）→ 開 PR 進 develop → CI 綠＋全量 E2E（`gh workflow run e2e-full.yml --ref claude/sheet-layout-2`，GitHub 上的機器）綠就合（不用問）→ 把她要照順序做的事（貼 `.gs` 到 staging、立刻推一次、看、匯出 .xlsx 給主控跑 `scripts/sheet-xlsx-verify.mjs`）寫進 HANDOFF 與回覆。
+
+先讀：`CLAUDE.md`、`docs/agents/lessons.md`、`docs/agents/worktree.md`、這份 HANDOFF 的「第三輪」「第三輪段二」「規矩」與這一節、issue 14、ADR-0175、`mock-count-columns-2026-11-05.html`（A）。
+
+規矩：改既有程式碼前照 `ripple-check` 查牽連（這個 worktree 自己的 CodeGraph 索引）；中途發現記進 HANDOFF 不岔出去修；subagent 同時最多兩個；不起模擬器、不跑本機 E2E、不停 port；`npm test` skipped 要 0；
+讀 `.local` 接 `| node .local/references/redact.mjs`、只印數字；公開 repo 不帶真名；**推用一般的 push、不 rebase 已經推上去的分支**（要對齊 develop 用 `git merge origin/develop`）。
+主控會接手：不要自己開 session、不要存 limit-guard 的開場 JSON。要問她的寫進 HANDOFF 與回覆，主控來問。
+
+做完：issue 標 done、寫「做完時留下的」、PR 合進 develop、回覆簡短說做了什麼、PR 連結、她的步驟、卡在哪。
