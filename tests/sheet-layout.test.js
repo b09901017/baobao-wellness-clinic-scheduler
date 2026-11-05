@@ -226,3 +226,50 @@ describe('10 療程項目照「做最多的在上面」排', () => {
     assert.deepEqual([...context.rowOrder([])], []);
   });
 });
+
+describe('11 器材併進那一格、記一句改成那一格的備註', () => {
+  test('擇一池那一列：「✓ IN」「✓2 SIS」，底色照符號；器材那一列不見了', () => {
+    const { sheet } = draw();
+    const r = rowOf(sheet, '復能-三選一(60)');
+    assert.equal(r, 6, '做最多的那一筆排第一（原本在第 2 個，10）');
+    assert.deepEqual(['F', 'G', 'H', 'I'].map((c) => sheet.at(`${c}${r}`)), ['✓ IN', '✓2 SIS', '✓', '△']);
+    assert.equal(sheet.backgrounds.get(`F${r}`), '#C8E6C9');
+    assert.equal(sheet.backgrounds.get(`G${r}`), '#C8E6C9');
+    assert.equal(sheet.backgrounds.get(`I${r}`), '#FFF2CC');
+    // 矩陣緊接著下一筆額度，沒有夾註記列
+    assert.equal(sheet.at(`A${r + 1}`), '健檢');
+    const all = [...sheet.cells.values()].map(String);
+    assert.ok(!all.includes('IN') && !all.includes('SIS'), '不再有單獨寫器材的格子');
+    assert.ok(!all.some((v) => v.includes('表外')), '落在表外的照舊丟掉');
+  });
+
+  test('記一句在那一格的備註裡：全文、換行照留；同一格又有器材也兩樣都在；跟著它那一筆額度走', () => {
+    const { sheet } = draw();
+    const fn = rowOf(sheet, '復能-三選一(60)');
+    assert.equal(sheet.noteAt(`G${fn}`), '14:30 SIS、15:45 ILIB\n第二行');
+    assert.equal(sheet.at(`G${fn}`), '✓2 SIS');
+    const eecp = rowOf(sheet, 'EECP(60)');
+    assert.equal(sheet.noteAt(`H${eecp}`), '他忘記了');
+    assert.equal(sheet.notes.size, 2, '只有那兩格有備註');
+    const all = [...sheet.cells.values()].map(String);
+    assert.ok(!all.some((v) => v.includes('他忘記了')), '記一句不再寫成格子裡的字');
+  });
+
+  test('重畫時記一句搬了位置：舊的那一格不留備註（clear() 不清備註，要另外清）', () => {
+    const app = loadAppsScript();
+    app.post({ token: 'secret', bundle: bundleOf([page()]) });
+    const moved = page({ fingerprint: 'a2', slotNotes: [{ rowIndex: 3, label: 'EECP(60)', cells: [{ dateIndex: 3, text: '他忘記了' }] }] });
+    app.post({ token: 'secret', bundle: bundleOf([moved]) });
+    const sheet = app.ss.getSheetByName('客戶A');
+    const eecp = rowOf(sheet, 'EECP(60)');
+    assert.equal(sheet.noteAt(`H${eecp}`), '');
+    assert.equal(sheet.noteAt(`I${eecp}`), '他忘記了');
+    assert.equal(sheet.notes.size, 1);
+  });
+
+  test('沒有額度的段的記一句照舊在來訪紀錄那一行（那一條路不動）', () => {
+    const log = [{ label: '9/15(二)', items: [{ status: '已完成', time: '15:00–15:30', course: '三返', equipment: null, ivProduct: null, room: null, bed: null, therapist: null, doctor: '某華', note: '報告看完了' }] }];
+    const { sheet } = draw([page({ log })]);
+    assert.ok([...sheet.cells.values()].includes('　已完成　15:00–15:30　三返　某華醫師　記一句：報告看完了'));
+  });
+});

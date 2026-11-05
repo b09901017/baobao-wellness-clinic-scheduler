@@ -97,6 +97,23 @@ class FakeRange {
     return this.sheet.get(this.row, this.col);
   }
 
+  /** 那一格的備註（Google 的 note：右上角小黑三角）。'' 等於拿掉。 */
+  setNote(text) {
+    this.sheet.checkBounds(this.row, this.col);
+    this.sheet.setNoteAt(this.row, this.col, text);
+    return this.#self();
+  }
+
+  setNotes(grid) {
+    if (grid.length !== this.rows) throw new Error(`setNotes 列數不合：${grid.length} vs ${this.rows}`);
+    this.sheet.checkBounds(this.row + this.rows - 1, this.col + this.cols - 1);
+    grid.forEach((row, r) => {
+      if (row.length !== this.cols) throw new Error(`setNotes 欄數不合：${row.length} vs ${this.cols}`);
+      row.forEach((v, c) => this.sheet.setNoteAt(this.row + r, this.col + c, v));
+    });
+    return this.#self();
+  }
+
   merge() {
     this.sheet.addMerge(this.row, this.col, this.rows, this.cols);
     return this.#self();
@@ -191,6 +208,8 @@ class FakeSheet {
     /** 同一份合併，但留著數字邊界 —— 凍結線的檢查要算得出來。 */
     this.mergeBounds = [];
     this.backgrounds = new Map();
+    /** 每一格的備註（記一句，.scratch/sheet-push-gaps/issues/11）。**`clear()` 不清它**（跟 Google 一樣要另外 `clearNotes()`） */
+    this.notes = new Map();
     /** 每一格最後一次設的格式（`FORMAT_SETTERS` 那幾種）。 */
     this.formats = Object.fromEntries(Object.values(FORMAT_SETTERS).map((k) => [k, new Map()]));
     this.fonts = new Set();
@@ -264,6 +283,15 @@ class FakeSheet {
   }
 
   clearConditionalFormatRules() {}
+
+  clearNotes() { this.notes.clear(); }
+
+  setNoteAt(row, col, text) {
+    if (text === '' || text == null) this.notes.delete(A1(row, col));
+    else this.notes.set(A1(row, col), String(text));
+  }
+
+  noteAt(a1) { return this.notes.get(a1) ?? ''; }
 
   addMerge(row, col, rows, cols) {
     this.checkBounds(row + rows - 1, col + cols - 1);
@@ -371,6 +399,7 @@ export function snapshotOf(ss) {
     maxRows: s.maxRows,
     maxCols: s.maxCols,
     values: sortedCells(s.cells, { dropEmpty: true }),
+    notes: sortedCells(s.notes),
     backgrounds: sortedCells(s.backgrounds),
     formats: Object.fromEntries(Object.entries(s.formats).map(([k, m]) => [k, sortedCells(m)])),
     merges: [...s.merges].sort(),

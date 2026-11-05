@@ -676,34 +676,23 @@ function renderCustomer(ss, data, bundle, book) {
   styleHeader(sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length));
   sheet.getRange(MATRIX_HEADER_ROW, COL.TOTAL, 1, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.countHeader);
 
-  // 每一列的內容與它是什麼。**「這一天用了哪一台」那一列夾在它那一筆額度的
-  // 正下方**（格式 4，她的原話：「在當天的那一列下面」），所以不能先把
-  // `data.rows` 直接攤成矩陣 —— 上色那一圈的 index 要對得上真正的列號。
+  // 一筆額度一列。**器材與記一句不再多一列**（2026-11-05，issues/11，ADR-0175）：
+  // 「這一天用了哪一台」併進那一格的字（「✓ IN」，格式 4 的 `equipmentNotes`），
+  // 「那一段記了什麼」寫進那一格的備註（右上角小黑三角，格式 5 的 `slotNotes`）—— 資料一個字都沒變，這裡畫的時候併。
   //
   // **照「做最多的在上面」畫**（她 11/5，issues/10）：`n` 照舊是 `data.rows` 裡原本的位置 —— 兩份註記的 `rowIndex` 指的是它，
-  // 所以註記跟著它那一筆額度走。
+  // 所以器材與記一句跟著它那一筆額度走。
   var rows = [];
   var meta = [];
   var order = rowOrder(data.rows);
   for (var o = 0; o < order.length; o++) {
     var n = order[o];
     var one = data.rows[n];
-    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(one.marks));
-    meta.push(one);
-
-    var note = equipmentNoteAt(data, n);
-    if (note) {
-      rows.push(noteLine(note, head.length));
-      meta.push(null);   // null = 註記列，不上色也沒有數字
-    }
-
-    // 「那一段記了什麼」（格式 5）。接在器材那一列後面，同樣夾在它那一筆
-    // 額度的正下方 —— 她 2026-09-16 要的：「記在當天那一列的下面」。
-    var said = noteRowAt(data.slotNotes, n);
-    if (said) {
-      rows.push(noteLine(said, head.length));
-      meta.push(null);
-    }
+    var used = cellsByDate(equipmentNoteAt(data, n), one.marks.length);
+    var marks = [];
+    for (var m = 0; m < one.marks.length; m++) marks.push(markWithEquipment(one.marks[m], used[m]));
+    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(marks));
+    meta.push({ row: one, said: cellsByDate(noteRowAt(data.slotNotes, n), one.marks.length) });
   }
 
   var top = MATRIX_HEADER_ROW + 1;
@@ -716,12 +705,10 @@ function renderCustomer(ss, data, bundle, book) {
     sheet.getRange(top, COL.TOTAL, rows.length, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.count);
 
     for (var i = 0; i < meta.length; i++) {
-      var r = meta[i];
-      if (!r) {
-        // 註記列：小一號的灰字，跟上面那一列分得出來但看得出是一組
-        sheet.getRange(top + i, 1, 1, head.length)
-          .setFontSize(9).setFontColor(COLOR.noticeText);
-        continue;
+      var r = meta[i].row;
+      // 記一句：那一格的備註（全文、換行照留；表外的丟掉 —— `cellsByDate()` 只收得到日期欄以內的）
+      for (var s2 = 0; s2 < meta[i].said.length; s2++) {
+        if (meta[i].said[s2]) sheet.getRange(top + i, COL.FIRST_DATE + s2).setNote(meta[i].said[s2]);
       }
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
@@ -731,7 +718,7 @@ function renderCustomer(ss, data, bundle, book) {
         sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
       }
       // 有東西的格子上色。符號看久了會漏看，一片顏色不會 ——
-      // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。
+      // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。**看原本的符號**（後面接了器材也一樣）
       for (var d = 0; d < r.marks.length; d++) {
         var colour = colourForMark(r.marks[d]);
         if (colour) sheet.getRange(top + i, COL.FIRST_DATE + d).setBackground(colour);
@@ -800,22 +787,22 @@ function colourForMark(mark) {
 }
 
 /**
- * 第 n 筆額度底下要不要接一列「這一天用了哪一台」（格式 4）。
+ * 第 n 筆額度「這一天用了哪一台」（格式 4）。2026-11-05 起併進那一格的字（`markWithEquipment()`），不再多一列。
  *
  * 只有**得選的擇一池**才有（`domain/sheetReport.js` 的 `equipmentCells()`）：
  * 單台的池那一列的名字已經是「超磁場(60)」了，再寫一次是噪音。
  *
- * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一列都不畫。
+ * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一格都不併。
  */
 function equipmentNoteAt(data, rowIndex) {
   return noteRowAt(data.equipmentNotes, rowIndex);
 }
 
 /**
- * 第 n 筆額度底下的那一列註記。**兩種註記共用一支**（器材那一份與
+ * 第 n 筆額度的那一份註記。**兩種註記共用一支**（器材那一份與
  * 「那一段記了什麼」那一份形狀一模一樣：`{rowIndex, label, cells}`）。
  *
- * 舊格式沒有那一份時傳進來的是 undefined —— 那時候一列都不畫。
+ * 舊格式沒有那一份時傳進來的是 undefined —— 那時候什麼都不畫。
  */
 function noteRowAt(notes, rowIndex) {
   var list = notes || [];
@@ -825,15 +812,22 @@ function noteRowAt(notes, rowIndex) {
   return null;
 }
 
-/** 那一列的內容：前五欄留白，日期欄放那一格的字。 */
-function noteLine(note, width) {
-  var line = [];
-  for (var i = 0; i < width; i++) line.push('');
-  for (var c = 0; c < note.cells.length; c++) {
-    var col = COL.FIRST_DATE - 1 + note.cells[c].dateIndex;
-    if (col < width) line[col] = note.cells[c].text;
+/** 一份註記攤成「第幾個日期 → 那一格的字」（`count` 個，沒有的是 ''）。落在表外的（`dateIndex` 超過日期欄）丟掉，同以前。 */
+function cellsByDate(note, count) {
+  var out = [];
+  for (var i = 0; i < count; i++) out.push('');
+  var cells = (note && note.cells) || [];
+  for (var c = 0; c < cells.length; c++) {
+    var at = cells[c].dateIndex;
+    if (typeof at === 'number' && at >= 0 && at < count) out[at] = cells[c].text;
   }
-  return line;
+  return out;
+}
+
+/** 那一格的字：符號＋空一格＋器材別稱（「✓ IN」「✓2 SIS」）。沒有器材照舊只有符號；只有器材沒有符號就只寫器材。 */
+function markWithEquipment(mark, equipment) {
+  if (!equipment) return mark;
+  return mark ? mark + ' ' + equipment : equipment;
 }
 
 /**
@@ -1097,6 +1091,8 @@ function Canvas() {
   this.formats = {};
   for (var i = 0; i < CANVAS_FORMATS.length; i++) this.formats[CANVAS_FORMATS[i][1]] = [];
   this.merges = [];
+  /** 每一格的備註（記一句，issues/11）。notes[列][欄]。 */
+  this.notes = [];
   this.borders = [];
   this.widths = [];
   this.heights = [];
@@ -1159,6 +1155,11 @@ CanvasRange.prototype.setValues = function (grid) {
   return this;
 };
 
+CanvasRange.prototype.setNote = function (text) {
+  this.canvas.put(this.canvas.notes, this.row, this.col, text);
+  return this;
+};
+
 CanvasRange.prototype.merge = function () {
   this.canvas.merges.push([this.row, this.col, this.rows, this.cols]);
   return this;
@@ -1218,6 +1219,7 @@ function paint(sheet, canvas) {
     }
     sheet.getRange(1, 1, rows, cols).setValues(grid);
   }
+  paintNotes(sheet, canvas.notes);
   t = clockAdd('寫值', t, true);
 
   for (var f = 0; f < CANVAS_FORMATS.length; f++) {
@@ -1251,6 +1253,34 @@ function paint(sheet, canvas) {
   if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
   if (canvas.frozenCols != null) sheet.setFrozenColumns(canvas.frozenCols);
   clockAdd('框線欄寬', t, true);
+}
+
+/**
+ * 備註（記一句）一次寫上去：框住每一格有備註的那一塊、一次 `setNotes()`，其餘寫 ''（`resetSheet()` 先清過了，寫 '' 等於沒有）。
+ */
+function paintNotes(sheet, notes) {
+  var top = 0;
+  var bottom = 0;
+  var left = 0;
+  var right = 0;
+  for (var r = 1; r < notes.length; r++) {
+    if (!notes[r]) continue;
+    for (var c = 1; c < notes[r].length; c++) {
+      if (!notes[r][c]) continue;
+      if (!top) top = r;
+      bottom = r;
+      if (!left || c < left) left = c;
+      if (c > right) right = c;
+    }
+  }
+  if (!top) return;
+  var grid = [];
+  for (var r2 = top; r2 <= bottom; r2++) {
+    var line = [];
+    for (var c2 = left; c2 <= right; c2++) line.push((notes[r2] && notes[r2][c2]) || '');
+    grid.push(line);
+  }
+  sheet.getRange(top, left, grid.length, grid[0].length).setNotes(grid);
 }
 
 /** 一種格式照值分組、每一組一次 `RangeList` 寫上去。 */
@@ -1473,6 +1503,8 @@ function resetSheet(ss, name, book) {
     // 鎖對了就留著（`render()` 讀的那一段判好了 `keepLock`）：用她的身分清、畫，鎖擋不住
     if (!entry.keepLock) unprotect(entry);
     sheet.clear();
+    // 備註（記一句，issues/11）不在 clear() 的範圍裡：不清的話，搬了位置的那一句會留在舊的那一格
+    sheet.clearNotes();
     sheet.clearConditionalFormatRules();
     // 上一次的合併留著會讓這一次的 setValues 整個炸掉
     sheet.getRange(1, 1, entry.maxRows, entry.maxCols).breakApart();

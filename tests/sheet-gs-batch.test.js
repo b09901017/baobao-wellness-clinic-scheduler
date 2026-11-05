@@ -143,7 +143,8 @@ describe('改後的 .gs 畫出來跟釘住的一樣（版號 3 只多了字級�
   // 08：日期欄 78、數字四欄淡灰＋粗線、格線藏起來、名字 18 號、抬頭只有號碼、待辦區日期是文字
   // 09：凍結五列五欄、合併只到剩餘那一欄、折行的列照字數估高
   // 10：每一位的療程項目照「已完成＋已排未上」多到少排
-  const BEFORE = ['ed17d5720679bba0', 'e70b915575bc8886', 'f10427a95998fa02', '2c6f6ad9ece09250'];
+  // 11：器材併進那一格、記一句改成那一格的備註
+  const BEFORE = ['b39e72fd051e746d', 'f13ff39f472373a5', 'c0a7514d84aa3753', '5f81ff79a86a31a6'];
 
   test('四步，每一步整份試算表都一樣（值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋）', () => {
     assert.deepEqual(story(null), BEFORE);
@@ -173,8 +174,10 @@ describe('一次推送叫 Google 幾次（替身數的，scripts/sheet-gs-calls.
     app.post({ token: 'secret', bundle: bundleOf(pages(10)) });
     const stats = count(() => app.post({ token: 'secret', bundle: bundleOf(pages(10)), force: true }));
     assert.equal(stats.result.sheets, 10);
-    // 改前（develop 3dd2ee12）同一包：讀 187、寫 1,980、寫完又讀 84（一頁約 200 次寫）；改後 讀 78、寫 452、寫完又讀 10
-    assert.ok(stats.writes <= 10 * 50, `寫了 ${stats.writes} 次`);
+    // 改前（develop 3dd2ee12）同一包：讀 187、寫 1,980、寫完又讀 84（一頁約 200 次寫）；改後 讀 78、寫 452、寫完又讀 10。
+    // 第三輪的版面（sheet-push-gaps 08～12）一頁多幾次固定的：凍結欄、剩餘那條粗線、格線、清備註、寫備註、待辦區的文字格式、
+    // 折行的列各自加高（一頁幾列）—— 這一包 513 次。照樣不跟格子數成正比
+    assert.ok(stats.writes <= 10 * 60, `寫了 ${stats.writes} 次`);
     assert.ok(stats.writeThenRead <= 10, `寫完又馬上讀 ${stats.writeThenRead} 次`);
     for (const one of ['Range.setValue', 'Range.setBackground', 'Range.setWrap', 'Range.setVerticalAlignment', 'Sheet.setColumnWidth', 'Sheet.getLastRow']) {
       assert.ok(!stats.byName[one], `${one} 叫了 ${stats.byName[one]} 次：畫法要先畫在草稿紙上（Canvas）`);

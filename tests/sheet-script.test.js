@@ -50,8 +50,12 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     return app.ss.getSheetByName('客戶A');
   };
   const column = (sheet) => Array.from({ length: 90 }, (_, i) => sheet.at(`A${i + 1}`));
+  // 值＋每一格的備註（第三輪 11 起，有額度的段的記一句寫在那一格的備註裡）
   const everything = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
-    (_, c) => sheet.at(`${String.fromCharCode(65 + c)}${r + 1}`)).join('|')).join('\n');
+    (_, c) => {
+      const a1 = `${String.fromCharCode(65 + c)}${r + 1}`;
+      return `${sheet.at(a1)}${sheet.noteAt(a1)}`;
+    }).join('|')).join('\n');
 
   test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
     const { post } = loadAppsScript();
@@ -76,7 +80,7 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     assert.equal(first.note, null, '有額度的那一段在來訪紀錄不帶記一句');
     assert.equal(second.note, 'HRV 報告');
     const text = everything(render(b));
-    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度底下那一格）');
+    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度那一格的備註）');
     assert.equal(text.split('HRV 報告').length - 1, 1);
   });
 
