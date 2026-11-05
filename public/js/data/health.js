@@ -114,6 +114,11 @@ function withFixIds(fixes) {
  * 只靠 id 一樣不夠：`repo.commit()` 的 create 是 `batch.set`，id 已經在了就整份蓋掉（createdAt 重設、次數回到草稿、
  * 她刪掉的那一筆被救活），所以**連軟刪除的一起讀**。讀的是那一位的額度、警示主檔 —— 都只有幾十筆，帶著這一台還沒送出的寫入。
  * 種子 id 的那幾種（`addCourse`…）不在這裡：照舊（見 `.scratch/small-fixes-2026-11-05/HANDOFF.md`「中途發現 → 段一」）
+ *
+ * **正在別的一趟寫的也算已經在了**（`writing`）：讀完之後、回去之前**同一步**認領（中間沒有 `await`），
+ * 兩趟一起送出時後到的那一趟拿不到。回傳的 `claimed` 由呼叫端寫完（成功或失敗）放開。
+ *
+ * @returns {Promise<{ ops: object[], claimed: string[] }>}
  */
 async function notYetWritten(ops, fixes) {
   const minted = new Set((fixes ?? []).filter((f) => MINTED[f?.kind] && f.id).map((f) => f.id));
@@ -121,8 +126,18 @@ async function notYetWritten(ops, fixes) {
   const paths = [...new Set(ops.filter(isMinted).map((op) => op.path))];
   const rows = await Promise.all(paths.map((p) => repo.listWithDeleted(p).then((list) => list.map((r) => `${p}/${r.id}`))));
   const there = new Set(rows.flat());
-  return ops.filter((op) => !(isMinted(op) && there.has(`${op.path}/${op.id}`)));
+  const keep = ops.filter((op) => !(isMinted(op) && (there.has(`${op.path}/${op.id}`) || writing.has(op.id))));
+  const claimed = keep.filter(isMinted).map((op) => op.id);
+  for (const id of claimed) writing.add(id);
+  return { ops: keep, claimed };
 }
+
+/**
+ * 這一台正在寫的那幾個掃描時鑄好的 id。同一筆修正從兩條路一起送出 —— 單筆「修正」與「全部修正」的 `key` 不一樣，
+ * `withSaveState()` 擋不到 —— 兩趟都讀到「還沒寫」，拿同一個 id 各寫一次：第二次整份蓋掉第一次、稽核多一筆「建立」、
+ * 健檢那條鏈各長一份待辦（2026-11-05 段三審查，E2E `93` 的 H1）
+ */
+const writing = new Set();
 
 /** 補完之後的整份額度：**照 id 去重** —— 讀回來的那一份已經有這一筆時（重試、確認框在寫完之後才開）再接一次就算兩份 */
 const withAdded = (added) => (list) => {
@@ -170,21 +185,26 @@ export async function applyFixes(fixes) {
   if (!snapshotWhole && (fixes ?? []).some((f) => SNAPSHOT_REWRITES.has(f?.kind))) {
     throw new IncompleteReadError('', SNAPSHOT_PARTIAL_SAY);
   }
-  // 連按、重試只建一筆（11/4 健檢 #2）：id 是掃描時鑄好的那一個，已經寫進去的不再寫
+  // 連按、重試只建一筆（11/4 健檢 #2）：id 是掃描時鑄好的那一個，已經寫進去的（或正在別的一趟寫的）不再寫
   withFixIds(fixes);
-  const ops = await notYetWritten(opsFor(fixes), fixes);
-  // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
-  // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
-  for (const [customerId, added] of addedFollowups(ops)) {
-    // eslint-disable-next-line no-await-in-loop
-    const chain = await chainAfterEntitlements(customerId, withAdded(added));
-    ops.push(...(chain?.ops ?? []));
-  }
+  const { ops, claimed } = await notYetWritten(opsFor(fixes), fixes);
+  try {
+    // 補上二返額度的那幾位：健檢那條鏈跟著重算、接在後面一起寫（ADR-0159）。不經過 `data/customers.js` 的
+    // 額度那幾支，所以這裡自己叫 —— 漏掉的話補完之後「約二返」要等她下一次存那一位的來訪才長出來
+    for (const [customerId, added] of addedFollowups(ops)) {
+      // eslint-disable-next-line no-await-in-loop
+      const chain = await chainAfterEntitlements(customerId, withAdded(added));
+      ops.push(...(chain?.ops ?? []));
+    }
 
-  for (let i = 0; i < ops.length; i += FIX_CHUNK) {
-    await repo.commit(ops.slice(i, i + FIX_CHUNK));
+    for (let i = 0; i < ops.length; i += FIX_CHUNK) {
+      await repo.commit(ops.slice(i, i + FIX_CHUNK));
+    }
+    return ops.length;
+  } finally {
+    // 寫完（或寫不進去）才放開：寫完之後再送的那一趟讀得到它；寫不進去的話重試照樣寫得了
+    for (const id of claimed) writing.delete(id);
   }
-  return ops.length;
 }
 
 /**

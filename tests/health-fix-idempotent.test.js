@@ -56,6 +56,20 @@ test('applyFixes()：create 之前先讀那個 id，已經在了就不寫（crea
   assert.match(bodyOf(read(DATA), 'notYetWritten'), /repo\.listWithDeleted\(/);
 });
 
+test('兩趟一起送出：讀完之後同一步認領、寫完才放開（單筆「修正」與「全部修正」的 key 不一樣，段三審查）', () => {
+  const src = read(DATA);
+  const check = bodyOf(src, 'notYetWritten');
+  // 認領在讀之後、而且中間沒有第二個 await（不然兩趟會一起讀完再一起認領）
+  const readAt = check.indexOf('await ');
+  assert.ok(readAt > 0);
+  assert.equal(check.indexOf('await ', readAt + 1), -1, '讀完之後不可以再 await');
+  assert.match(check.slice(readAt), /writing\.has\(/);
+  assert.match(check.slice(readAt), /writing\.add\(/);
+  const apply = bodyOf(src, 'applyFixes');
+  assert.match(apply, /finally \{[\s\S]*writing\.delete\(/);
+  // 真的跑的那一份在 E2E `93`（H1 兩趟一起送、H2 寫完再送、H3 刪掉之後再送）
+});
+
 test('健檢那條鏈：補完之後的額度照 id 去重（重試時同一筆不可以算兩份）', () => {
   const src = read(DATA);
   assert.doesNotMatch(src, /\(list\) => \[\.\.\.list, \.\.\.added\]/);

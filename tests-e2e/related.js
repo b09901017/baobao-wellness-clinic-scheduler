@@ -694,6 +694,11 @@ export const COVERAGE = {
   '92-event-colour-swatches': [
     'public/js/ui/views/eventEditor.js', 'public/js/domain/events.js', 'public/css/app.css',
   ],
+  // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
+  '93-health-fix-once': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
+    'public/js/data/customers.js',
+  ],
 };
 
 /**
