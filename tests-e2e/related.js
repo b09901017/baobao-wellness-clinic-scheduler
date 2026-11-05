@@ -685,6 +685,11 @@ export const COVERAGE = {
   '89-delivery-once': [
     'public/js/data/notes.js', 'public/js/ui/views/customerDetail.js', 'public/js/domain/products.js',
   ],
+  // 隨手記「挑日期」那一顆本身就是日期框、點得到、選了就記上（small-fixes-2026-11-05 05）：四個入口都走一次
+  '91-note-date-one-tap': [
+    'public/js/ui/components/note.js', 'public/css/app.css', 'public/js/ui/views/home.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/calendar.js',
+  ],
 };
 
 /**
@@ -741,6 +746,8 @@ export const CSS_SCOPES = {
   tsl: { classes: ['tsl'], owners: ['public/js/ui/components/sheetConfirm.js'] },
   // 「送的／體驗…」收起來的那一段（壓表、來訪編輯器、拍 Abovee 共用）
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
+  // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
+  notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));

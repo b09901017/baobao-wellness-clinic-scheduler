@@ -7601,8 +7601,47 @@ summary {
   font-variant-numeric: tabular-nums;
 }
 
+/* 「挑日期」那一顆本身就是日期框（小修 05）：一個透明、蓋滿整顆的 `<input type="date">`，
+   點下去是原生的日期選擇、選了就記上。**不叫 `showPicker()`** —— 她手機上那條路選了記不上。
+   觸控區撐在 input 自己身上（`inset: -5px 0`，跟 `.chip::after` 一樣大）：`::after` 畫在 input 上面的話，
+   點到的是 label 不是 input。這一條比 `.field input[type='date']`（width: 100%）與全域 `input` 晚、而且一樣具體。 */
+.notedate__pick::after {
+  content: none;
+}
+
+.notedate__pick[data-on='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
 .notedate input[type='date'] {
-  flex: 1 0 100%;
+  position: absolute;
+  inset: -5px 0;
+  z-index: 1;
+  width: 100%;
+  height: calc(100% + 10px);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  /* iOS 聚焦字小於 16px 的框會放大整頁；全域那一條已經給了，這裡不要蓋掉 */
+  font-size: 16px;
+}
+
+/* 桌機 Chromium 點日期框的字只會選到年／月／日那一格，點右邊那個小圖示才開選擇器 ——
+   把小圖示撐滿整顆，點哪裡都開（手機照原生，看不到差別） */
+.notedate input[type='date']::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
 }
 
 /* 掛在一筆隨手記身上的東西：客戶一顆、日期一顆，沒掛的就沒有。

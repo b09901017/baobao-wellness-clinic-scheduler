@@ -12,8 +12,13 @@
 // ## 為什麼是兩顆丸子，不是一個攤開的日曆
 //
 // 「今天」一次點擊就完成，而那是最常見的那一種 —— 客人當著她的面講的話，
-// 通常就是今天記、今天處理。「挑日期」才展開系統原生的 `<input type="date">`：
+// 通常就是今天記、今天處理。「挑日期」那一顆**本身就是**系統原生的 `<input type="date">`：
+// 丸子的樣子，裡面疊一個透明、蓋滿整顆的日期框，點下去就是原生的日期選擇、選了就記上。
 // 自己畫一個小日曆是壓表那一頁才需要的（那裡要標紅、標休假），這裡不需要。
+//
+// **不要改回「按丸子 → 程式叫 `showPicker()`」**（2026-11-05 第一輪小修 05）：她用手機那樣按，
+// 跳出日曆、選了一天卻什麼都沒記上，要再點底下那個長框框選一次才記得上 —— 點原生的框選得上、
+// 程式叫出來的選不上。所以現在只有她自己點到的那一個框，沒有第二條路。
 //
 // **預設是沒有日期。** 泡泡那一支的標準是「三秒內記完」
 //（`domain/notes.js` 的檔頭），多一個必填欄位就毀了它。
@@ -81,13 +86,14 @@ export function field({ value = null } = {}) {
     <div class="notedate" data-notedate>
       <button class="chip chip--sm" type="button" data-nd-today
               aria-pressed="${picked === todayISO()}">今天</button>
-      <button class="chip chip--sm" type="button" data-nd-pick
-              aria-pressed="${Boolean(picked) && picked !== todayISO()}">挑日期</button>
+      ${/* label 不是 button：<button> 裡不能放 <input>。亮不亮寫在 data-on（label 沒有 aria-pressed）。 */''}
+      <label class="chip chip--sm notedate__pick" data-nd-pick
+             data-on="${Boolean(picked) && picked !== todayISO()}">挑日期<input
+             type="date" class="notedate__input" data-nd-input value="${esc(picked)}" aria-label="挑日期" /></label>
       <span class="notedate__picked" ${picked ? '' : 'hidden'}>
         <span data-nd-label>${picked ? esc(shortDate(picked)) : ''}</span>
         <button class="chip chip--sm" type="button" data-nd-clear aria-label="拿掉日期">✕</button>
       </span>
-      <input type="date" data-nd-input value="${esc(picked)}" hidden />
     </div>`;
 }
 
@@ -132,34 +138,24 @@ function wireOne(box) {
     label.textContent = v ? shortDate(v) : '';
     picked.hidden = !v;
     box.querySelector('[data-nd-today]').setAttribute('aria-pressed', String(v === todayISO()));
-    box.querySelector('[data-nd-pick]').setAttribute('aria-pressed', String(Boolean(v) && v !== todayISO()));
+    box.querySelector('[data-nd-pick]').dataset.on = String(Boolean(v) && v !== todayISO());
   };
 
   const set = (iso) => {
     input.value = iso ?? '';
-    input.hidden = true;
     paint();
   };
 
   box.addEventListener('click', (e) => {
     if (e.target.closest('[data-nd-today]')) return set(input.value === todayISO() ? null : todayISO());
     if (e.target.closest('[data-nd-clear]')) return set(null);
-    if (e.target.closest('[data-nd-pick]')) {
-      input.hidden = !input.hidden;
-      // showPicker() 要在點擊的手勢堆疊裡才叫得動，跟 quick capture 的
-      // focus() 是同一個坑（.scratch/quick-capture/issues/01）。
-      if (!input.hidden) {
-        try {
-          input.showPicker?.();
-        } catch {
-          input.focus();
-        }
-      }
-    }
+    // 「挑日期」不用接：點到的就是那個日期框本身，選了走底下的 change。
     return undefined;
   });
 
+  // iOS 有的版本選的時候只發 input、按「完成」才發 change —— 兩個都接，paint() 重畫幾次都一樣。
   input.addEventListener('change', paint);
+  input.addEventListener('input', paint);
   paint();
   return { set };
 }

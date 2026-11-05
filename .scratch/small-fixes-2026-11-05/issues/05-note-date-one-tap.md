@@ -1,6 +1,6 @@
 # 隨手記「挑日期」按一下就選好
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`public/js/ui/components/note.js` 的 `field()`、`read()`、`wire()`、`wireOne()` 與檔頭「為什麼是兩顆丸子」；
 `app.css` 的 `.notedate`、`.chip`、全域 `input`；`field()` 只有四處：`ui/views/home.js` 約 `:1533`（首頁隨手記那張卡）、`:1609`（小鉛筆 `quickBody()`，`#/todo/notes` 用的也是這個泡泡）、
@@ -44,3 +44,19 @@ Blocked by: —
   **手機上的實際行為只能請她在 staging 用手機點**，寫進手動驗收清單
 
 ## 做完時留下的
+
+- 「挑日期」改成 `<label class="chip chip--sm notedate__pick" data-nd-pick data-on="…">` 包一個透明、蓋滿整顆的 `<input type="date" data-nd-input>`；
+  底下那個長框沒了（一份 `field()` 只有一個日期框）。亮不亮寫在 `data-on`（label 不用 `aria-pressed`），CSS 是 `.notedate__pick[data-on='true']`（跟 `.chip[aria-pressed='true']` 同樣子）
+- `wireOne()`：`[data-nd-pick]` 那一段點擊整個拿掉（點到的就是框本身）；`set()` 不再 `input.hidden = true`；`change` 之外多接 `input`（iOS 有的版本選的時候只發 input）
+- CSS（`app.css` 的 `.notedate` 那一段）：input `position: absolute; inset: -5px 0; opacity: 0; z-index: 1`，觸控區撐在 input 自己身上（`.notedate__pick::after { content: none }`）；
+  蓋掉全域 `input` 的 min-height／padding／border 與 `.field input[type='date']` 的寬（同樣具體、排在後面）；`font-size: 16px`（iOS 聚焦不放大）；
+  `::-webkit-calendar-picker-indicator` 撐滿整顆（桌機點哪裡都開選擇器）
+- 測試：`tests/note-date-field.test.js`（`public/js` 沒有 `.showPicker`、label 包著 input、沒有 hidden、亮不亮）—— 改之前三條紅；
+  E2E `91-note-date-one-tap`（四個入口：點中間與兩頭 `elementFromPoint()` 是那個框、`fill()` 之後標籤出現、存下去的是那一天；按過今天／✕ 之後照樣按得動）——
+  拿舊的 `note.js` 跑 5 支全紅，改完 5 支全綠
+- `related.js`：登記 `91`、`CSS_SCOPES` 加 `notedate`（owners 只有 `note.js`；`tests/e2e-css-scopes.test.js` 掃過沒有別的檔案用 `.notedate`）
+- verify：`npm test` 5440 全過；E2E 沒走 `--related`（`related.js` 改了會退回整條分支比、59 支），改用 `pick()` 拿這一支的檔案
+  （`note.js`、`app.css#notedate`、`sw.js`、spec `91`）挑出 10 支直接跑：`00 01 07 08 10 18 70 80 81 91`，80 個全過
+- `sw.js` v236
+- **手機上真的點一次只有她做得到**（Playwright 打不開原生的日期選擇）：段三的手動驗收清單要排「手機上：首頁隨手記按挑日期 → 選一天 → 不用再點別的就出現『11/7(五) ✕』；
+  小鉛筆泡泡同一條；按過今天／✕ 之後再按挑日期」
