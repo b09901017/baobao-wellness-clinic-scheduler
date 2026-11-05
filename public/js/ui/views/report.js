@@ -17,6 +17,7 @@ import * as tasksData from '../../data/tasks.js';
 import * as sheetSync from '../../data/sheetSync.js';
 import { customerReport, toTSV, toCSV, describeSync, pushedSay, skippedPushSay } from '../../domain/sheetReport.js';
 import { todayISO } from '../../domain/dates.js';
+import { isOneTime } from '../../domain/customers.js';
 import { esc } from '../components/form.js';
 import * as message from '../components/message.js';
 import { saveText, dated } from '../components/download.js';
@@ -70,7 +71,10 @@ async function load() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return { today, customers, entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, ivProducts, settings };
+  // 一次性客人不列（ADR-0172 決定一）：「要哪一份」那一排不給挑、也就畫不出他的那一份（`customerReport()` 另外濾一次性的段）
+  return {
+    today, customers: customers.filter((c) => !isOneTime(c)), entitlementsBy, visitsBy, tasksBy, courses, staff, equipment, ivProducts, settings,
+  };
 }
 
 function paint(el, data) {

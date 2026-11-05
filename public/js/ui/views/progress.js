@@ -16,6 +16,7 @@ import {
   statusClass, shortStatus, markFor, describeStatus, statusForCard, focusFor,
 } from '../../domain/visits.js';
 import { monthRange } from '../../domain/scheduling.js';
+import { isOneTime } from '../../domain/customers.js';
 import { todayISO, shortDate, addMonths } from '../../domain/dates.js';
 import { timeLabel } from '../../domain/visitTime.js';
 import { openCard } from '../components/card.js';
@@ -68,8 +69,9 @@ export async function render(el) {
   const ctx = {
     el,
     today,
-    // 已停用的不列 —— 客戶頁把他們收在另一顆切換底下，這裡跟著同一個規矩
-    customers: customers.filter((c) => c.active !== false),
+    // 已停用的不列 —— 客戶頁把他們收在另一顆切換底下，這裡跟著同一個規矩。
+    // 一次性客人也不列（ADR-0172：「客戶那頁沒有他」）
+    customers: customers.filter((c) => c.active !== false && !isOneTime(c)),
     roomsById: byId(master[0]),
     staffById: byId(master[1]),
     // **這一份少了的話，讀取卡片會一律說「簽療程單」**：`formSlotIndexes()`

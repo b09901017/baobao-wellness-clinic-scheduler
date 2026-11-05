@@ -694,6 +694,26 @@ export const COVERAGE = {
   '92-event-colour-swatches': [
     'public/js/ui/views/eventEditor.js', 'public/js/domain/events.js', 'public/css/app.css',
   ],
+  // 一次性客人：客戶清單最底下那一排、名字卡那一頁、轉成我的客戶、刪除、新增客戶同名那一句（one-time-guests 05，ADR-0172）
+  '94-one-time-guest-card': [
+    'public/js/ui/views/customers.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/guestForm.js',
+    'public/js/domain/customers.js', 'public/js/domain/consequences.js', 'public/js/data/customers.js',
+    'public/js/ui/components/customerForm.js', 'public/css/app.css',
+  ],
+  // 一次性客人：日曆新增「＋ 新增一次性客人」、來訪編輯器的「做什麼」、讀取卡片的「一次性」、「約二返」去日曆排、轉成客戶之後的「二返（一次性那一次）」（one-time-guests 06）
+  '95-one-time-guest-booking': [
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/home.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotOptions.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/followups.js',
+    'public/js/domain/customers.js', 'public/js/ui/views/customerDetail.js', 'public/css/app.css',
+  ],
+  // 一次性客人：拍 Abovee「記成一次性客人」、一次性客人那一列、換一位標「一次性」（one-time-guests 07）
+  '96-one-time-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/followups.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/customers.js',
+    'tests-e2e/fixtures/ai/aboveeList-one-time.json',
+  ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
@@ -726,6 +746,8 @@ export const FOLLOWS = {
     'public/js/ui/views/schedule.js', 'public/js/ui/views/trash.js',
   ],
   'public/js/domain/lineText.js': ['public/js/ui/views/playbook.js'],
+  // 一次性客人的那一對額度（ADR-0172）：健檢那一串（followups.js）、n返（nthFollowup.js）進來先套它
+  'public/js/domain/oneTimeChain.js': ['public/js/domain/followups.js', 'public/js/domain/nthFollowup.js'],
   // 圖示只在兩個地方被讀：`manifest.webmanifest`（裝到主畫面）與 `index.html` 的 `<link rel="icon">`。
   // 後者是共用底座，但它載不到圖示的症狀是一句 console error —— `00-smoke`（CORE）本來就在抓那個
   'public/icons/': ['public/manifest.webmanifest'],

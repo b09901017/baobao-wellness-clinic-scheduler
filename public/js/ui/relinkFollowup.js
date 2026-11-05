@@ -47,7 +47,8 @@ export async function relinkAfterSave(relink, exam, { customer, entitlements = [
   // 那一次健檢接不接得上、有沒有被別場接走：照常問存檔驗證，不另寫一份。提醒不看 —— 排在健檢之前那一句
   // 確認框上已經講過了（`relink.ahead`），其餘的跟這一格無關
   const { errors } = validateVisit(next, {
-    customer: { id: customer.id, flags: customer.flags ?? [] },
+    // 整份（一次性客人那一格要帶得出來，ADR-0172）
+    customer: { ...customer, flags: customer.flags ?? [] },
     entitlements,
     courses: master.courses ?? [], equipment: master.equipment ?? [], rooms: master.rooms ?? [],
     staff: master.staff ?? [], ivProducts: master.ivProducts ?? [],

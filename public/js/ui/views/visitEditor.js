@@ -23,24 +23,24 @@ import {
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
 import { bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences } from '../../domain/consequences.js';
-import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
+import { pairsOf, examChoicesFor, examChoiceNote, oneTimeExamChoices, isFollowupCourse } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
-  secondFollowupIds, nthSlotFields, MIN_NTH, MAX_NTH,
+  secondFollowupIds, nthSlotFields, MIN_NTH, MAX_NTH, isOneTimeExamVisit,
 } from '../../domain/nthFollowup.js';
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
-import { splitFlags } from '../../domain/customers.js';
+import { splitFlags, isOneTime } from '../../domain/customers.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
   THERAPIST_ROLE, giftKindOf, GIFT_KINDS, giftLabel, trialMinutesOf,
-  isExamNotMine, examNotMineCourse, EXAM_NOT_MINE_LABEL,
+  isExamNotMine, examNotMineCourse, EXAM_NOT_MINE_LABEL, isOneTimeSlot,
 } from '../../domain/masterData.js';
 import {
   NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse, trialFromMinutes,
-  NOT_MINE_PICK, notMineOption,
+  NOT_MINE_PICK, notMineOption, guestOptions, guestPick, guestCourseIdOf, ONE_TIME_SECOND_PICK, oneTimeSecondOptions,
 } from '../../domain/slotOptions.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
@@ -169,7 +169,7 @@ async function boot(el, {
     const target = editorTarget({ existing, open: sameDay.open });
     const base = target.visit;
     const draft = base
-      ? (target.addSlot ? withNewSlot(base, entitlements, all, settings) : { ...base })
+      ? (target.addSlot ? withNewSlot(base, entitlements, all, settings, isOneTime(customer)) : { ...base })
       : blankVisit(customer, entitlements, all, settings, date);
     const sameDayVisits = await visitsData.listByDate(draft.date);
 
@@ -225,9 +225,14 @@ function blankVisit(customer, entitlements, all, settings, date = null) {
   };
   // **一位沒有任何額度的客戶也排得進去**（ADR-0121）：主檔裡有不算次數的課時，
   // 第一段預設就是它。兩樣都沒有才是一段都沒有 —— 那時候畫面上只有一句錯誤。
-  const first = entitlements[0];
-  const free = first ? null : freeCourseOf(all);
-  if (first || free) visit.slots.push(blankSlot(first, all, settings, '09:00', free));
+  //
+  // **一次性客人不走那個預設**（ADR-0172，issue 06）：他的段不是送的／體驗（`validateVisit()` 擋），
+  // 第一段是一段還沒選課的一次性的段 —— 「做什麼」那一排列全部的課，她按一門
+  // **有額度也不拿來當預設**（段五審查 R2）：一次性客人的段一律標一次性，`validateVisit()` 擋扣著真的額度的
+  const guest = isOneTime(customer);
+  const first = guest ? undefined : entitlements[0];
+  const free = first || guest ? null : freeCourseOf(all);
+  if (first || free || guest) visit.slots.push(blankSlot(first, all, settings, '09:00', free, { guest }));
   return visit;
 }
 
@@ -264,7 +269,7 @@ const minutesNow = (slot) => slot.minutes ?? (isValidTime(slot.startsAt) && isVa
  * @param {object|undefined} entitlement 預設扣哪一筆額度
  * @param {object|null} [freeCourse] 沒有額度時，預設哪一門不算次數的課（ADR-0121）
  */
-function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
+function blankSlot(entitlement, all, settings, startsAt, freeCourse = null, { guest = false } = {}) {
   // 預設那一筆額度的擇一池只有一台就先選好（`equipmentAfterSwitch()`，同底下品項那一格的理由）
   const equipmentId = equipmentAfterSwitch(entitlement);
   const first = (entitlement
@@ -309,6 +314,8 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
     // 那一段會被靜默標成談定了，而她根本還沒跟客人講過這個時間。
     // 壓表那一頁的 `withExtraSlot()` 做的是同一件事。
     status: INITIAL_STATUS,
+    // 一次性客人（還沒轉）的新一段（ADR-0172）：沒有額度、還沒選課，標一次性 —— 讀回來時認得出它是哪一種
+    ...(guest && !entitlement ? { oneTime: true } : {}),
   };
 }
 
@@ -318,13 +325,15 @@ function blankSlot(entitlement, all, settings, startsAt, freeCourse = null) {
  * 併進同一天時走這條（`boot()`）。時間接在最後一段結束的 N 分鐘後 ——
  * 跟「＋新增一個時段」同一條算法，各算一次的話兩個入口的預設會不一樣。
  */
-function withNewSlot(visit, entitlements, all, settings) {
+function withNewSlot(visit, entitlements, all, settings, guest = false) {
   const slots = visit.slots ?? [];
   const last = slots[slots.length - 1];
   const gap = settings.slotGapMin ?? DEFAULT_GAP_MIN;
   const startsAt = last && isValidTime(last.endsAt) ? nextStart(last.endsAt, gap) : '09:00';
-  const free = entitlements[0] ? null : freeCourseOf(all);
-  return { ...visit, slots: [...slots, blankSlot(entitlements[0], all, settings, startsAt, free)] };
+  // 一次性客人不拿額度當預設（段五審查 R2，同 `blankVisit()`）
+  const first = guest ? undefined : entitlements[0];
+  const free = first || guest ? null : freeCourseOf(all);
+  return { ...visit, slots: [...slots, blankSlot(first, all, settings, startsAt, free, { guest })] };
 }
 
 // ---------- 畫面 ----------
@@ -490,7 +499,7 @@ function paint(ctx, draft) {
   });
 
   el.querySelector('[data-add-slot]')?.addEventListener('click', () => {
-    const next = withNewSlot(readDraft(ctx, form, draft), entitlements, all, ctx.settings);
+    const next = withNewSlot(readDraft(ctx, form, draft), entitlements, all, ctx.settings, isOneTime(ctx.customer));
     // 新加的那一段當然要畫得出來 —— 併進既有那一天時 `editSlots` 是一份名單，
     // 不接上去的話她按了「新增一個時段」而畫面上什麼都不會多。
     if (ctx.editSlots) ctx.editSlots = [...ctx.editSlots, next.slots.length - 1];
@@ -682,6 +691,7 @@ function slotCard(ctx, draft, slot, i) {
         : ''}
       ${picksDoctor(course) ? doctorField(all, course, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
+      ${guestExamField(ctx, draft, slot, i, { nth, notMine })}
     </section>`;
 }
 
@@ -696,7 +706,11 @@ function slotCard(ctx, draft, slot, i) {
 function entRow(ctx, draft, slot, i, { nth, notMine, free, course, nthExams }) {
   const { entitlements, all, customerVisits } = ctx;
   const name = `s${i}-ent`;
-  const value = notMine ? NOT_MINE_PICK : (nth ? NTH_PICK : (free ? giftPick(slot.courseId) : slot.entitlementId));
+  // 一次性的段（ADR-0172）：還沒轉的一次性客人是 `guestPick(課程)`；轉成我的客戶之後的「二返（一次性那一次）」是 `ONE_TIME_SECOND_PICK`
+  const guestValue = nth || notMine ? null : guestValueOf(ctx, slot);
+  const value = notMine ? NOT_MINE_PICK
+    : (nth ? NTH_PICK : (guestValue ?? (free ? giftPick(slot.courseId) : slot.entitlementId)));
+  if (isOneTime(ctx.customer)) return guestRow(ctx, slot, i, { name, value, notMine, course, nthExams });
   // 「健檢不是我排的」（exam-not-mine 05、06）：收在「送的／體驗／其他…」的「其他 ▸」裡，壓表與拍 Abovee 同一支。
   // 這一段現在就是它時，二返那門課停用了也照樣列（`keep`）
   const notMineOpt = notMineOption(all.courses, { keep: notMine ? course : null });
@@ -723,6 +737,9 @@ function entRow(ctx, draft, slot, i, { nth, notMine, free, course, nthExams }) {
     // 那一顆照樣在 —— 她選哪一顆就扣不扣。這一段現在指著的那一門就算被停用了也要列（`keep`）
     ...giftOptions(all.courses, { keep: free ? course : null }),
     ...(notMineOpt ? [notMineOpt] : []),
+    // 轉成我的客戶之後（ADR-0172 第 6 題）：一次性時做的健檢還欠的那一場二返 —— 那一顆只在還欠的時候有（`oneTimeOwed()`）；
+    // 這一段現在就是它的話照樣列（它自己佔著那一場，還欠的就變 0 了）
+    ...secondOptionsFor(ctx, draft, slot, guestValue),
   ], all.courses);
   return `
     <div class="fieldgroup">
@@ -736,6 +753,94 @@ function entRow(ctx, draft, slot, i, { nth, notMine, free, course, nthExams }) {
       })}
       <input type="hidden" name="${name}" value="${value == null ? '__null__' : esc(value)}" />
     </div>`;
+}
+
+/**
+ * 這一段在「做什麼」那一排上是哪一顆一次性的（ADR-0172）。不是一次性的段、還沒選課回 `null`。
+ * 還沒轉的一次性客人：那一門課（`guestPick()`）。轉成我的客戶之後：二返是「二返（一次性那一次）」、其餘照課程（留著當時的那一顆）。
+ */
+function guestValueOf(ctx, slot) {
+  if (!isOneTimeSlot(slot) || isNthSlot(slot) || isExamNotMine(slot) || !slot.courseId) return null;
+  if (!isOneTime(ctx.customer) && isFollowupCourse(slot.courseId, ctx.all.courses)) return ONE_TIME_SECOND_PICK;
+  return guestPick(slot.courseId);
+}
+
+/**
+ * 轉成我的客戶之後那一排多的那幾顆（ADR-0172）：「二返（一次性那一次）」（`oneTimeSecondOptions()`，算的時候把這一張表單上的其他段也算進去）；
+ * 這一段原本就是一次性的段時那一顆照樣列（不然那一排一顆都沒按，同 `giftOptions()` 的 `keep`）。
+ */
+function secondOptionsFor(ctx, draft, slot, guestValue) {
+  if (isOneTime(ctx.customer)) return [];
+  const course = ctx.all.courses.find((c) => c.id === slot.courseId) ?? null;
+  const others = (draft.slots ?? []).filter((x) => x !== slot);
+  const visits = [...ctx.customerVisits.filter((x) => x.id !== draft.id), { ...draft, slots: others }];
+  const out = oneTimeSecondOptions({ entitlements: ctx.entitlements, visits, courses: ctx.all.courses });
+  if (guestValue === ONE_TIME_SECOND_PICK && course && !out.length) {
+    out.push({
+      entitlementId: ONE_TIME_SECOND_PICK, label: `${course.name}（一次性那一次）`, remaining: '—',
+      course, entitlement: null, isOneTimeSecond: true,
+    });
+  }
+  if (guestValue && guestValue !== ONE_TIME_SECOND_PICK && course) {
+    out.push({ entitlementId: guestValue, label: `${course.name}（一次性）`, remaining: '—', course, entitlement: null, isGuest: true });
+  }
+  return out;
+}
+
+/**
+ * 一次性客人（還沒轉成我的客戶）的「做什麼」那一排（ADR-0172、spec 第 4 題）：**全部的課，先分類再項目**、不扣任何東西；
+ * 送的／體驗不列；「其他 ▸」裡留「健檢不是我排的」與「＋ n返」。哪幾顆只問 `guestOptions()`，畫法 `giftFold.coursesHtml()`。
+ * 每一顆照 `f.chips()` 的樣子（`data-chip` ＋ 同名的 hidden input），按下去走 `f.wireChips()` 原本那一條路。
+ */
+function guestRow(ctx, slot, i, { name, value, notMine, course, nthExams }) {
+  const options = guestOptions(ctx.all.courses, {
+    keep: value && guestCourseIdOf(value) ? course : null,
+    notMineKeep: notMine ? course : null,
+    nthExams,
+  });
+  return `
+    <div class="fieldgroup">
+      <span class="fieldgroup__label">做什麼</span>
+      ${giftFold.coursesHtml({
+        options, value, key: String(i),
+        chip: (o) => `
+          <button class="chip" type="button" data-chip="${name}" data-chip-value="${esc(o.entitlementId)}"
+                  aria-pressed="${o.entitlementId === value}">${esc(o.label)}</button>`,
+      })}
+      <input type="hidden" name="${name}" value="${value == null ? '__null__' : esc(value)}" />
+    </div>`;
+}
+
+/**
+ * 一次性的二返「這是哪一次健檢的」（ADR-0172 決定三）：他的一次性健檢（`oneTimeExamChoices()`，按得下去的規則同 ADR-0145）。
+ * 一次性的二返沒有額度可以照位置配，**一定要接一次、或按「健檢不是我排的」**（`validateVisit()` 擋）——
+ * 一次都接不上時那一句講出來要她做什麼（會改變寫入結果，不收進 `tip()`）。
+ */
+function guestExamField(ctx, draft, slot, i, { nth, notMine }) {
+  // 還沒選課（`courseId` 是 null）時不畫：`isFollowupCourse(null)` 是 true（不是健檢的課 `followupCourseId` 都是 null）——
+  // 段六手動驗收抓到的：一次性客人剛開的那一段就跳出「app 裡沒有接得上的健檢」
+  if (nth || notMine || !slot.courseId || !isOneTimeSlot(slot) || !isFollowupCourse(slot.courseId, ctx.all.courses)) return '';
+  const choices = oneTimeExamChoices({
+    entitlements: ctx.entitlements,
+    visits: ctx.customerVisits,
+    coursesById: Object.fromEntries(ctx.all.courses.map((c) => [c.id, c])),
+    courseId: slot.courseId,
+    selected: slot.followupForVisitId ?? null,
+    excludeVisitId: draft?.id ?? null,
+  });
+  if (!choices.some((c) => c.pickable)) {
+    return `
+      <div class="fieldgroup" data-guestexam-none>
+        <span class="fieldgroup__label">這是哪一次健檢的</span>
+        <p class="fieldgroup__empty">app 裡沒有接得上的健檢 —— 健檢不是你排的，到上面「其他 ▸」按「${esc(EXAM_NOT_MINE_LABEL)}」</p>
+      </div>`;
+  }
+  return f.chips({
+    name: `s${i}-gexam`, label: '這是哪一次健檢的', value: slot.followupForVisitId ?? null, quiet: true,
+    options: choices.map((c) => ({
+      value: c.visitId, label: shortDate(c.date), disabled: !c.pickable, note: examChoiceNote(c),
+    })),
+  });
 }
 
 /**
@@ -1031,7 +1136,7 @@ function readDraft(ctx, form, draft) {
     // 健檢不是她排的排在 n返 前面：帶標記的三返 `isNthSlot()` 也是 true（exam-not-mine 06）
     const entitlementId = key(v, `s${i}-ent`, isExamNotMine(slot) ? NOT_MINE_PICK
       : isNthSlot(slot) ? NTH_PICK
-        : (wasFree ? giftPick(slot.courseId) : slot.entitlementId));
+        : (guestValueOf(ctx, slot) ?? (wasFree ? giftPick(slot.courseId) : slot.entitlementId)));
 
     // 「健檢不是我排的」（exam-not-mine 06）：二返那門課、不扣、不接健檢，第幾返她自己按。組時段走 `slotFromPicks()`
     if (entitlementId === NOT_MINE_PICK) return readNotMineSlot({ v, i, slot, ctx });
@@ -1043,6 +1148,11 @@ function readDraft(ctx, form, draft) {
     if (entitlementId === NTH_PICK) {
       return readNthSlot({ v, i, slot: plainSlot(slot), ctx, coursesById });
     }
+
+    // 一次性的段（ADR-0172）：還沒轉的一次性客人按的那一門課、或轉了之後的「二返（一次性那一次）」。組時段走 `slotFromPicks({ oneTime: true })`
+    const guestCourseId = guestCourseIdOf(entitlementId)
+      ?? (entitlementId === ONE_TIME_SECOND_PICK ? secondCourseOf(ctx, draft, slot) : null);
+    if (guestCourseId) return readGuestSlot({ v, i, slot: plainSlot(slot), ctx, courseId: guestCourseId });
 
     // **按了「體驗的時候排幾分」那一顆**（ADR-0154：扣著 EECP 額度的段按 20）→ 換成那門課的體驗，三個入口同一支。
     // 只在她這一下按的是時長、而且跟這一段現在的長度不一樣時才算 —— 改時間、換治療師的那幾次那一排照舊是原本的數字
@@ -1202,8 +1312,11 @@ function readNotMineSlot({ v, i, slot, ctx }) {
   const switched = !was || course?.id !== slot.courseId;
   const room = readRoom(v, i, slot);
   const note = String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null;
+  // 一次性客人（還沒轉）的「健檢不是我排的」也是一次性的段（ADR-0172：兩樣疊得上去）
+  const guest = isOneTime(ctx.customer);
   const { slot: made } = slotFromPicks({
     examNotMine: true,
+    oneTime: guest,
     // 二返那門課停用了、或變成兩門：照這一段原本的課程組（驗證也認任何一門二返，段四審查 二、3）
     notMineCourseId: was ? slot.courseId : null,
     nth: picked,
@@ -1232,6 +1345,7 @@ function readNotMineSlot({ v, i, slot, ctx }) {
     // 組不出來（還沒選第幾返、時間還沒填、二返那門課停用了）：記住「它是哪一種」，剩下的由 `submit()`／`validateVisit()` 講
     return {
       ...base, courseId: course?.id ?? null, ...nthFields, note, examNotMine: true,
+      ...(guest ? { oneTime: true } : {}),
       ...(picked ? {} : { pendingNth: true }),
     };
   }
@@ -1299,6 +1413,66 @@ function readFreeSlot({ v, i, slot, ctx, courseId }) {
   return { ...slot, ...picked, followupNth: null };
 }
 
+/** 「二返（一次性那一次）」按的是哪一門二返：這一段本來就是的照舊，不然那一排上第一顆（`oneTimeSecondOptions()`）。 */
+function secondCourseOf(ctx, draft, slot) {
+  const list = secondOptionsFor(ctx, draft, slot, guestValueOf(ctx, slot)).filter((o) => o.isOneTimeSecond);
+  return list.find((o) => o.course.id === slot.courseId)?.course.id ?? list[0]?.course.id ?? null;
+}
+
+/**
+ * 一段一次性的段讀回來（ADR-0172）。**組時段走 `slotFromPicks({ oneTime: true, courseId })`**（壓表與拍 Abovee 同一支）：
+ * 不扣、不是送的／體驗、要選器材的照器材重推；一次性的二返接的那一次是 `s${i}-gexam`（`guestExamField()`）。
+ * 同 `readFreeSlot()`：狀態與 `attended` 沒有欄位，留原本那一段的。
+ */
+function readGuestSlot({ v, i, slot, ctx, courseId }) {
+  const { all, entitlements, customerVisits } = ctx;
+  const course = all.courses.find((c) => c.id === courseId) ?? null;
+  const was = isOneTimeSlot(slot) && !isNthSlot(slot) && !isExamNotMine(slot) && slot.courseId === courseId;
+  const room = readRoom(v, i, slot);
+  const pickedEq = key(v, `s${i}-equip`, slot.equipmentId ?? null);
+  const equipmentId = equipmentChoicesFor(null, course, all.equipment, { keep: was ? slot.equipmentId : null })
+    .some((e) => e.id === pickedEq) ? pickedEq : null;
+  const followupForVisitId = isFollowupCourse(courseId, all.courses)
+    ? key(v, `s${i}-gexam`, was ? (slot.followupForVisitId ?? null) : null)
+    : null;
+  const note = String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null;
+  const { slot: made } = slotFromPicks({
+    oneTime: true,
+    courseId,
+    startsAt: v[`s${i}-start`] || slot.startsAt,
+    equipmentId,
+    ivProductId: was ? key(v, `s${i}-iv`, slot.ivProductId ?? null) : null,
+    roomId: room.roomId,
+    bed: room.bed,
+    therapistId: v[`s${i}-staff`] ?? null,
+    // 剛換成這門課、還沒選醫師：那一科剛好只有一位就先選好（ADR-0120）
+    doctorId: v[`s${i}-doc`] ?? (was ? null : doctorChoicesFor(course, all.staff).preselect),
+    // 約的時候選的時長（ADR-0122）：換了課程就回到那門課的預設
+    minutes: was ? key(v, `s${i}-min`, minutesNow(slot)) : null,
+    followupForVisitId,
+    note,
+  }, {
+    courses: all.courses, equipment: all.equipment, ivProducts: all.ivProducts,
+    entitlements, visits: customerVisits,
+  });
+  const { followupNth: _nth, ...rest } = slot;
+  if (!made) {
+    // 組不出來（二返還沒接健檢、時間還沒填）：記住它是哪一門、一次性的，剩下的由 `validateVisit()` 講。
+    // **時長照那門課算**（`slotMinutes()`）—— 不然留著上一段（還沒選課的那一段排 60）的結束時間，接上健檢之後照 60 存
+    const startsAt = v[`s${i}-start`] || slot.startsAt;
+    const timing = { course, minutes: was ? key(v, `s${i}-min`, minutesNow(slot)) : null, giftKind: null };
+    return {
+      ...rest, entitlementId: null, courseId, courseName: course?.name ?? null, giftKind: null,
+      startsAt,
+      endsAt: isValidTime(startsAt) ? endOf(startsAt, slotMinutes(timing)) : slot.endsAt,
+      minutes: slotMinutesField(timing),
+      followupForVisitId, oneTime: true,
+    };
+  }
+  const { status, attended, ...picked } = made;
+  return { ...rest, ...picked };
+}
+
 /**
  * 一段 n返 讀回來。
  *
@@ -1329,8 +1503,12 @@ function readNthSlot({ v, i, slot, ctx, coursesById }) {
   });
   const durationMin = minutes ?? course?.durationMin ?? 30;
 
+  // 接在一次性健檢上的 n返 標一次性（ADR-0172，03 在 `slotFromPicks()` 判同一件事；這條路自己組，照它）——
+  // 換成接一般的健檢時那一格拿掉（`validateVisit()` 擋標法跟健檢對不上的）
+  const { oneTime: _guest, ...rest } = slot;
   return {
-    ...slot,
+    ...rest,
+    ...(isOneTimeExamVisit(exam, entitlements, coursesById) ? { oneTime: true } : {}),
     ...nthSlotFields({ nth, examVisitId, courseId }),
     note: String(key(v, `s${i}-note`, slot.note ?? '') ?? '').trim() || null,
     equipmentId: null,
@@ -1526,7 +1704,7 @@ async function submit(ctx, draft) {
   const switched = !rebooked && ctx.stored ? chargeSwitchConsequences({
     before: ctx.stored, after: toSave, coursesById,
     entitlements, customerVisits, master: all, sheetSyncOn: isConfigured(ctx.settings),
-    customer, chain: flipsMark ? await visitsData.chainInputs(customer.id, coursesById) : null,
+    customer, chain: flipsMark ? await visitsData.chainInputs(customer.id, coursesById, [...(customerVisits ?? []), toSave]) : null,
   }) : null;
   if (switched && !await confirmAction({ title: switched.title, consequences: switched.lines, confirmLabel: switched.confirmLabel })) return;
 
@@ -1695,7 +1873,7 @@ async function cancelOneSlot(ctx, draft, slotIndex) {
       // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
       customerVisits: ctx.customerVisits,
       // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
-      chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all)),
+      chain: await visitsData.chainInputs(draft.customerId, coursesByIdOf(ctx.all), [...(ctx.customerVisits ?? []), draft]),
     }),
     confirmLabel: '取消這一段',
     danger: true,

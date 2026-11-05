@@ -124,7 +124,7 @@ const strangerHtml = strangerRows.length ? block('strangers', 'Abovee 上有、a
   table(['誰', 'Abovee'], strangerRows.map((r) => row(r.date, [`<span class="who">${esc(r.name)}</span>`,
     `${esc(r.course)} <b>${esc(r.status)}</b>${r.paidBy ? `<span class="note">扣 ${esc(r.paidBy)} 的號碼</span>` : ''}${
       r.maybe?.length ? `<span class="note">app 上同一個時間是 ${esc(r.maybe.map((m) => m.name).join('、'))}，可能是同一位</span>` : ''}`]))),
-  '不是妳的客人就不用管。') : '';
+  '不是妳的客人就不用管；要記進 app，拍 Abovee 時那一列按「記成一次性客人」。') : '';
 
 // app 自己要修的（有才畫）
 const appFixHtml = appFix.length ? block('appfix', 'app 裡要修的', `${appFix.length} 件`,

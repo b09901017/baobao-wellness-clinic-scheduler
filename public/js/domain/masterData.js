@@ -198,6 +198,35 @@ export const isExamNotMine = (slot) => slot?.examNotMine === true;
 export const EXAM_NOT_MINE_LABEL = '健檢不是我排的';
 
 /**
+ * **一次性的段**（2026-11-05，ADR-0172 決定二）：一次性客人約的每一段標 `oneTime: true`（客人身上那一格是 `customers.js` 的 `isOneTime()`）。
+ * 那一段**不扣任何一筆額度、不是送的／體驗**（`entitlementId`、`giftKind` 都是 `null`），不進試算表；
+ * 健檢那一串算的時候替它生一對只在記憶體裡的額度（ADR-0172 決定三）。**可以同時是 `examNotMine`**（健檢不在 app 裡的二返／n返）。
+ *
+ * **標在段上、不只標在客人身上**：她選了「轉成我的客戶之後，之前的那幾段照舊算一次性」—— 只看客人身上那一格的話，
+ * 一轉，以前那幾段就變成「沒有額度的一般段」。
+ *
+ * **讀一律走這一支、只認 `true`**，永遠不從形狀推（同 `isExamNotMine()`）：「沒有額度的段」舊資料裡就有（匯進來的、額度被刪的），
+ * 從形狀推的話它們會安安靜靜地變成一次性。一般的段沒有這一格。住在這裡（葉節點）的理由同 `isExamNotMine()`。
+ */
+export const isOneTimeSlot = (slot) => slot?.oneTime === true;
+
+/**
+ * **一次性客人**（2026-11-05，ADR-0172 決定一）：不是她客人的人（例：公司發的一次性員工券），記得進日曆與待辦，
+ * 但不在任何「名單」上（客戶清單、壓表、問這輪的時間、試算表…），沒有額度、不限次數。她：
+ *
+ * > 客戶那邊就不需要有他也不需要給他額度什麼的，他們就是一次性的
+ *
+ * 他是一份客戶文件多一格 `oneTime: true`（不另開集合 —— 來訪、任務、存檔、認人全部以 `customerId` 指著一份客戶文件為前提）。
+ * **讀一律走這一支、只認 `true`**，同 `isExamNotMine()`。一般客戶**沒有這一格**；
+ * 轉成我的客戶的寫 `false`（`customers.js` 的 `toMyCustomer()`）—— 兩種都不是一次性客人。
+ * 他約的每一段另外標（`isOneTimeSlot()`）：轉成客戶之後，以前那幾段照舊算一次性。
+ *
+ * 住在這裡（不是 `customers.js`）：`visits.js` 的存檔驗證要問它，而 `customers.js` 經 `identify.js` → `legacyImport.js`
+ * 繞回 `visits.js`。畫面從 `customers.js` import（那一支轉出去，同一支函式）。
+ */
+export const isOneTime = (customer) => customer?.oneTime === true;
+
+/**
  * 健檢不是她排的那一段用哪一門課：主檔上的「二返那門課」（某一門課的 `followupCourseId` 指著的那一門）。
  * **剛好一門才回**，一門都沒有、兩門以上回 `null` —— 那一顆就不畫（猜一門的話，她之後多設一門二返時那幾段掛錯課）。
  * 刪掉、停用的不算（同 `abovee.js` 認三返的那一支）。
@@ -220,6 +249,7 @@ export function examNotMineCourse(courses = []) {
  *
  * - **健檢不是她排的段一律不是**（`isExamNotMine()`，ADR-0169）—— 就算那一格寫了值、二返那門課被勾了預設體驗
  *   （`validateVisit()` 另外看那一格原本的值擋下來）
+ * - **一次性的段一律不是**（`isOneTimeSlot()`，ADR-0172）—— 同上一條
  * - **扣著額度或是 n返 的段一律不是**（兩格都有值的壞資料照額度讀 —— 名字、試算表、編輯器講同一件事；
  *   `validateVisit()` 另外看那一格原本的值擋下來）
  * - 有那一格就照那一格（`null` 也算 —— 存過一次就寫實了，不再猜）
@@ -237,6 +267,8 @@ export function examNotMineCourse(courses = []) {
 export function giftKindOf(slot, coursesById = {}) {
   if (!slot) return null;
   if (isExamNotMine(slot)) return null;
+  // 一次性的段不是送的／體驗（ADR-0172）：就算那一格寫了值、課程勾了預設體驗。`validateVisit()` 另外看那一格原本的值擋下來
+  if (isOneTimeSlot(slot)) return null;
   if (slot.entitlementId) return null;
   if (slot.followupNth != null && slot.followupNth !== '') return null;
   if (slot.giftKind !== undefined) return GIFT_KINDS.includes(slot.giftKind) ? slot.giftKind : null;

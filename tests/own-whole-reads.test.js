@@ -27,7 +27,9 @@ test('data/customers.js 的 ownWhole()：來訪走 listWhole()、待辦與隨手
 
 test('13 刪客戶：按下去那一刻讀 ownWhole()，拿它問 deleteBlockers()（不拿打開時那一份）', () => {
   const src = read('public/js/ui/views/customerDetail.js');
-  const handler = body(src, "querySelector('[data-delete]')", '\n  });\n');
+  // 一般客戶「停用與刪除」那一張與一次性客人的名字卡那一頁共用 `deleteCustomer()`（ADR-0172）
+  assert.match(src, /querySelector\('\[data-delete\]'\)\.addEventListener\('click', \(\) => deleteCustomer\(ctx\)\)/);
+  const handler = body(src, 'async function deleteCustomer(');
   assert.match(handler, /ownWhole\(/);
   assert.doesNotMatch(handler, /deleteBlockers\(\{ visits: ctx\.visits/);
   assert.ok(handler.indexOf('ownWhole(') < handler.indexOf('rules.deleteBlockers('));
@@ -36,7 +38,9 @@ test('13 刪客戶：按下去那一刻讀 ownWhole()，拿它問 deleteBlockers
 
 test('14 改名：順手換的快照是 ownWhole() 讀的、在寫之前讀；不再走 listByCustomer() 那一條', () => {
   const src = read('public/js/ui/views/customerDetail.js');
-  const fn = body(src, 'function paintEdit(');
+  // 客戶詳情的「編輯」與名字卡那一頁的「編輯」共用 `saveBasics()`（ADR-0172）
+  assert.match(body(src, 'function paintEdit('), /await saveBasics\(ctx, changes\)/);
+  const fn = body(src, 'async function saveBasics(');
   assert.match(fn, /renameTargets\(own,/);
   assert.ok(fn.indexOf('ownWhole(') > 0 && fn.indexOf('ownWhole(') < fn.indexOf('updateWithSnapshots('));
   assert.doesNotMatch(src, /ownSnapshots/);

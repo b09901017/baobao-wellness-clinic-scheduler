@@ -30,6 +30,9 @@ import { seenTasks } from './taskRules.js';
 // 「這一次健檢現在是什麼狀態」要分得出待確認與已確認，那只有 `slotStatus()` 答得出來。
 // visits.js 也 import 這一支（`examStatusIn()`、`PICKABLE_EXAM`）—— 兩邊都只在函式裡用，載入時不互相讀
 import { slotStatus, shortStatus, isOpenStatus, isImported } from './visits.js';
+// 一次性客人的那一對額度（ADR-0172 決定三）：鏈的函式進來先套，**規則一個字都不改**。沒有一次性的段時原封不動
+import { withOneTimeChain, originalOf, isOneTimeEntitlementId } from './oneTimeChain.js';
+import { isOneTimeSlot } from './masterData.js';
 
 /**
  * 「約二返」的任務種類。
@@ -122,6 +125,21 @@ export function pairsOf(entitlements = [], coursesById = {}) {
   }
 
   return out;
+}
+
+/**
+ * 這位客戶有沒有健檢那一串：**真的一對、或一次性客人的那一對**（ADR-0172 決定三）。
+ *
+ * 確認框那幾句（`consequences.js` 的 `followupBookingLines()`、簽療程單的鏈）以前先問 `pairsOf(真的)` 有沒有二返就收手 ——
+ * 一次性客人沒有額度，那幾句一句都不講（03）。**這一支是那道閘門唯一的答案**：沒有一次性的段時就是 `pairsOf(真的)`。
+ * `visits` 要是這位客戶的全部來訪（一次性的二返接的那一次健檢要在裡面，才算得出那一對）。
+ *
+ * @param {{entitlements?: object[], visits?: object[], coursesById?: Record<string, object>}} o
+ * @returns {boolean}
+ */
+export function hasFollowupChain({ entitlements = [], visits = [], coursesById = {} } = {}) {
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  return pairsOf(chain.entitlements ?? [], coursesById).some((p) => p.followup);
 }
 
 /**
@@ -466,6 +484,44 @@ export function examChoicesFor(pair, visits = [], { selected = null, excludeVisi
 }
 
 /**
+ * **一次性的二返**「這是哪一次健檢的」那一排（ADR-0172）：這位的一次性健檢。`examChoicesFor()` 的虛擬版 ——
+ * 拿那一對（`withOneTimeChain()`）問**同一支**，按不按得下去、被佔走了沒（`pickable`／`taken`，ADR-0145）一模一樣。
+ * 來訪編輯器、拍 Abovee、轉成客戶之後的壓表三個入口共用（06、07）。
+ *
+ * @param {object} o
+ * @param {object[]} [o.entitlements] 這位客戶的額度（一次性客人沒有；轉成客戶之後有真的，真的那幾對不列）
+ * @param {object[]} o.visits 這位客戶的全部來訪
+ * @param {Record<string, object>} o.coursesById 課程主檔，含已刪除的
+ * @param {string|null} [o.courseId] 這一段的二返課程：只列配這門二返的健檢（沒給＝每一門）
+ * @param {string|null} [o.selected] 同 `examChoicesFor()`
+ * @param {string|null} [o.excludeVisitId] 同 `examChoicesFor()`
+ * @returns {ReturnType<typeof examChoicesFor>} 日期舊的在前
+ */
+export function oneTimeExamChoices({
+  entitlements = [], visits = [], coursesById = {}, courseId = null, selected = null, excludeVisitId = null,
+} = {}) {
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  return pairsOf(chain.entitlements, coursesById)
+    .filter((p) => isOneTimeEntitlementId(p.source.id) && (!courseId || p.followupCourseId === courseId))
+    .flatMap((pair) => examChoicesFor(pair, chain.visits, { selected, excludeVisitId }))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+/**
+ * 一次性的健檢**還欠幾場二返**（ADR-0172：一次健檢欠一場）—— `owed()` 拿那一對問，規則一模一樣。
+ * 轉成客戶之後「做什麼」那一排要不要多一顆「二返（一次性那一次）」問它（`slotOptions.js`，她第 6 題：「照舊不扣、接回那一次」）。
+ *
+ * @returns {{followupCourseId: string, owed: number}[]} 只列還欠的（一門健檢課程一列）
+ */
+export function oneTimeOwed({ entitlements = [], visits = [], coursesById = {} } = {}) {
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  return pairsOf(chain.entitlements, coursesById)
+    .filter((p) => isOneTimeEntitlementId(p.source.id) && p.followup)
+    .map((p) => ({ followupCourseId: p.followupCourseId, owed: owed(p, chain.visits) }))
+    .filter((r) => r.owed > 0);
+}
+
+/**
  * 一次健檢在這幾個狀態時接得上二返／n返（ADR-0145）：排著的（待確認、已確認）與做完的。
  * 取消、未到的那一次不會有報告。「這是哪一次健檢的」兩排與存檔驗證都問它 —— 各寫一份的話列得出來的存不下去。
  */
@@ -484,16 +540,21 @@ export const PICKABLE_EXAM = new Set(['pending_confirm', 'confirmed', 'done']);
  * @returns {{visit:object, slot:object, slotIndex:number, exam:object, status:string|null}[]} 照來訪的順序
  */
 export function strandedFollowups(entitlements = [], coursesById = {}, visits = []) {
-  const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
+  // 一次性客人（ADR-0172）：算的時候用那一對，回去的是她資料裡的那一份（`originalOf()`）
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  const back = originalOf(visits, chain.visits);
+  const sources = pairsOf(chain.entitlements, coursesById).map((p) => p.source.id);
   if (!sources.length) return [];
-  const byId = liveById(visits);
+  const byId = liveById(chain.visits);
   const out = [];
-  for (const v of visits ?? []) {
+  for (const v of chain.visits ?? []) {
     (v?.slots ?? []).forEach((slot, slotIndex) => {
       const exam = slot?.followupForVisitId && holdsExam(v, slot) ? byId.get(slot.followupForVisitId) : null;
       if (!exam) return;
       const status = examStatusIn(exam, sources);
-      if (!PICKABLE_EXAM.has(status)) out.push({ visit: v, slot, slotIndex, exam, status });
+      if (!PICKABLE_EXAM.has(status)) {
+        out.push({ visit: back.visit(v), slot: back.slot(v, slot), slotIndex, exam: back.visit(exam), status });
+      }
     });
   }
   return out;
@@ -534,24 +595,34 @@ export function relinkOffer({ visit, added = null, entitlements = [], coursesByI
   const slots = visit?.slots ?? [];
   const fresh = added ?? slots.map((_, i) => i);
   const others = (customerVisits ?? []).filter((v) => v && v.id !== visit?.id);
-  const stranded = strandedFollowups(entitlements, coursesById, [...others, visit]);
+  const all = [...others, visit];
+  const stranded = strandedFollowups(entitlements, coursesById, all);
   if (stranded.length !== 1) return null;
 
   const [{ visit: held, slot, slotIndex, exam, status }] = stranded;
   if (held === visit || !isOpenStatus(slotStatus(held, slot))) return null;
-  const ent = (entitlements ?? []).find((e) => e && !e.deletedAt && e.id === slot.entitlementId) ?? null;
+  // **在一次性客人的那一對裡比**（ADR-0172，03）：一次性的二返扣著那一對的二返、新加的一次性健檢扣著那一對的健檢。
+  // 沒有一次性的段時那兩份就是傳進來的那兩份（一般客人一個字都沒變）
+  const chain = withOneTimeChain({ entitlements, visits: all, coursesById });
+  const heldSlot = chain.visits[all.indexOf(held)]?.slots?.[slotIndex] ?? slot;
+  const newSlots = chain.visits.at(-1)?.slots ?? slots;
+  const ent = (chain.entitlements ?? []).find((e) => e && !e.deletedAt && e.id === heldSlot.entitlementId) ?? null;
   if (!ent?.followupForEntitlementId) return null;
 
   // 這一次新加的、扣著它配的那一筆健檢額度、還算數的那一段
-  const mine = fresh.map((i) => slots[i])
-    .find((s) => s?.entitlementId === ent.followupForEntitlementId && PICKABLE_EXAM.has(slotStatus(visit, s)));
-  if (!mine) return null;
+  const at = fresh.find((i) => newSlots[i]?.entitlementId === ent.followupForEntitlementId
+    && PICKABLE_EXAM.has(slotStatus(visit, slots[i])));
+  if (at == null) return null;
+  const mine = slots[at];
 
   const ahead = Boolean(held.date && visit.date) && (held.date < visit.date
     || (held.date === visit.date && Boolean(slot.startsAt && mine.startsAt) && slot.startsAt < mine.startsAt));
   return {
-    visitId: held.id, slotIndex, date: held.date, entitlementId: ent.id,
+    // `entitlementId` 是她資料裡那一段扣的（一次性的二返是 null —— 那一對的 id 不出這一支）；一次性的那一場多一格 `guestSlot`。
+    // `relinkSlot()` 拿這兩格認「那一段沒被改過」。一般客人回的形狀一個字都沒變
+    visitId: held.id, slotIndex, date: held.date, entitlementId: slot.entitlementId ?? null,
     fromVisitId: exam.id, fromDate: exam.date, fromStatus: status, ahead,
+    ...(isOneTimeSlot(slot) ? { guestSlot: true } : {}),
   };
 }
 
@@ -571,7 +642,9 @@ export function relinkSlot(visits = [], offer = null, toVisitId = null) {
   if (!offer || !toVisitId) return null;
   const visit = (visits ?? []).find((v) => v && !v.deletedAt && v.id === offer.visitId) ?? null;
   const slot = visit?.slots?.[offer.slotIndex];
-  if (!slot || slot.entitlementId !== offer.entitlementId || slot.followupForVisitId !== offer.fromVisitId) return null;
+  if (!slot || (slot.entitlementId ?? null) !== (offer.entitlementId ?? null) || slot.followupForVisitId !== offer.fromVisitId) return null;
+  // 一次性的那一場（ADR-0172）：在別的地方被改成一般的段（或反過來）就不是她在確認框上看到的那一場
+  if (isOneTimeSlot(slot) !== (offer.guestSlot === true)) return null;
   if (!isOpenStatus(slotStatus(visit, slot))) return null;
   return {
     ...visit,
@@ -586,15 +659,19 @@ export function relinkSlot(visits = [], offer = null, toVisitId = null) {
  * @returns {{visit:object, slot:object, slotIndex:number, exam:object, status:string|null}[]}
  */
 export function doneAheadOfExam(entitlements = [], coursesById = {}, visits = []) {
-  const sources = pairsOf(entitlements, coursesById).map((p) => p.source.id);
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  const back = originalOf(visits, chain.visits);
+  const sources = pairsOf(chain.entitlements, coursesById).map((p) => p.source.id);
   if (!sources.length) return [];
-  const byId = liveById(visits);
+  const byId = liveById(chain.visits);
   const out = [];
-  for (const v of visits ?? []) {
+  for (const v of chain.visits ?? []) {
     (v?.slots ?? []).forEach((slot, slotIndex) => {
       const exam = slot?.followupForVisitId && slotOutcome(v, slot) === 'done' ? byId.get(slot.followupForVisitId) : null;
       const status = exam ? examStatusIn(exam, sources) : null;
-      if (exam && isOpenStatus(status)) out.push({ visit: v, slot, slotIndex, exam, status });
+      if (exam && isOpenStatus(status)) {
+        out.push({ visit: back.visit(v), slot: back.slot(v, slot), slotIndex, exam: back.visit(exam), status });
+      }
     });
   }
   return out;
@@ -607,18 +684,20 @@ export function doneAheadOfExam(entitlements = [], coursesById = {}, visits = []
  * @returns {{exam:object|null, examVisitId:string, holders:{visit:object, slot:object}[]}[]} holders 照日期
  */
 export function doubleClaimedExams(entitlements = [], coursesById = {}, visits = []) {
-  const byId = liveById(visits);
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
+  const back = originalOf(visits, chain.visits);
+  const byId = liveById(chain.visits);
   const out = [];
-  for (const pair of pairsOf(entitlements, coursesById)) {
+  for (const pair of pairsOf(chain.entitlements, coursesById)) {
     if (!pair.followup) continue;
     const groups = new Map();
-    for (const l of linksOf(pair.followup.id, visits)) groups.set(l.examVisitId, [...(groups.get(l.examVisitId) ?? []), l]);
+    for (const l of linksOf(pair.followup.id, chain.visits)) groups.set(l.examVisitId, [...(groups.get(l.examVisitId) ?? []), l]);
     for (const [examVisitId, list] of groups) {
       if (list.length < 2) continue;
       out.push({
-        exam: byId.get(examVisitId) ?? null,
+        exam: back.visit(byId.get(examVisitId) ?? null),
         examVisitId,
-        holders: list.map(({ visit, slot }) => ({ visit, slot }))
+        holders: list.map(({ visit, slot }) => ({ visit: back.visit(visit), slot: back.slot(visit, slot) }))
           .sort((a, b) => String(a.visit.date).localeCompare(String(b.visit.date))),
       });
     }
@@ -641,11 +720,23 @@ export function doubleClaimedExams(entitlements = [], coursesById = {}, visits =
  * @param {object} visit 要結案的那一筆
  * @param {number} index 哪一段
  * @param {(boolean|null)[]} picks 抽屜上逐段按了什麼（`closeVisit()` 收的那一份；這一段當成 ✓ 來問）
- * @param {{entitlements?:object[], visits?:object[]}} ctx 這位客戶的額度與全部來訪
+ * @param {{entitlements?:object[], visits?:object[], coursesById?:Record<string, object>|null}} ctx 這位客戶的額度與全部來訪。
+ *   **給了課程主檔才認得一次性客人的那一對**（ADR-0172：一次性的二返接的那一次一次性健檢）—— 沒給的話一次性的二返一律不擋
  * @returns {{examVisitId:string, examDate:string, status:string|null}|null} 擋的話是哪一次健檢、它現在的狀態
  *   （排著的等它簽好；取消、未到的不會再做了，要先換連結 —— 句子在 `consequences.js` 的 `closeBlockSay()`）
  */
-export function cannotClose(visit, index, picks = [], { entitlements = [], visits = [] } = {}) {
+export function cannotClose(visit, index, picks = [], { entitlements = [], visits = [], coursesById = null } = {}) {
+  if (!coursesById) return cannotCloseIn(visit, index, picks, { entitlements, visits });
+  // 一次性客人（ADR-0172）：這一筆與別筆一起套那一對（這一筆接在最後、蓋掉資料庫裡的舊版本），規則照舊
+  const others = (visits ?? []).filter((v) => v !== visit && (!visit?.id || v?.id !== visit.id));
+  const chain = withOneTimeChain({ entitlements, visits: [...others, visit], coursesById });
+  return cannotCloseIn(chain.visits.at(-1), index, picks, {
+    entitlements: chain.entitlements, visits: chain.visits.slice(0, -1),
+  });
+}
+
+/** `cannotClose()` 的身體（規則一個字都沒改；一次性客人的那一對在外面套好）。 */
+function cannotCloseIn(visit, index, picks = [], { entitlements = [], visits = [] } = {}) {
   const slot = visit?.slots?.[index];
   if (!slot?.followupForVisitId) return null;
   const ent = (entitlements ?? []).find((e) => e.id === slot.entitlementId) ?? null;
@@ -721,15 +812,17 @@ export function describeBooking(booking) {
  */
 export function bookingStateForTask(task, { entitlements = [], coursesById = {}, visits = [] }) {
   if (task?.kind !== FOLLOWUP_TASK_KIND || !task.visitId) return null;
+  // 一次性客人的「約二返」也講得出約了沒（ADR-0172）
+  const chain = withOneTimeChain({ entitlements, visits, coursesById });
 
-  const exam = (visits ?? []).find((v) => v.id === task.visitId) ?? null;
+  const exam = (chain.visits ?? []).find((v) => v.id === task.visitId) ?? null;
   if (!exam) return null;
 
-  for (const pair of pairsOf(entitlements, coursesById)) {
+  for (const pair of pairsOf(chain.entitlements, coursesById)) {
     if (!pair.followup) continue;
     // 這一張待辦掛的那一次健檢，扣的是這一筆配對的健檢額度嗎
     if (!(exam.slots ?? []).some((sl) => sl.entitlementId === pair.source.id)) continue;
-    return describeBooking(bookingForExam(task.visitId, pair.followup.id, visits));
+    return describeBooking(bookingForExam(task.visitId, pair.followup.id, chain.visits));
   }
 
   return null;
@@ -799,13 +892,16 @@ export function examStates(entitlements = [], coursesById = {}, visits = []) {
  */
 export function syncFollowupTasks({
   customer,
-  entitlements = [],
-  visits = [],
+  entitlements: givenEntitlements = [],
+  visits: givenVisits = [],
   tasks = [],
   coursesById = {},
   dueDays = DEFAULT_FOLLOWUP_DUE_DAYS,
   reportDueDays = DEFAULT_REPORT_DUE_DAYS,
 } = {}) {
+  // **一次性客人的健檢與二返用那一對只在記憶體裡的額度**（ADR-0172 決定三）：底下一個字都不用改就套得上。
+  // 任務只記 `visitId`（真的來訪 id），那一對的 id 不會跑進任何一筆任務。沒有一次性的段時就是傳進來的那兩份
+  const { entitlements, visits } = withOneTimeChain({ entitlements: givenEntitlements, visits: givenVisits, coursesById });
   const create = [];
   const update = [];
   const remove = [];

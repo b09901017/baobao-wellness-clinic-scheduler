@@ -24,7 +24,7 @@ import {
   longNoteRows, matchesLongNote, withLongNote, withoutLongNote, validateLongNotes, newLongNoteId,
   readLongNotes, MAX_LONG_TITLE, MAX_LONG_BODY, MAX_LONG_NOTES,
 } from '../../domain/customerNotes.js';
-import { nameHas } from '../../domain/customers.js';
+import { nameHas, isOneTime } from '../../domain/customers.js';
 import { watchDeck, focusCard, markActive } from '../components/deck.js';
 import { openSheet, closeSheet } from '../components/sheet.js';
 import { chooseAction } from '../components/dialog.js';
@@ -315,7 +315,8 @@ function openPicker() {
   });
   const list = sheet.el.querySelector('[data-pick-list]');
   const paintList = (q = '') => {
-    const live = ctx.customers.filter((c) => !c.deletedAt && nameHas(c.name, q));
+    // 一次性客人不給長備註（ADR-0172 決定一：不在「寫給誰」上）
+    const live = ctx.customers.filter((c) => !c.deletedAt && !isOneTime(c) && nameHas(c.name, q));
     const rows = [...live.filter((c) => c.active !== false), ...live.filter((c) => c.active === false)];
     list.innerHTML = rows.length ? rows.map((c) => {
       const n = readLongNotes(c).length;

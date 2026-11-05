@@ -156,6 +156,13 @@
 
 > 這一段有反斜線嗎？有的話用 Write／Edit 寫，或在腳本裡用 `chr(92)`；寫完 `grep -c $'\x08'` 一次。
 
+**同一族：python 在 Windows 上寫檔會換成 CRLF**（11/5 段四）。`open(p, 'w')` 文字模式把 `\n` 寫成 `\r\n`，整支檔一起換 ——
+`git diff` 只看得到改的那幾行（`autocrlf` 會遮），畫面上一模一樣，而**掃原始碼的測試**照 `'\n\n'`、`'\n}'` 切函式的全部切錯：
+`tests/abovee-row-hints-placed.test.js` 把 `needsAttention` 切成六萬字、比到不相干的函式，紅得莫名其妙。
+讀寫都帶 `newline=''`／`newline='\n'`（`open(p, encoding='utf-8', newline='')` 讀、`newline='\n'` 寫），寫完 `file <路徑>` 看有沒有「CRLF」。
+
+> 用 python 改了檔嗎？寫的時候帶 `newline='\n'` 了沒；`file` 一次。
+
 ---
 
 ## 十二、`--related` 比的是本機那一份 `develop`

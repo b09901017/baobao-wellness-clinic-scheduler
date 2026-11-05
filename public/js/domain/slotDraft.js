@@ -17,8 +17,8 @@ import {
   INITIAL_STATUS, assignsFor, courseForEquipment, coursesForEntitlement, picksEquipment,
   sameDayVisitFor, settle, slotCancelReasonOf, slotMinutes, slotMinutesField, withExtraSlot,
 } from './visits.js';
-import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse } from './masterData.js';
-import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH } from './nthFollowup.js';
+import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse, EXAM_NOT_MINE_LABEL } from './masterData.js';
+import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH, isOneTimeExamVisit } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 import { isFollowupCourse } from './followups.js';
 
@@ -43,6 +43,13 @@ import { isFollowupCourse } from './followups.js';
  * @param {string|null} [picks.notMineCourseId] 按了「健檢不是我排的」、而 `examNotMineCourse()` 不是剛好一門時的退路：
  *   既有那一段原本的課程（來訪編輯器傳）。**是某一門的二返**（`isFollowupCourse()`，停用的也算）才用 ——
  *   跟 `validateVisit()` 認的同一件事；不然二返那門課停用了、或變成兩門時，改時間組不出來、安靜地存回舊的（段四審查 二、3）
+ * @param {boolean} [picks.oneTime] 一次性客人的段（ADR-0172）：課程是她按的那一門（`picks.courseId`；要選器材的照器材重推，
+ *   同送的／體驗那一條），**不扣任何一筆額度、不是送的／體驗**（同時給了 `entitlementId`／`giftCourseId` 也一律不看），最後帶 `oneTime: true`。
+ *   跟 `examNotMine` 可以同時給：兩格都寫，課程與返數照「健檢不是我排的」那一條。跟 `isNth` 一起給是一次性的 n返（接他的一次性健檢）。
+ *   **n返 接的那一次是一次性的健檢時，沒給這一格也標**（轉成我的客戶之後的人，03）—— 接一般健檢的 n返 照舊沒有這一格。
+ *   **一次性的二返**一定要接一次健檢（`followupForVisitId`）或是「健檢不是我排的」—— 沒有額度可以照位置配，一般二返那條「沒接只提醒」不適用。
+ *   只認 `true`；沒給（或 `false`）的段一個字都不變，而且身上沒有 `oneTime` 這一格
+ * @param {string|null} [picks.courseId] 一次性的段按的那一門課（只有 `oneTime` 讀它）
  * @param {string|null} [picks.equipmentId] 擇一池選的那一台
  * @param {string|null} [picks.ivProductId] 營養點滴的品項
  * @param {string|null} picks.startsAt 'HH:MM'
@@ -68,6 +75,7 @@ import { isFollowupCourse } from './followups.js';
 export function slotFromPicks(picks, ctx) {
   const {
     entitlementId = null, isNth = false, giftCourseId = null, giftKind = 'trial', examNotMine = false, notMineCourseId = null,
+    oneTime = false, courseId = null,
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null, minutes = null, status = INITIAL_STATUS, cancelReason = null,
@@ -78,8 +86,10 @@ export function slotFromPicks(picks, ctx) {
   const coursesById = Object.fromEntries(courses.map((c) => [c.id, c]));
   // 健檢不是她排的那一段（ADR-0169）蓋過其餘三種身分：不扣額度、不是 n返 那一條（不接健檢）、不是送的／體驗
   const notMine = examNotMine === true;
+  // 一次性客人的段（ADR-0172）：不扣額度、不是送的／體驗。跟「健檢不是我排的」、n返 疊得上去（課程照那兩條）
+  const guest = oneTime === true;
   const nthPath = isNth && !notMine;
-  const entitlement = nthPath || notMine ? null : (entitlements.find((e) => e.id === entitlementId) ?? null);
+  const entitlement = nthPath || notMine || guest ? null : (entitlements.find((e) => e.id === entitlementId) ?? null);
 
   // 這一段算哪一個課程
   let course = null;
@@ -95,6 +105,14 @@ export function slotFromPicks(picks, ctx) {
     const wanted = followupForVisitId ?? exams.find((c) => c.pickable)?.visitId ?? null;
     nthExam = exams.length ? (visits.find((v) => v.id === wanted) ?? null) : null;
     course = coursesById[courseIdForNth(nthExam, entitlements, coursesById)] ?? null;
+  } else if (guest) {
+    // 一次性的段：課程就是她按的那一顆（「做什麼」那一排列全部的課）。要選器材的（復能）照器材重推（ADR-0075），
+    // 同送的／體驗那一條 —— 不然存得出「課程是復能、器材是 ILIB」。刪掉的課不算
+    const wanted = coursesById[courseId] ?? null;
+    const home = wanted && !wanted.deletedAt ? wanted : null;
+    course = home?.requiresEquipment
+      ? (coursesById[courseForEquipment(equipmentId, equipment, home.id)] ?? home)
+      : home;
   } else if (entitlement) {
     // 四選一會推出兩個課程，取第一個當還沒選器材時的預設；選了器材就換（ADR-0075）
     const fallback = coursesForEntitlement(entitlement, courses, equipment)[0] ?? null;
@@ -113,14 +131,17 @@ export function slotFromPicks(picks, ctx) {
       : home;
     course = derived && canBeGift(derived, courses) ? derived : null;
   }
-  const gift = !notMine && !entitlement && !nthPath && giftCourseId && course
+  const gift = !notMine && !guest && !entitlement && !nthPath && giftCourseId && course
     ? (GIFT_KINDS.includes(giftKind) ? giftKind : 'trial')
     : null;
 
   if (!course) return fail('先選要做什麼');
   const assigns = assignsFor(entitlement, course, equipmentId);
   const stop = (error) => ({ slot: null, errors: [error], course, assigns });
+  // 一次性的二返（不是 n返、不是「健檢不是我排的」）：連結是它唯一接得上健檢那一串的地方（沒有額度可以照位置配）
+  const guestSecond = guest && !notMine && !nthPath && isFollowupCourse(course.id, courses);
   if (!isValidTime(startsAt)) return stop('先選幾點開始');
+  if (guestSecond && !followupForVisitId) return stop(`先選這是哪一次健檢的，或按「${EXAM_NOT_MINE_LABEL}」`);
   // 二返～十返她自己按（日曆、壓表不預選）；1、11 那種不是她按得出來的，當成還沒選
   if (notMine && !nthLabel(nth)) return stop('先選第幾返');
   if (nthPath && !nth) return stop('先選第幾返');
@@ -129,6 +150,10 @@ export function slotFromPicks(picks, ctx) {
   }
 
   const ivProduct = course.requiresIvProduct ? (ivProducts.find((p) => p.id === ivProductId) ?? null) : null;
+  // **接在一次性健檢上的 n返 也標一次性**（ADR-0172，03）：那一串是一次性那一次的 —— 轉成我的客戶之後按「＋ n返」接那一次也是。
+  // 壓表與拍 Abovee 經過這裡；來訪編輯器的 n返 那一條自己組時段（`readNthSlot()`），在那裡問同一支 `isOneTimeExamVisit()`。
+  // `validateVisit()` 擋接一次性健檢卻沒標的（段五審查 R12）
+  const nthOnGuestExam = nthPath && isOneTimeExamVisit(visits.find((v) => v.id === followupForVisitId) ?? null, entitlements, coursesById);
   const begins = NEW_SLOT_STATUSES.includes(status) ? status : INITIAL_STATUS;
 
   const slot = {
@@ -146,8 +171,8 @@ export function slotFromPicks(picks, ctx) {
     therapistId: assigns === 'therapist' ? (therapistId ?? null) : null,
     doctorId: picksDoctor(course) ? (doctorId ?? null) : null,
     // 這一段二返接在哪一次健檢後面。不是二返就一定是 null ——
-    // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下
-    followupForVisitId: entitlement?.followupForEntitlementId ? (followupForVisitId ?? null) : null,
+    // 帶著一個不相干的 id 會讓試算表把註記寫到別人底下。**一次性的二返沒有額度**，靠課程認（`guestSecond`）
+    followupForVisitId: entitlement?.followupForEntitlementId || guestSecond ? (followupForVisitId ?? null) : null,
     // 已完成、未到照簽療程單的形狀兩格一起寫（`closeVisit()`：`attended` 是 ADR-0025 的，對帳讀它）
     attended: ATTENDED[begins] ?? null,
     // 送的／體驗（gift-and-trial 01）。一般的段寫 null —— 不寫 undefined（Firestore 不收）
@@ -166,6 +191,8 @@ export function slotFromPicks(picks, ctx) {
       ? nthSlotFields({ nth: Number(nth), examVisitId: null, courseId: course.id })
       : {}),
     ...(notMine ? { examNotMine: true } : {}),
+    // 一次性的段（ADR-0172）。只有這幾段有 —— 一般的段沒有這一格
+    ...(guest || nthOnGuestExam ? { oneTime: true } : {}),
     note,
     // **新的一段一定自己寫狀態**（CLAUDE.md「新增一個會建立時段的入口」）：不寫的話
     // 併進一筆已確認的來訪時，它會繼承整筆的狀態，被靜默標成談定了。
