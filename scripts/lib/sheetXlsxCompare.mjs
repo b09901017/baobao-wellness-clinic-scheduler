@@ -188,6 +188,9 @@ export function realModel(sheet) {
 /**
  * 替身畫的一頁（`snapshotOf()` 的一項）→ 模型。
  * 框線照呼叫的先後套（後畫的蓋掉先畫的）：`setBorder(上, 左, 下, 右, 內直, 內橫, 顏色, 樣式)`，true 畫、false 拿掉、null 不動。
+ * **合併區不補線**：openpyxl 讀合併區時只把**左上角那一格自己的**框線抄到整條邊（`MergedCellRange.format()`），而 Google 匯出時只把線寫在
+ * 畫框線的那一塊裡的格子上 —— 矩陣表頭 A5 上面有線、上面那個整頁寬的合併 A4 底下沒有（11/5 晚 staging 第四輪那一份），整條底邊不會被抄出來。
+ * 第四輪一度在這裡照「整條都有線」補，對真的匯出檔就是空白欄與矩陣右邊每一頁假報幾條（`.scratch/sheet-push-gaps/HANDOFF.md` 第四輪的驗證）
  */
 export function stubModel(snap) {
   const m = emptyModel(snap.name);
@@ -218,29 +221,7 @@ export function stubModel(snap) {
   for (const [ref, v] of f.wrap || []) cellAt(m, ref).wrap = v === true;
   for (const [ref, v] of f.numberFormat || []) cellAt(m, ref).numberFormat = v;
   for (const call of snap.borders || []) applyBorder(m.edges, call);
-  spreadMergeEdges(m.edges, m.merges);
   return m;
-}
-
-/**
- * 匯出檔讀進來那一側的樣子：openpyxl 讀合併區時把左上角以外的格子換成空的、再把**左上角那一格的上下左右**抄到合併區那一邊的每一格
- *（`MergedCellRange.format()`）。所以整頁寬的合併（例如產生時間那一列）底下只要左上角那一格底下有線，整條底邊在匯出檔裡都有線 ——
- * 包括底下沒有框線的空白欄與矩陣右邊（issues/14）。替身這一側照同一條規則補上，兩邊才比得起來。
- */
-function spreadMergeEdges(edges, merges) {
-  for (const ref of merges) {
-    const { top, left, bottom, right } = boundsOf(ref);
-    const sides = [
-      [`h:${top}:${left}`, (put) => { for (let c = left; c <= right; c += 1) put(`h:${top}:${c}`); }],
-      [`h:${top + 1}:${left}`, (put) => { for (let c = left; c <= right; c += 1) put(`h:${bottom + 1}:${c}`); }],
-      [`v:${top}:${left}`, (put) => { for (let r = top; r <= bottom; r += 1) put(`v:${r}:${left}`); }],
-      [`v:${top}:${left + 1}`, (put) => { for (let r = top; r <= bottom; r += 1) put(`v:${r}:${right + 1}`); }],
-    ];
-    for (const [key, each] of sides) {
-      const value = edges.get(key);
-      if (value) each((k) => putEdge(edges, k, value));
-    }
-  }
 }
 
 function applyBorder(edges, { range, args }) {
@@ -338,7 +319,11 @@ export function compareSheet(real, stub, { skip = new Set() } = {}) {
     for (const kind of FORMAT_KINDS) {
       const rf = r[kind] ?? DEFAULTS[kind];
       const sf = s[kind] ?? DEFAULTS[kind];
-      if (!same(rf, sf)) add(diffs, kind, ref, rf, sf);
+      if (same(rf, sf)) continue;
+      // 兩邊都空、替身沒下格式、匯出檔留著一個：以前畫在那裡的格式（`sheet.clear()` 清值不清數字格式，11/5 晚 staging 第四輪那一份）
+      if (kind === 'numberFormat' && rv === null && sv === null && sf === DEFAULTS.numberFormat) {
+        add(info, 'numberFormat.leftover', ref, rf, sf);
+      } else add(diffs, kind, ref, rf, sf);
     }
   }
 

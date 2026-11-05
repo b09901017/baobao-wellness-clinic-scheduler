@@ -91,7 +91,22 @@ function dumpLike(snapshot) {
         if (c.numberFormat && c.numberFormat !== 'General') out.fmt = c.numberFormat;
         if (c.note) out.note = c.note;
       }
-      for (const [key, value] of m.edges) {
+      // 合併區裡的格子不寫框線：Google 只把線寫在畫框線的那一塊裡的格子上（11/5 晚 staging 第四輪那一份：
+      // 矩陣表頭 A5 上面有線、上面那個整頁寬的合併 A4 底下沒有；剩餘 E5 右邊有線、空白欄 F5 左邊沒有）。
+      // 寫進合併的左上角的話，openpyxl 讀回來會把它抄到整條合併的底邊（`MergedCellRange.format()`），而真的匯出檔不會
+      const merged = new Set();
+      for (const ref of snap.merges) {
+        const [from, to] = ref.split(':');
+        const [, c1, r1] = from.match(/^([A-Z]+)(\d+)$/);
+        const [, c2, r2] = to.match(/^([A-Z]+)(\d+)$/);
+        const colOf = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+        for (let rr = Number(r1); rr <= Number(r2); rr += 1) {
+          for (let cc = colOf(c1); cc <= colOf(c2); cc += 1) merged.add(a1(rr, cc));
+        }
+      }
+      // 框線只照 `setBorder()` 畫的那幾條（不經過比對工具對合併區的任何推想）
+      const drawnEdges = stubModel({ ...snap, merges: [] }).edges;
+      for (const [key, value] of drawnEdges) {
         const [kind, r, c] = key.split(':');
         const [style, hex] = value.split(':');
         const side = [style, argb(hex)];
@@ -99,6 +114,7 @@ function dumpLike(snapshot) {
         const col = Number(c);
         const put = (rr, cc, k) => {
           if (rr < 1 || cc < 1) return;
+          if (merged.has(a1(rr, cc))) return;
           const cell = at(a1(rr, cc));
           cell.border = { ...(cell.border || {}), [k]: side };
         };
@@ -175,6 +191,22 @@ describe('一樣的說一樣、改一格說一格', () => {
     Object.assign(cellOf(sheet, ref), { v: { $date: '2026-09-15T00:00:00' }, fmt: 'yyyy-mm-dd' });
     const out = compareBook(dump, snapshot);
     assert.deepEqual(out.totals.diffs, { 'value.date': 1, numberFormat: 1 });
+  });
+
+  // 11/5 晚 staging 第四輪那一份：6 格空的格子帶著日期格式 —— 以前的畫法那裡是一格被認成日期的待辦日期，
+  // 整份重畫時 `sheet.clear()` 清掉了值、**沒清掉數字格式**（下午那一份同一格還有日期）。看不到、也不是這一次畫錯
+  test('兩邊都空的格子、匯出檔留著舊的數字格式 → 已知（numberFormat.leftover）；替身有字的那一格照樣要查', () => {
+    const dump = dumpLike(snapshot);
+    const sheet = sheetOf(dump, '客戶A');
+    cellOf(sheet, 'M90').fmt = 'yyyy-mm-dd';
+    cellOf(sheet, 'C91').fmt = '@';
+    const out = compareBook(dump, snapshot);
+    assert.deepEqual(out.totals.diffs, {});
+    assert.equal(out.totals.info['numberFormat.leftover'], 2);
+
+    const [ref] = sheet.cells.find(([, c]) => c.v === '2026-09-15');
+    cellOf(sheet, ref).fmt = 'yyyy-mm-dd';   // 替身那一格寫了文字格式（issues/08）：這不是殘留
+    assert.deepEqual(compareBook(dump, snapshot).totals.diffs, { numberFormat: 1 });
   });
 
   test('一段短備註被 Google 認成數字 → value.number', () => {

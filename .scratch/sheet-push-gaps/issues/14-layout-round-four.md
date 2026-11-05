@@ -89,3 +89,8 @@ Spec（上面的「判準」一條一條）：
 - 產生時間那一列（整頁寬）底下那條線：Google 畫合併儲存格的底邊時，空白欄與矩陣右邊（K～M）上面會不會也出現一條細線 —— 不影響資料，只是好不好看。匯出 `.xlsx` 跑 `scripts/sheet-xlsx-verify.mjs` 時，如果框線這一類有不一樣、位置是第 5 列的上緣，就是 `spreadMergeEdges()` 對 Google 的匯出檔猜錯了（改那一支，不是 `.gs`）
 - 名字＋號碼一行在手機上會不會被切掉（那一列固定 40 高、不折行；名字很長的人才可能）
 - 列高：整頁寬之後幾乎不折行，`fitRows()` 估的高度大多是 26
+
+## staging 驗過之後（11/5 深夜，主控）
+
+- 上面第 89 行猜的那一種真的發生了：第 5 列上緣 120 條。**是 `spreadMergeEdges()` 猜錯、不是 `.gs`**：Google 只把線寫在畫框線的那一塊裡的格子上（A5 上面有、整頁寬的合併 A4 底下沒有），openpyxl 只抄左上角那一格自己的線 —— 真的試算表上空白欄與矩陣右邊上面**沒有**細線。
+  `spreadMergeEdges()` 拿掉，測試的 `dumpLike()` 改成照 Google 那樣寫（合併區裡的格子不寫框線、只照 `setBorder()` 畫的）；分支 `claude/sheet-xlsx-verify-merge-edges`。其餘逐格驗的結果在 HANDOFF「第四輪 staging 逐格驗」
