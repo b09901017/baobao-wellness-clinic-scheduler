@@ -132,13 +132,16 @@ function story(source) {
   return shots;
 }
 
-describe('改後的 .gs 畫出來跟改前一模一樣（排版版號 3 只多了字級，見底下的註解）', () => {
+describe('改後的 .gs 畫出來跟釘住的一樣（版號 3 只多了字級、版號 4 是第三輪的版面，見底下的註解）', () => {
   // 改前的 `.gs`（develop 3dd2ee12）在這個替身裡跑出來的雜湊是
   // ['324e92a670b8f085', 'ffc86214b0c6a1eb', 'a964e79459f34747', 'bc298f86f2acf2ae']（排版版號 1、2）。
   // **排版版號 3 刻意改了字級**（sheet-push-gaps 05：名字 14 號、第 3 列與註記列 9 號，以前被 `finish()` 整頁蓋成 11）——
   // 換之前用 `scripts/sheet-gs-compare.mjs` 跟版號 2 比過：正式站那一包四步都只有字級不一樣（1,100 格），值、底色、合併、框線、鎖一格都沒變。
   // 之後藏起來的 `_data` 分頁 B1 多一行「計時」（sheet-push-gaps 05 之二；替身的時鐘固定在 0，所以每次一樣）—— 客戶那幾頁一格都沒變
-  const BEFORE = ['bfc766f86ca77ac6', 'f4ca41462c56f0ed', '64660614fba3e20d', '4b3b0b4fbc2110cd'];
+  // **排版版號 4 是第三輪的版面**（sheet-push-gaps 08～12，她看過示意圖）：一支 issue 換一次，每一次先用 `scripts/sheet-gs-compare.mjs`
+  // 跟上一支的 `.gs` 比正式站那一包，變的只有那一支要變的（數字寫在那一支 issue 的「做完時留下的」）
+  // 08：日期欄 78、數字四欄淡灰＋粗線、格線藏起來、名字 18 號、抬頭只有號碼、待辦區日期是文字
+  const BEFORE = ['3fa714b188dfebdb', '1975c85b2d42aec4', '6938215b977ec76f', '7ee13fb96a67e0c3'];
 
   test('四步，每一步整份試算表都一樣（值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋）', () => {
     assert.deepEqual(story(null), BEFORE);

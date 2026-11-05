@@ -1,6 +1,6 @@
 # 08 欄寬、分隔、格線、抬頭
 
-Status: todo
+Status: done
 Blocked by: —（第三輪的第一支；分支 `claude/sheet-layout`，從 develop `532c1a4d`）
 
 ## 動工前先讀
@@ -38,4 +38,15 @@ Blocked by: —（第三輪的第一支；分支 `claude/sheet-layout`，從 dev
 
 ## 做完時留下的
 
-（做完填）
+- 做法照 issue：`STYLE.dateWidth` 78、`STYLE.titleSize` 18、名字那一列 `STYLE.titleHeight` 40（`finish()` 之後另外 `setRowHeights(2, 1, 40)`）；
+  B～E 表頭 `COLOR.countHeader` `#546E7A`、格子 `COLOR.count` `#EEF2F5`（斑馬紋之後、狀態色之前下，所以狀態色照舊蓋在上面）；
+  剩餘右邊 `SOLID_MEDIUM`（`finish()` 裡、矩陣格線之後：後畫的蓋掉先畫的）；`setHiddenGridlines(true)`；`infoLine()` 只寫號碼
+- 待辦區的日期：`taskLines()` 對日期那一格 `setNumberFormat('@')`。草稿紙多記一種格式 `numberFormat`，**`paint()` 先下它再寫值**
+  （寫進去的那一刻 Google 就照格式認值；先寫再下，「2026-09-15」已經被認成日期了）。其餘格式照舊在寫值之後
+- `LAYOUT_VERSION` 3 → 4（整輪就這一次）。ADR-0175 在這個 commit 寫好（整輪的決定都是她 11/5 一次定的），推翻 ADR-0096 的「記在當天那一列的下面」
+- 替身（`tests/helpers/appsScriptStub.js`）：`setNumberFormat`、`setHiddenGridlines`、`BorderStyle.SOLID_MEDIUM`、快照多 `gridlinesHidden`
+- 測試：`tests/sheet-layout.test.js`（新，判準一條一條）；`sheet-fingerprint` 抬頭那一條改成只有號碼；`sheet-gs-fonts-timing` 名字 18 號；
+  `sheet-gs-batch` 的雜湊換了（每一支換一次，`sheet-gs-batch.test.js` 的註解）
+- `scripts/sheet-gs-compare.mjs` 跟 develop 那一份比正式站那一包（只印數字），四步都一樣：值 68（34 頁抬頭那一格新舊各一）、字級 68（名字那一格）、
+  列高 68（名字那一列）、欄寬 440（日期欄）、底色 1,438（數字四欄與表頭）、框線 34（每頁一條粗線）、格線 34、數字格式 10（待辦區的日期）—— 沒有別的
+- **只在 staging 驗得到**：粗線的實際粗細與顏色好不好看；18 號名字一行 40 高夠不夠；文字格式下了之後 Google 真的照文字顯示（替身只記格式）

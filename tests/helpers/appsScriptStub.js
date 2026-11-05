@@ -59,6 +59,8 @@ const FORMAT_SETTERS = {
   setHorizontalAlignment: 'hAlign',
   setVerticalAlignment: 'vAlign',
   setWrap: 'wrap',
+  // 文字格式（'@'）：待辦區的日期寫成文字（.scratch/sheet-push-gaps/issues/08）
+  setNumberFormat: 'numberFormat',
 };
 
 class FakeRange {
@@ -199,6 +201,8 @@ class FakeSheet {
     this.rowHeights = new Map();
     this.frozenRows = 0;
     this.frozenCols = 0;
+    /** 格線藏起來了沒（`setHiddenGridlines`，issues/08） */
+    this.gridlinesHidden = false;
     this.maxRows = 1000;
     this.maxCols = 26;
     this.hidden = false;
@@ -304,6 +308,9 @@ class FakeSheet {
     for (let i = 0; i < n; i += 1) this.rowHeights.set(start + i, h);
   }
 
+  setHiddenGridlines(v) { this.gridlinesHidden = Boolean(v); }
+  hasHiddenGridlines() { return this.gridlinesHidden; }
+
   hideSheet() { this.hidden = true; }
   isSheetHidden() { return this.hidden; }
 
@@ -360,6 +367,7 @@ export function snapshotOf(ss) {
     hidden: s.hidden,
     frozenRows: s.frozenRows,
     frozenCols: s.frozenCols,
+    gridlinesHidden: s.gridlinesHidden,
     maxRows: s.maxRows,
     maxCols: s.maxCols,
     values: sortedCells(s.cells, { dropEmpty: true }),
@@ -460,7 +468,7 @@ export function loadAppsScript({
       getActiveSpreadsheet: () => ss,
       // 真的 Google 會把排著的寫入做完；替身的寫入本來就是當下生效
       flush: () => {},
-      BorderStyle: { SOLID: 'SOLID' },
+      BorderStyle: { SOLID: 'SOLID', SOLID_MEDIUM: 'SOLID_MEDIUM' },
       ProtectionType: { SHEET: 'SHEET' },
     },
     ContentService: {

@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 3;
+var LAYOUT_VERSION = 4;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -83,13 +83,17 @@ var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
 
 var STYLE = {
   font: 'Noto Sans TC',
-  titleSize: 14,
+  // 名字 18 號（她 11/5：「字再大一點」；.scratch/sheet-push-gaps/issues/08）
+  titleSize: 18,
   bodySize: 11,
   labelWidth: 190,
   countWidth: 62,
-  dateWidth: 58,
+  // 78：「10/29(四)」一行放得下（58 的時候常被擠到第二行，issues/08）
+  dateWidth: 78,
   noteWidth: 300,
   rowHeight: 26,
+  // 名字那一列（18 號字一行）
+  titleHeight: 40,
 };
 
 var COLOR = {
@@ -105,6 +109,11 @@ var COLOR = {
   low: '#FFCDD2',      // 剩餘 0 或負數（超用）
   border: '#B0BEC5',
   noteHeader: '#ECEFF1',
+  // 應有～剩餘那四欄（issues/08：跟日期分開）：格子淡灰底、表頭比療程項目那一格淺一階、剩餘右邊一條粗線。
+  // 狀態色（已完成綠、已排未上黃、剩餘 ≤0 紅）照舊蓋在淡灰上面
+  count: '#EEF2F5',
+  countHeader: '#546E7A',
+  divider: '#546E7A',
 };
 
 // ---------- 收件口 ----------
@@ -656,6 +665,7 @@ function renderCustomer(ss, data, bundle, book) {
   var head = ['療程項目', '應有', '已完成', '已排未上', '剩餘'].concat(data.dateLabels);
   sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length).setValues([head]);
   styleHeader(sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length));
+  sheet.getRange(MATRIX_HEADER_ROW, COL.TOTAL, 1, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.countHeader);
 
   // 每一列的內容與它是什麼。**「這一天用了哪一台」那一列夾在它那一筆額度的
   // 正下方**（格式 4，她的原話：「在當天的那一列下面」），所以不能先把
@@ -688,6 +698,8 @@ function renderCustomer(ss, data, bundle, book) {
     body.setValues(rows).setVerticalAlignment('middle').setWrap(true);
     sheet.getRange(top, 2, rows.length, head.length - 1).setHorizontalAlignment('center');
     banding(sheet, top, rows.length, head.length);
+    // 四個數字欄淡灰底（蓋掉斑馬紋那一格），下面的狀態色再蓋上去
+    sheet.getRange(top, COL.TOTAL, rows.length, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.count);
 
     for (var i = 0; i < meta.length; i++) {
       var r = meta[i];
@@ -730,8 +742,12 @@ function renderCustomer(ss, data, bundle, book) {
   // 會在這裡丟例外，第一位客戶之後一張都畫不出來。
   // 見 .scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
+  // 格線藏起來，只留矩陣的框線（issues/08，示意圖 6c）
+  sheet.setHiddenGridlines(true);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
+  // 名字那一列加高（18 號字）
+  sheet.setRowHeights(2, 1, STYLE.titleHeight);
   clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
   return name;
@@ -959,6 +975,9 @@ function blockHead(sheet, row, col, title) {
 function taskLines(sheet, top, col, items, done) {
   for (var i = 0; i < items.length; i++) {
     var t = items[i];
+    // 日期那一格寫成文字（issues/08）：不然 Google 把「2026-09-15」認成日期格、照它自己的格式印。
+    // `paint()` 先下這個格式再寫值
+    sheet.getRange(top + i, col + 2).setNumberFormat('@');
     sheet.getRange(top + i, col, 1, 3).setValues([[
       t.label,
       t.kind,
@@ -994,7 +1013,8 @@ function noteBlock(sheet, top, width, title, lines) {
 function infoLine(data) {
   return [
     // 病歷號（格式 8）：它從備註搬成一格之後（ADR-0160），備註那一區就不再印它
-    data.chartNo ? '病歷號 ' + data.chartNo : '',
+    // 只寫號碼（她 11/5：「不用病歷號，直接寫1234就好」；issues/08）。手動貼上那條路（customerReport）不動
+    data.chartNo ? String(data.chartNo) : '',
     data.source ? '購買名稱：' + data.source : '',
     data.membershipExpiresAt ? '會籍到期：' + data.membershipExpiresAt : '',
     '合計　應有 ' + data.totals.total + '　已完成 ' + data.totals.done
@@ -1026,6 +1046,8 @@ var CANVAS_FORMATS = [
   ['setHorizontalAlignment', 'hAlign'],
   ['setVerticalAlignment', 'vAlign'],
   ['setWrap', 'wrap'],
+  // 數字格式要在寫值之前下（寫進去的那一刻 Google 就照格式認值），`paint()` 另外先寫它
+  ['setNumberFormat', 'numberFormat'],
 ];
 
 function Canvas() {
@@ -1038,6 +1060,7 @@ function Canvas() {
   this.widths = [];
   this.heights = [];
   this.frozenRows = null;
+  this.hiddenGridlines = null;
 }
 
 Canvas.prototype.getRange = function (row, col, rows, cols) {
@@ -1052,6 +1075,7 @@ Canvas.prototype.getRange = function (row, col, rows, cols) {
 Canvas.prototype.setColumnWidth = function (col, width) { this.widths[col] = width; };
 Canvas.prototype.setRowHeights = function (start, count, height) { this.heights.push([start, count, height]); };
 Canvas.prototype.setFrozenRows = function (n) { this.frozenRows = n; };
+Canvas.prototype.setHiddenGridlines = function (hidden) { this.hiddenGridlines = hidden; };
 
 /** 跟 Google 一樣：最後一列**有內容**的（寫進 '' 或 null 的不算）。 */
 Canvas.prototype.getLastRow = function () {
@@ -1132,6 +1156,8 @@ CANVAS_FORMATS.forEach(function (pair) {
  */
 function paint(sheet, canvas) {
   var t = Date.now();
+  // 數字格式先下（寫值的那一刻 Google 就照它認：先寫再下的話「2026-09-15」已經被認成日期了）
+  paintFormat(sheet, canvas, 'setNumberFormat', 'numberFormat');
   var rows = 0;
   var cols = 0;
   for (var r = 1; r < canvas.values.length; r++) {
@@ -1152,10 +1178,8 @@ function paint(sheet, canvas) {
   t = clockAdd('寫值', t, true);
 
   for (var f = 0; f < CANVAS_FORMATS.length; f++) {
-    var groups = rectsByValue(canvas.formats[CANVAS_FORMATS[f][1]]);
-    for (var g = 0; g < groups.length; g++) {
-      sheet.getRangeList(groups[g].ranges)[CANVAS_FORMATS[f][0]](groups[g].value);
-    }
+    if (CANVAS_FORMATS[f][1] === 'numberFormat') continue;
+    paintFormat(sheet, canvas, CANVAS_FORMATS[f][0], CANVAS_FORMATS[f][1]);
   }
 
   t = clockAdd('格式', t, true);
@@ -1180,8 +1204,17 @@ function paint(sheet, canvas) {
   for (var h = 0; h < canvas.heights.length; h++) {
     sheet.setRowHeights(canvas.heights[h][0], canvas.heights[h][1], canvas.heights[h][2]);
   }
+  if (canvas.hiddenGridlines != null) sheet.setHiddenGridlines(canvas.hiddenGridlines);
   if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
   clockAdd('框線欄寬', t, true);
+}
+
+/** 一種格式照值分組、每一組一次 `RangeList` 寫上去。 */
+function paintFormat(sheet, canvas, setter, key) {
+  var groups = rectsByValue(canvas.formats[key]);
+  for (var g = 0; g < groups.length; g++) {
+    sheet.getRangeList(groups[g].ranges)[setter](groups[g].value);
+  }
 }
 
 /**
@@ -1301,6 +1334,10 @@ function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
     sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
       .setBorder(true, true, true, true, true, true, COLOR.border,
         SpreadsheetApp.BorderStyle.SOLID);
+    // 剩餘右邊一條粗線（issues/08）：數字那四欄跟日期分開。畫在格線之後（後畫的蓋掉先畫的）
+    sheet.getRange(headerRow, COL.REMAINING, rowCount + 1, 1)
+      .setBorder(null, null, null, true, null, null, COLOR.divider,
+        SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
   sheet.setRowHeights(1, Math.max(sheet.getLastRow(), 1), STYLE.rowHeight);
 }

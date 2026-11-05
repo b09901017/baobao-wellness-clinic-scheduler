@@ -49,10 +49,10 @@ function render(body = {}) {
   return { app, sheet, size };
 }
 
-describe('字級：名字 14 號、第 3 列與註記列 9 號，其餘 11 號', () => {
-  test('名字那一格 14 號', () => {
+describe('字級：名字 18 號（第三輪 08 從 14 放大）、第 3 列與註記列 9 號，其餘 11 號', () => {
+  test('名字那一格 18 號', () => {
     const { size } = render();
-    assert.equal(size.A2, 14);
+    assert.equal(size.A2, 18);
   });
 
   test('第 3 列（產生時間）9 號', () => {
@@ -80,9 +80,9 @@ describe('字級：名字 14 號、第 3 列與註記列 9 號，其餘 11 號',
     assert.equal(size.A5, 11);
   });
 
-  test('改了畫法：LAYOUT_VERSION 是 3（部署之後第一次推送每一頁重畫一次，字級才換得過去）', () => {
+  test('改了畫法：LAYOUT_VERSION 至少 3（部署之後第一次推送每一頁重畫一次，字級才換得過去）', () => {
     const { app } = render();
-    assert.equal(app.context.LAYOUT_VERSION, 3);
+    assert.ok(app.context.LAYOUT_VERSION >= 3);
   });
 });
 
