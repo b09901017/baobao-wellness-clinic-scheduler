@@ -223,6 +223,22 @@
 
 ---
 
+## 十六、git worktree 裡，被 `.gitignore` 擋住的東西都不在
+
+worktree（`.claude/worktrees/<名字>/`）只有被追蹤的檔案：`.local/`（真名名單、`redact.mjs`、她的資料）、`.codegraph/`、`graphify-out/` 都不在。
+**沒有一個工具會因此紅**，它們安靜地少做一件事、或拿到別條分支的結果（2026-11-05 在 worktree 裡碰到三件）：
+
+- 真名掃描（`tests/no-secrets.test.js`）找不到別名表 → `t.skip()`，`npm test` 只多一個「skipped 1」。現在 `tests/helpers/localDir.js` 會再去主資料夾找（`git rev-parse --git-common-dir` 的上一層）；
+  **新增一支要讀 `.local/` 的測試或腳本也走它**，不要只找 `${ROOT}.local/`
+- CodeGraph 往上找到主資料夾的 `.codegraph/`：`query`／`callers`／`impact` 查的是主資料夾那條分支，行號是舊的、這裡改的符號找不到，**不報錯**。在 worktree 裡先 `codegraph init --yes`（`ripple-check`「改之前」第 1 步）
+- `graphify-out/` 不在：用主資料夾那一份要講清楚是哪個 commit 建的（`ripple-check`「Graphify 的圖」）
+- 讀 `.local` 的過濾網在主資料夾：`| node <主資料夾>/.local/references/redact.mjs`
+- **不要在 worktree 裡建指向主資料夾 `.local` 的 junction／symlink 一直放著**：有些刪 worktree 的方式會順著連結刪進去，刪掉的是她唯一的一份真資料。臨時要用就跑完馬上 `cmd /c rmdir .local`（只拆連結）
+
+> 這個工具在 worktree 裡找不到它要的東西時，是紅、還是安靜地跳過／往上拿到主資料夾那一份？`skipped` 的數字是不是 0？
+
+---
+
 ## 查的方法（給之後做健檢或驗證的 session）
 
 - **歷次全庫健檢放在哪**：2026-08-25 `.scratch/code-audit-2026-08-25/`、2026-09-23 `.scratch/prelaunch-audit-2026-09-23/`、
