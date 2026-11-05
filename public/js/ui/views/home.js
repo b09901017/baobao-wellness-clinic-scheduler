@@ -2544,8 +2544,11 @@ function mountDrawerGesture(el, close) {
  */
 function taskRow(t, today) {
   const state = urgency(t.dueDate, today);
+  // 「約二返」那一列有兩顆鈕（去壓表／去日曆排、詳情）：窄的時候兩顆換到下一行靠右（`.row--actions`），
+  // 不然名字與標籤被擠在左邊一小條、標籤貼著鈕（她 11/5：「這個太擠了」）
+  const twoButtons = t.kind === FOLLOWUP_TASK_KIND && t.customerId && t.visitId;
   return `
-    <div class="card row" style="margin: 0">
+    <div class="card row${twoButtons ? ' row--actions' : ''}" style="margin: 0">
       <label class="choice" style="border: none; background: none; padding: 0; flex: 1; min-width: 0; align-items: flex-start">
         <input type="checkbox" data-task="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''} />
         <span class="row__main">
