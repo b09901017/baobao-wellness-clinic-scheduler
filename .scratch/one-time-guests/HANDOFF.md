@@ -36,6 +36,12 @@ checkout：`.claude/worktrees/one-time-visit-design-15190a`（段都共用這一
   **新檔案要進 `sw.js` 的 `SHELL` 與 `tests-e2e/related.js`**（新的 spec 也要登記）
 - ADR：0171 是小修的、0172 是這一輪的；**0173 留給 iPad、0174 留給試算表，這一輪再寫新的從 0175 起**
 - **公開 repo**：真名一律寫客戶A，公司名不寫（寫「一次性員工券」）；commit 訊息、PR 內文推之前自己看一眼
+- **真名掃描要真的有跑**（11/5 段一之後補的）：worktree 只帶得到被追蹤的檔案，`.local/` 本來不在這裡 → `tests/no-secrets.test.js` 一直是 skipped。
+  現在 worktree 根目錄有一個目錄連結 `.local` → 主資料夾的 `.local`（`git check-ignore -v .local` 擋得住）。**推之前跑 `node --test tests/no-secrets.test.js`，要 skipped 0**；
+  commit 訊息另外過一次過濾網（`git log origin/develop..HEAD --format=%B` 經 `node .local/references/redact.mjs`，比前後一不一樣、只印「一不一樣」）。
+  **不要刪那個連結、不要往裡面寫**（那是她的私人 repo）；收 worktree 時 `git worktree remove` 會把連結留在原地，要另外刪（只刪連結，不會刪到主資料夾那一份）
+- **查牽連先用圖**：CodeGraph 與 graphify 的圖在主資料夾（`<主資料夾>/.codegraph/`、`graphify-out/`），照 develop 畫的、不含這條分支 —— 查「既有函式誰在呼叫」
+  在主資料夾跑 `codegraph callers <符號>`（不 `sync`），再跟 grep 對一次（純 JS，兩邊常常不一樣：段一 `validateVisit` 圖上少了三個呼叫端）。**不要在 worktree 裡更新圖**
 - 會寫入的驗收在本機模擬器走（CLAUDE.md「上線」）；她的筆電不要跑到全滿又放著
 - **主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON**
 - 整輪的判準（ADR-0172）：**這一行會不會讓一位一般客戶或一段沒有標記的段被放寬、被藏起來，或讓一次性的段被算進任何一筆真的額度、出現在試算表上？**
