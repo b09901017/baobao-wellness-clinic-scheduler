@@ -82,6 +82,47 @@ export function html({ options = [], value = null, open, chip, cls = 'chips', sm
 }
 
 /**
+ * 一次性客人（還沒轉成我的客戶）的「做什麼」那一排（ADR-0172）：**全部的課，先分類再項目**（同加購那一排）——
+ * 沒有收起來的那一段（他的那一排上沒有別的東西），分類 → 課程兩步與「其他 ▸」借這一支的那一套
+ * （`data-giftfold-group`／`data-giftfold-in`，`toggle()` 換一類時不重畫），所以呼叫端不用多接一條監聽。
+ * 選項是 `slotOptions.js` 的 `guestOptions()`；一類只有一門的那一顆直接就是那一門。
+ *
+ * @param {object} o
+ * @param {object[]} o.options `guestOptions()`（`group`、`extra`）
+ * @param {string|null} o.value 現在按著的那一顆
+ * @param {(option: object) => string} o.chip 一顆選項的 HTML（呼叫端自己的屬性）
+ * @param {string} [o.cls]
+ * @param {boolean} [o.sm]
+ * @param {string} [o.key]
+ */
+export function coursesHtml({ options = [], value = null, chip, cls = 'chips', sm = false, key = '' }) {
+  const row = (inner) => `<div class="${cls}">${inner}</div>`;
+  const size = sm ? ' chip--sm' : '';
+  const extra = options.filter((o) => o.extra);
+  const groups = [];
+  for (const o of options.filter((x) => !x.extra)) {
+    const g = groups.find((x) => x.group === o.group);
+    if (g) g.items.push(o);
+    else groups.push({ group: o.group, items: [o] });
+  }
+  const at = groups.findIndex((g) => g.items.length > 1 && g.items.some((o) => o.entitlementId === value));
+  const extraOpen = extra.some((o) => o.entitlementId === value);
+  return `
+    <div data-giftfold="open" data-giftfold-key="${esc(key)}" data-guestpicks>
+      ${row(groups.map((g, i) => (g.items.length === 1 ? chip(g.items[0]) : `
+        <button class="chip${size}" type="button" data-giftfold-group="${i}" aria-pressed="${i === at}">
+          ${esc(g.group)}<span class="chip__note">▾</span></button>`)).join(''))}
+      ${groups.map((g, i) => (g.items.length > 1
+        ? `<div data-giftfold-in="${i}"${i === at ? '' : ' hidden'}>${row(g.items.map(chip).join(''))}</div>`
+        : '')).join('')}
+      ${extra.length ? `
+        ${row(`<button class="chip${size}" type="button" data-giftfold-group="${EXTRA_KEY}"
+          aria-pressed="${extraOpen}">其他<span class="chip__note">▸</span></button>`)}
+        <div data-giftfold-in="${EXTRA_KEY}"${extraOpen ? '' : ' hidden'}>${row(extra.map(chip).join(''))}</div>` : ''}
+    </div>`;
+}
+
+/**
  * 開關上那幾個字。收著而且選著底下一顆：寫那一門（按下去的樣子由 `aria-pressed` 給）。
  *
  * @param {boolean} open

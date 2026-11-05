@@ -13,6 +13,7 @@ import * as tasksData from '../../data/tasks.js';
 import * as visitsData from '../../data/visits.js';
 import * as notesData from '../../data/notes.js';
 import * as customersData from '../../data/customers.js';
+import { isOneTime } from '../../domain/customers.js';
 import * as config from '../../data/config.js';
 import * as authData from '../../data/auth.js';
 import * as invitesData from '../../data/formInvites.js';
@@ -1257,6 +1258,26 @@ function wireWhoDrawer(ctx, el) {
       bookFollowup({ ...ctx, open: tasks }, btn.dataset.whoBook);
     }),
   );
+  labelGuestBookings(el, whoDrawer?.tasks ?? []);
+}
+
+/**
+ * 一次性客人的「約二返」那一顆換成「去日曆排」（ADR-0172，過目 5）：他不在壓表上，「去壓表」是死路。
+ * 那一列畫的時候還不知道他是不是一次性客人（任務身上只有 `customerId`），所以畫完再讀一次客戶、只換那幾顆的字；
+ * 按下去走哪一條由 `bookFollowup()` 自己再問一次（字還沒換過來就按下去也走對）。
+ */
+async function labelGuestBookings(root, tasks = []) {
+  const ids = new Set(tasks.filter((t) => t.kind === FOLLOWUP_TASK_KIND && t.customerId && !t.done).map((t) => t.customerId));
+  if (!ids.size) return;
+  const customers = await customersData.list().catch(() => []);
+  const guests = new Set(customers.filter((c) => ids.has(c.id) && isOneTime(c)).map((c) => c.id));
+  for (const t of tasks) {
+    if (!guests.has(t.customerId)) continue;
+    for (const btn of root.querySelectorAll(`[data-book-followup="${t.id}"], [data-who-book="${t.id}"]`)) {
+      btn.textContent = '去日曆排';
+      btn.dataset.guest = 'true';
+    }
+  }
 }
 
 /**
@@ -2212,6 +2233,7 @@ function paintTasks(ctx) {
   el.querySelectorAll('[data-book-followup]').forEach((btn) =>
     btn.addEventListener('click', () => bookFollowup(ctx, btn.dataset.bookFollowup)),
   );
+  labelGuestBookings(el, ctx.open ?? []);
 
   el.querySelectorAll('[data-untick]').forEach((btn) =>
     btn.addEventListener('click', () => untickTask(ctx, btn.dataset.untick)),
@@ -2686,6 +2708,15 @@ async function markDone(ctx) {
 async function bookFollowup(ctx, taskId) {
   const t = ctx.open.find((x) => x.id === taskId);
   if (!t?.customerId) return;
+
+  // 一次性客人不在壓表上（ADR-0172，過目 5）：帶她去日曆新增、他已經選好（`leaveFor()`，同日曆長按「去簽療程單」那一套）
+  const owner = await customersData.get(t.customerId).catch(() => null);
+  if (isOneTime(owner)) {
+    await whenSettled();
+    leaveFor('calendar/new', { customerId: t.customerId, date: ctx.today });
+    go('/calendar');
+    return;
+  }
 
   let entitlementId = null;
   try {

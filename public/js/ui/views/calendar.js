@@ -28,7 +28,8 @@ import * as notesData from '../../data/notes.js';
 import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
-import { nameHas } from '../../domain/customers.js';
+import { nameHas, isOneTime, oneTimeCustomer } from '../../domain/customers.js';
+import { mountGuestForm } from '../components/guestForm.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
 import {
@@ -61,7 +62,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
-import { leaveFor, whenSettled } from '../nav.js';
+import { leaveFor, takeFor, whenSettled } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 
@@ -117,6 +118,13 @@ export async function render(el) {
   // 還以為那一段是復原之前的樣子（prelaunch-audit-2026-09-23/issues/10）。
   // 就地換、就地重畫 —— 不收掉重開（那會重播滑上來的動畫、捲回最上面，也會蓋掉她正在填的表單）
   state.openDay?.refresh(state.data);
+
+  // 待辦「約二返」那一顆（一次性客人是「去日曆排」，ADR-0172）留的那一句話：直接打開新增、他已經選好（`nav.js` 的 `leaveFor()`）
+  const want = takeFor('calendar/new');
+  if (want?.customerId) {
+    const sheet = openSheet({ title: '', body: '', onClose: closeCard });
+    mountEditor(el, result.value, sheet, { kind: 'visit', customerId: want.customerId, date: want.date ?? todayISO() });
+  }
 }
 
 /**
@@ -1635,7 +1643,11 @@ export function visitReadHtml(visit, data) {
   //（例如問 `data.focusSlot` 是不是整數）—— 指到一個不存在的段落時那一支
   // 會退回全部，而自己推的那一份會以為只有一段。
   const tappable = !focused && slots.length > 1;
+  // 一次性客人（ADR-0172 第 5 題）：抬頭（名字）底下一小格「一次性」—— 抬頭是五個呼叫端各自給的，
+  // 所以畫在這一支裡、四頁一起有（`data.customer` 沒帶的那幾頁由 `fillMirror()` 補讀之後重畫）
+  const guest = isOneTime(data?.customer) ? '<div class="readguest"><span class="guestmark">一次性</span></div>' : '';
   return `
+    ${guest}
     ${alerts ? `<div class="readalerts">${alerts}</div>` : ''}
     ${slots.map(({ slot: s, index }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
@@ -1885,17 +1897,23 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
           .filter((c) => nameHas(c.name, q))
           .slice(0, 40);
 
+        // 打了字、一位都找不到 → 「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（名字帶好）→ 接著排
         box.innerHTML = rows.length
           ? rows.map((c) => `
               <button class="grouprow" type="button" data-pick="${esc(c.id)}">
                 <span class="grouprow__main">
-                  <span class="grouprow__label">${esc(c.name)}</span>
+                  <span class="grouprow__label">${esc(c.name)}${isOneTime(c) ? ' <span class="guestmark">一次性</span>' : ''}</span>
                   ${(c.flags ?? []).length
                     ? `<span class="grouprow__note">${esc((c.flags ?? []).join('・'))}</span>` : ''}
                 </span>
                 ${icon('right', { size: 16 })}
               </button>`).join('')
-          : '<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>';
+          : `<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>
+             ${q ? `<p style="padding: 0 var(--space-3); margin: 0">
+               <button class="btn btn--sm" type="button" data-new-guest>＋ 新增一次性客人「${esc(q)}」</button></p>` : ''}`;
+
+        box.querySelector('[data-new-guest]')?.addEventListener('click', () =>
+          newGuest(el, data, sheet, { name: q, date, backDate, customers }));
 
         box.querySelectorAll('[data-pick]').forEach((btn) =>
           btn.addEventListener('click', () =>
@@ -1912,6 +1930,35 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
     .catch((err) => {
       box.innerHTML = `<p class="muted" style="padding: var(--space-3)">讀取失敗：${esc(err.message)}</p>`;
     });
+}
+
+/**
+ * 日曆新增「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（`components/guestForm.js`，名字帶好、病歷號、電話）→
+ * 建名字卡（`oneTimeCustomer()`，走建客戶同一條寫入）→ 接著在這裡排（`mountEditor()`，同選了一位）。
+ */
+function newGuest(el, data, sheet, { name, date, backDate, customers }) {
+  sheet.setTitle('新增一次性客人');
+  sheet.setNote('不在客戶清單上、沒有額度；日曆與待辦照常。');
+  sheet.update('<div data-guestnew></div>');
+  mountGuestForm(sheet.el.querySelector('[data-guestnew]'), {
+    card: { name },
+    existing: customers,
+    quick: true,
+    submitLabel: '建立，接著排',
+    onCancel: () => pickCustomer(el, data, sheet, date, backDate),
+    onSubmit: async ({ card }) => {
+      try {
+        const id = await toast.withSaveState(
+          () => customersData.createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] }),
+          // 連點兩下就是兩張同名的名字卡
+          { success: '已建立名字卡', key: 'customer:create-guest' },
+        );
+        mountEditor(el, data, sheet, { kind: 'visit', customerId: id, date, backDate });
+      } catch {
+        /* withSaveState 已顯示錯誤與重試 */
+      }
+    },
+  });
 }
 
 // ---------- 事件 ----------

@@ -3716,6 +3716,11 @@ button.mark--contact::after {
   margin: var(--space-6) 0 0;
 }
 
+/* 讀取卡片最上面（抬頭的名字底下）那一格「一次性」（`visitReadHtml()`，四頁共用） */
+.readguest {
+  margin: 0 0 var(--space-2);
+}
+
 /* ---------- 進度追蹤 ---------- */
 /*
  * 一位客戶一張卡，卡裡一天一組，**一段一顆按鈕**（2026-09-12）。

@@ -56,7 +56,7 @@ import { slotFromPicks, visitWithSlot } from '../../domain/slotDraft.js';
 import { slotOptionsFor, foldOpen, NTH_PICK, trialFromMinutes } from '../../domain/slotOptions.js';
 import { bookingConsequences, closedDayLine, settledDayLine, followupBookingLines } from '../../domain/consequences.js';
 import { slotName, fullNameOf } from '../../domain/naming.js';
-import { pairsOf, examChoicesFor, examChoiceNote } from '../../domain/followups.js';
+import { pairsOf, examChoicesFor, examChoiceNote, oneTimeExamChoices } from '../../domain/followups.js';
 import {
   nthLabel, nextNthFor, examChoicesForNth, secondFollowupIds,
   MIN_NTH, MAX_NTH,
@@ -1842,11 +1842,18 @@ function examField(row, picked) {
  * `listByCustomer()`（完整的一份），那裡選得到。
  */
 function examChoicesOf(row, picked) {
+  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
+  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
+  // 「二返（一次性那一次）」（ADR-0172，轉成我的客戶之後）：接的是他當一次性客人時做的健檢（`oneTimeExamChoices()`）
+  if (picked?.isOneTimeSecond) {
+    return oneTimeExamChoices({
+      entitlements: ents, visits: ctx.queueInput.visitsBy[row.customerId] ?? [], coursesById,
+      courseId: picked.course?.id ?? null, selected: view.followupForVisitId,
+    });
+  }
   const ent = picked?.entitlement;
   if (!ent?.followupForEntitlementId) return null;
 
-  const ents = ctx.queueInput.entitlementsBy[row.customerId] ?? [];
-  const coursesById = Object.fromEntries(ctx.all.courses.map((c) => [c.id, c]));
   const pair = pairsOf(ents, coursesById).find((x) => x.followup?.id === ent.id);
   if (!pair) return null;
 
@@ -2257,6 +2264,9 @@ async function addSlot() {
     isNth: Boolean(picked?.isNth),
     // 健檢不是我排的（exam-not-mine 07，ADR-0169）：二返那門課、不扣、不接健檢；返數是 `view.nth`（2～10，沒選 → 「先選第幾返」）
     examNotMine: Boolean(picked?.isNotMine),
+    // 「二返（一次性那一次）」（ADR-0172，轉成我的客戶之後）：一次性的段、不扣他買的二返額度、接那一次一次性健檢
+    oneTime: Boolean(picked?.isOneTimeSecond),
+    courseId: picked?.isOneTimeSecond ? (picked.course?.id ?? null) : null,
     // 送的／體驗：沒有額度，課程就是她按的那一顆（ADR-0121、gift-and-trial 01）
     giftCourseId: picked?.isGift ? picked.course.id : null,
     giftKind: pickedGiftKind(picked),

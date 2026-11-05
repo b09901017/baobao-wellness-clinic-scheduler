@@ -197,6 +197,54 @@ export function notMineOption(courses = [], { keep = null } = {}) {
   };
 }
 
+/** 一次性客人按的那一門課的值的前綴（ADR-0172）。**不是任何一筆額度的 id**，同 `NTH_PICK` 的底線前綴。 */
+const GUEST_PREFIX = '__guest__:';
+
+/** 一次性客人（還沒轉成我的客戶）按了哪一門課 → 那一排上的值。組時段時換回 `slotFromPicks({ oneTime: true, courseId })`。 */
+export const guestPick = (courseId) => `${GUEST_PREFIX}${courseId}`;
+
+/** 那一排上的值是不是一次性客人的一門課；是就回課程 id，不是回 `null`。 */
+export const guestCourseIdOf = (value) => (typeof value === 'string' && value.startsWith(GUEST_PREFIX)
+  ? (value.slice(GUEST_PREFIX.length) || null)
+  : null);
+
+/**
+ * 一次性客人（還沒轉成我的客戶）的「做什麼」那一排（ADR-0172、spec 第 4 題與「我判斷的細節」）：
+ *
+ * - **全部還在用的課**，照分類（`groupByCourse()`，同加購那一排先分類再項目）；健檢、二返都在裡面（`isGuest`、`group`）
+ * - **送的／體驗不列**（他本來就不扣）
+ * - 「其他 ▸」（`extra`）裡留「健檢不是我排的」與「＋ n返」（他有接得上的一次性健檢時，`nthExams` 有一顆按得下去）
+ *
+ * 不扣任何東西：按了組出來的段是 `slotFromPicks({ oneTime: true, courseId })`。來訪編輯器與拍 Abovee 用（壓表不做，第 4 題）。
+ * 畫法是 `giftFold.coursesHtml()`。
+ *
+ * @param {object[]} courses 主檔
+ * @param {object} [o]
+ * @param {object|null} [o.keep] 這一段現在指著的那一門：停用了也要列（同 `giftOptions()`）
+ * @param {object|null} [o.notMineKeep] 這一段現在就是「健檢不是我排的」時那一段的課程（同 `notMineOption()`）
+ * @param {object[]} [o.nthExams] `examChoicesForNth()` 那一份（02 起認得一次性的健檢）
+ * @returns {object[]}
+ */
+export function guestOptions(courses = [], { keep = null, notMineKeep = null, nthExams = [] } = {}) {
+  const alive = (courses ?? []).filter((c) => c && !c.deletedAt && c.active !== false);
+  const list = keep && !alive.some((c) => c.id === keep.id) ? [...alive, keep] : alive;
+  const main = groupByCourse(list, (c) => c, courses).flatMap(({ group, items }) => items.map((course) => ({
+    entitlementId: guestPick(course.id),
+    label: course.name,
+    remaining: '—',
+    durationMin: course.durationMin ?? 60,
+    course,
+    entitlement: null,
+    isGuest: true,
+    group,
+  })));
+  const nth = (nthExams ?? []).some((c) => c.pickable)
+    ? [{ entitlementId: NTH_PICK, label: '＋ n返', remaining: '—', course: null, entitlement: null, isNth: true, extra: true }]
+    : [];
+  const notMine = notMineOption(courses, { keep: notMineKeep });
+  return [...main, ...nth, ...(notMine ? [notMine] : [])];
+}
+
 /**
  * 送的／體驗那一組（gift-and-trial 04）：每一門還在用、可以當體驗的課一顆（`canBeGift()`：健檢、二返除外）。
  *
@@ -243,7 +291,9 @@ export function giftOptions(courses = [], { keep = null } = {}) {
  * @returns {{value: string, giftKind: 'trial'}|null} 要換成哪一顆；不用換是 `null`
  */
 export function trialFromMinutes({ value = null, course = null, minutes = null, courses = [] } = {}) {
-  if (!value || value === NTH_PICK || value === NOT_MINE_PICK || value === ONE_TIME_SECOND_PICK || giftCourseIdOf(value)) return null;
+  // 一次性客人按的課（`guestPick()`，ADR-0172）也不換：他的段不是送的／體驗（`validateVisit()` 擋）
+  if (!value || value === NTH_PICK || value === NOT_MINE_PICK || value === ONE_TIME_SECOND_PICK || giftCourseIdOf(value)
+    || guestCourseIdOf(value)) return null;
   if (!course || course.deletedAt || course.active === false) return null;
   return isTrialMinutes(course, minutes, courses) ? { value: giftPick(course.id), giftKind: 'trial' } : null;
 }

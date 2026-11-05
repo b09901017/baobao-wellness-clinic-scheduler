@@ -1,6 +1,6 @@
 # 06：日曆新增「要幫誰排？」、來訪編輯器與壓表的「做什麼」、讀取卡片的「一次性」、「約二返」那一張的按鈕
 
-Status: todo
+Status: done
 Blocked by: 01、02、03、05（名字卡的表單元件）
 
 ## 動工前先讀
@@ -58,4 +58,34 @@ Blocked by: 01、02、03、05（名字卡的表單元件）
 
 ## 做完時留下的
 
-（做完的那一段寫，**手動驗收的路要寫實際的選擇器**：她會照著點）
+段三（2026-11-05）。測試在 `tests/one-time-guest-booking.test.js`（14 條）與 E2E `95-one-time-guest-booking`（7 支：B1–B7，本機跑過全綠；`83`、`67`、`94` 一起跑過）。
+
+- **domain**（`slotOptions.js`）：`guestOptions(courses, { keep, notMineKeep, nthExams })`（全部還在用的課照分類、`isGuest`＋`group`；「其他 ▸」＝`extra`：＋ n返（有接得上的健檢）、健檢不是我排的）、
+  `guestPick(courseId)`／`guestCourseIdOf(value)`（那一排上的值，前綴 `__guest__:`）。`trialFromMinutes()` 不換一次性的那一顆（07 的拍 Abovee `pickMinutes()` 也叫它）
+- **畫法**：`giftFold.coursesHtml({ options, value, chip, key, sm })` —— 分類 → 課程兩步與「其他 ▸」借 `giftFold` 那一套（`data-giftfold-group`／`data-giftfold-in`，`toggle()` 不重畫），外層 `[data-guestpicks]`。**07 拍 Abovee 照它畫**（自己給 `chip(o)`）
+- **來訪編輯器**（`visitEditor.js`）：
+  - 一次性客人（`isOneTime(ctx.customer)`）：`blankVisit()`／`withNewSlot()` 不走送的／體驗預設，第一段是 `{ oneTime: true, courseId: null }`；「做什麼」那一排是 `guestRow()`（`[data-guestpicks]`、`[data-chip="s${i}-ent"][data-chip-value="__guest__:<課程>"]`）
+  - 讀回來：`guestValueOf()`（那一段在那一排上是哪一顆）→ `readGuestSlot()` → `slotFromPicks({ oneTime: true, courseId, followupForVisitId, … })`。組不出來（二返還沒接）時時長照那門課算（不留上一段的 60，E2E B3 釘著）
+  - 一次性的二返「這是哪一次健檢的」：`guestExamField()`（`[data-chip="s${i}-gexam"]`，`oneTimeExamChoices()`）；接不上 → `[data-guestexam-none]` 那一句（`fieldgroup__empty`，不收進 `tip()`：會擋存檔）
+  - 一次性客人的「健檢不是我排的」：`readNotMineSlot()` 交 `oneTime: guest`；n返：`readNthSlot()` 照 `isOneTimeExamVisit()` 標（這一條路自己組、不經過 `slotFromPicks()`）
+  - **轉成我的客戶之後**：一般的那一排多 `secondOptionsFor()` —— 「二返（一次性那一次）」（`oneTimeSecondOptions()`，算的時候把這一張表單上的其他段也算進去；這一段現在就是它的話照樣列）、以前那一段一次性的段那一顆（`課程（一次性）`）。值 `__onetime2nd__` → `secondCourseOf()` → `readGuestSlot()`
+- **壓表**（`schedule.js`）：`examChoicesOf()` 認 `picked.isOneTimeSecond` → `oneTimeExamChoices()`（只有一次就先選好，`pickExamIfObvious()` 照舊）；`addSlot()` 交 `oneTime`＋`courseId`。選擇器：`[data-ent="__onetime2nd__"]`、`[data-exam="<健檢那一天的來訪 id>"]`
+- **日曆新增**（`calendar.js`）：`pickCustomer()` 一次性客人那一列 `.guestmark`；打了字一位都找不到 → `[data-new-guest]`「＋ 新增一次性客人『X』」→ `newGuest()`：`mountGuestForm({ quick: true })` → `createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] })`（key `customer:create-guest`）→ `mountEditor()` 接著排
+- **讀取卡片**：`visitReadHtml()` 最上面 `.readguest .guestmark`「一次性」（問 `isOneTime(data.customer)`；`data.customer` 沒帶的那幾頁 `fillMirror()` 補讀之後重畫）。**抬頭（名字）是呼叫端給的，所以那一格在抬頭底下、卡片內容最上面** —— 不是貼在名字旁邊同一行。「扣／沒扣」那一行本來就不畫（E2E B4 釘著）
+- **「約二返」**（`home.js`）：`labelGuestBookings()` 畫完讀一次客戶、一次性客人那幾顆換成「去日曆排」（`data-guest="true"`）；`bookFollowup()` 自己再問一次 —— 一次性客人 `leaveFor('calendar/new', { customerId, date })` → 日曆 `render()` 的 `takeFor('calendar/new')` 打開新增、他已經選好
+- **找人的框**：批次取消（`bulkCancel.js`）、隨手記「掛給誰」兩排（`note.js` 的 `guestTag()`）標 `.guestmark`
+- `sw.js` v289（05 是 v288）；spec `95` 進 `related.js`；`tests/visit-editor.test.js` 那一條 `withNewSlot(...)` 的比對多認一格 `isOneTime(customer)`
+- **沒做的**：編輯器第一列（名字＋狀態那一列）沒標「一次性」（spec 沒要）；`chainInputs()` 沒有新的呼叫端（日曆新增走既有的來訪編輯器，03 已經傳三個參數）
+
+### 手動驗收（她照順序點；在本機模擬器 `npm run emulators` ＋ `seed:staging`，或 staging 只看不寫）
+
+1. 客戶 → 捲到最底下：看到「看已停用的」「看一次性客人」兩顆一行（`[data-listlinks]`）；標題那一行只有「看這個月的進度」「長備註」
+2. 日曆 → 點今天那一格 → 右上「＋」→ 來訪 → 「要幫誰排？」打一個沒有的名字（例：客戶C）→ 按「＋ 新增一次性客人『客戶C』」→ 名字帶好、填病歷號 → 「建立，接著排」
+3. 接著排的那一張：「做什麼」那一排是全部的課（醫師門診、運動區那幾類點了才露出裡面的課）、**沒有「送的／體驗／其他…」** → 按「健檢」→ 記錄這次來訪 → 確認框按「已確認，記錄」
+4. 日曆上那一格看得到客戶C → 點那一列 → 讀取卡片最上面一小格「一次性」、沒有「扣」那一行
+5. 客戶 → 最底下「看一次性客人」→ 只有客戶C（名字旁邊「一次性」）→ 點進去：名字卡、來訪紀錄那一列點得開；**沒有**加購、額度、LINE 訊息、停用
+6. 名字卡那一頁 → 「編輯」→ 改電話 → 儲存
+7. 日曆 → 點**明天**那一格（同一天會併進第 3 步那一筆，接不上自己那一天的健檢）→ ＋ → 來訪 → 客戶C → 醫師門診 ▾ → 二返 → 「這是哪一次健檢的」那一排列著第 3 步那一天 → 按它 → 記錄
+8. （有健檢做完之後才有）待辦 → 「約二返」那一列的按鈕寫「去日曆排」→ 按 → 日曆新增、客戶C 已經選好
+9. 名字卡那一頁最底下「轉成我的客戶」→ 確認框講會上清單、要先加購、以前的段照舊算一次性 → 轉 → 變成一般客戶詳情、客戶清單平常那一份看得到他
+10. 客戶 → 新增一位 → 名字打一位一次性客人的名字 → 姓名旁邊 ⚠ 與存檔前那一道講「有一位同名的一次性客人…『看一次性客人』…『轉成我的客戶』」

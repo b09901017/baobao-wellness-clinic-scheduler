@@ -700,6 +700,13 @@ export const COVERAGE = {
     'public/js/domain/customers.js', 'public/js/domain/consequences.js', 'public/js/data/customers.js',
     'public/js/ui/components/customerForm.js', 'public/css/app.css',
   ],
+  // 一次性客人：日曆新增「＋ 新增一次性客人」、來訪編輯器的「做什麼」、讀取卡片的「一次性」、「約二返」去日曆排、轉成客戶之後的「二返（一次性那一次）」（one-time-guests 06）
+  '95-one-time-guest-booking': [
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/home.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotOptions.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/followups.js',
+    'public/js/domain/customers.js', 'public/js/ui/views/customerDetail.js', 'public/css/app.css',
+  ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',

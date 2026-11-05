@@ -177,7 +177,8 @@ describe('一人一天一筆（issue 04）', () => {
   // `withNewSlot()`，於是改一筆既有的來訪也會被偷偷接上一段空的。
   test('要編哪一筆、要不要接新的一段，走 domain 那一支', () => {
     assert.match(SRC, /const target = editorTarget\(\{ existing, open: sameDay\.open \}\);/);
-    assert.match(SRC, /target\.addSlot \? withNewSlot\(base, entitlements, all, settings\) : \{ \.\.\.base \}/);
+    // 一次性客人多帶一格（ADR-0172：他的新一段不預設送的／體驗）
+    assert.match(SRC, /target\.addSlot \? withNewSlot\(base, entitlements, all, settings, isOneTime\(customer\)\) : \{ \.\.\.base \}/);
   });
 
   // **2026-09-16 起那一句每次重畫都算一次**（`sameDayNote()`）：以前是在

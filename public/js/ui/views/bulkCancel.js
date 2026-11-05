@@ -35,7 +35,7 @@ import {
   cancellableSlots, applyStatus, describeStatus, statusClass, slotStatus,
 } from '../../domain/visits.js';
 import { cancelConsequences, cancelChainLines } from '../../domain/consequences.js';
-import { nameHas } from '../../domain/customers.js';
+import { nameHas, isOneTime } from '../../domain/customers.js';
 import { slotName, nameOf, fullNameOf } from '../../domain/naming.js';
 import { monthWeeks, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { todayISO, addMonths, shortDate, monthLabel } from '../../domain/dates.js';
@@ -221,7 +221,7 @@ function searchHtml() {
                    她 2026-09-10 看到的就是那個（同一個坑 8 月在「要壓哪個月」
                    那三顆上踩過一次，見 app.css 的 `.monthpick` 那一段）。 */''}
             <li><button class="row-link" type="button" data-pick="${esc(c.id)}">
-              <span class="link-list__label">${esc(c.name)}</span>
+              <span class="link-list__label">${esc(c.name)}${isOneTime(c) ? ' <span class="guestmark">一次性</span>' : ''}</span>
             </button></li>`).join('')}
         </ul>` : ''}
       ${q ? '' : '<p class="muted">打名字找人，這裡會列出他那個月的來訪。</p>'}

@@ -23,6 +23,7 @@
 // **預設是沒有日期。** 泡泡那一支的標準是「三秒內記完」
 //（`domain/notes.js` 的檔頭），多一個必填欄位就毀了它。
 
+import { isOneTime } from '../../domain/customers.js';
 import { esc } from './form.js';
 import { icon } from '../icons.js';
 import { shortDate, todayISO } from '../../domain/dates.js';
@@ -31,6 +32,9 @@ import { MAX_LENGTH } from '../../domain/notes.js';
 import { openSheet } from './sheet.js';
 import { openCard, closeCard } from './card.js';
 import { confirmAction } from './dialog.js';
+
+/** 隨手記「掛給誰」那兩排：一次性客人名字後面一小格「一次性」（ADR-0172 第 5 題：找人的框也標）。 */
+const guestTag = (c) => (isOneTime(c) ? ' <span class="guestmark">一次性</span>' : '');
 
 /**
  * 一列隨手記。點一下就勾掉／取消勾（呼叫端接 `[data-note]`）。
@@ -246,7 +250,7 @@ export function wireWho(root, { load }) {
       <div class="chips">
         ${customers.map((c) => `
           <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
-                  aria-pressed="${idIn.value === c.id}">${esc(c.name)}</button>`).join('')
+                  aria-pressed="${idIn.value === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
         || '<span class="muted">還沒有客戶。</span>'}
       </div>`;
   };
@@ -718,7 +722,7 @@ function askCustomer(loadCustomers, currentId) {
           ? `<div class="chips">${live.map((c) => `
               <button class="chip" type="button" data-who-pick="${esc(c.id)}"
                       data-who-name="${esc(c.name)}"
-                      aria-pressed="${currentId === c.id}">${esc(c.name)}</button>`).join('')}</div>`
+                      aria-pressed="${currentId === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')}</div>`
           : '<p class="muted">還沒有客戶。</p>');
       })
       .catch(() => {
