@@ -132,13 +132,22 @@ function story(source) {
   return shots;
 }
 
-describe('改後的 .gs 畫出來跟改前一模一樣（排版版號 3 只多了字級，見底下的註解）', () => {
+describe('改後的 .gs 畫出來跟釘住的一樣（版號 3 只多了字級、版號 4 是第三輪的版面，見底下的註解）', () => {
   // 改前的 `.gs`（develop 3dd2ee12）在這個替身裡跑出來的雜湊是
   // ['324e92a670b8f085', 'ffc86214b0c6a1eb', 'a964e79459f34747', 'bc298f86f2acf2ae']（排版版號 1、2）。
   // **排版版號 3 刻意改了字級**（sheet-push-gaps 05：名字 14 號、第 3 列與註記列 9 號，以前被 `finish()` 整頁蓋成 11）——
   // 換之前用 `scripts/sheet-gs-compare.mjs` 跟版號 2 比過：正式站那一包四步都只有字級不一樣（1,100 格），值、底色、合併、框線、鎖一格都沒變。
   // 之後藏起來的 `_data` 分頁 B1 多一行「計時」（sheet-push-gaps 05 之二；替身的時鐘固定在 0，所以每次一樣）—— 客戶那幾頁一格都沒變
-  const BEFORE = ['bfc766f86ca77ac6', 'f4ca41462c56f0ed', '64660614fba3e20d', '4b3b0b4fbc2110cd'];
+  // **排版版號 4 是第三輪的版面**（sheet-push-gaps 08～12，她看過示意圖）：一支 issue 換一次，每一次先用 `scripts/sheet-gs-compare.mjs`
+  // 跟上一支的 `.gs` 比正式站那一包，變的只有那一支要變的（數字寫在那一支 issue 的「做完時留下的」）
+  // 08：日期欄 78、數字四欄淡灰＋粗線、格線藏起來、名字 18 號、抬頭只有號碼、待辦區日期是文字
+  // 09：凍結五列五欄、合併只到剩餘那一欄、折行的列照字數估高
+  // 10：每一位的療程項目照「已完成＋已排未上」多到少排
+  // 11：器材併進那一格、記一句改成那一格的附註
+  // 12：營養品一筆一行、備註一則一列上色（syncBundle 多送 noteLines）
+  // 段二審查：那一塊（買過什麼、營養品、備註、來訪紀錄）每一行是文字格式（一則一格之後「0912345678」「5/20」會被 Google 認成數字／日期）——
+  // 跟改之前比正式站那一包：四步都只有數字格式不一樣（3,280 格），版號照舊 4（第三輪還沒部署過）
+  const BEFORE = ['ffd42c9e38de09f6', 'c85c8a14dbe10cdf', '002c33f0a95b181b', '8da714a0769d494b'];
 
   test('四步，每一步整份試算表都一樣（值、格式、合併、框線、欄寬、列高、凍結、鎖、指紋）', () => {
     assert.deepEqual(story(null), BEFORE);
@@ -168,8 +177,10 @@ describe('一次推送叫 Google 幾次（替身數的，scripts/sheet-gs-calls.
     app.post({ token: 'secret', bundle: bundleOf(pages(10)) });
     const stats = count(() => app.post({ token: 'secret', bundle: bundleOf(pages(10)), force: true }));
     assert.equal(stats.result.sheets, 10);
-    // 改前（develop 3dd2ee12）同一包：讀 187、寫 1,980、寫完又讀 84（一頁約 200 次寫）；改後 讀 78、寫 452、寫完又讀 10
-    assert.ok(stats.writes <= 10 * 50, `寫了 ${stats.writes} 次`);
+    // 改前（develop 3dd2ee12）同一包：讀 187、寫 1,980、寫完又讀 84（一頁約 200 次寫）；改後 讀 78、寫 452、寫完又讀 10。
+    // 第三輪的版面（sheet-push-gaps 08～12）一頁多幾次固定的：凍結欄、剩餘那條粗線、格線、清備註、寫備註、待辦區的文字格式、
+    // 折行的列各自加高（一頁幾列）—— 這一包 513 次。照樣不跟格子數成正比
+    assert.ok(stats.writes <= 10 * 60, `寫了 ${stats.writes} 次`);
     assert.ok(stats.writeThenRead <= 10, `寫完又馬上讀 ${stats.writeThenRead} 次`);
     for (const one of ['Range.setValue', 'Range.setBackground', 'Range.setWrap', 'Range.setVerticalAlignment', 'Sheet.setColumnWidth', 'Sheet.getLastRow']) {
       assert.ok(!stats.byName[one], `${one} 叫了 ${stats.byName[one]} 次：畫法要先畫在草稿紙上（Canvas）`);

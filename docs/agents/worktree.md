@@ -7,7 +7,7 @@ worktree 是另一份 checkout（`.claude/worktrees/<名字>/`）：被追蹤的
 
 | 少了什麼 | 少了會怎樣 | 怎麼接 |
 |---|---|---|
-| `.local/`（真資料、名單、過濾網） | ① `tests/no-secrets.test.js` **跳過**真名掃描：`npm test` 照樣綠，只多一個 skipped<br>② `\| node .local/references/redact.mjs` 找不到檔，前面的輸出整個不見（沒外流，但什麼都看不到 —— **不可以拿掉過濾網繞過去**）<br>③ 月底對帳、客戶時間、合併那幾支 skill 與 `scripts/` 讀不到資料 | junction／symlink 到主資料夾那一份（下面的指令）。接好之後 `npm test` 的 skipped 要是 0 |
+| `.local/`（真資料、名單、過濾網） | ① `tests/no-secrets.test.js` **跳過**真名掃描：`npm test` 照樣綠，只多一個 skipped<br>② `\| node .local/references/redact.mjs` 找不到檔，前面的輸出整個不見（沒外流，但什麼都看不到 —— **不可以拿掉過濾網繞過去**）<br>③ 月底對帳、客戶時間、合併那幾支 skill 與 `scripts/` 讀不到資料 | junction／symlink 到主資料夾那一份（下面的指令）。接好之後 `npm test` 的 skipped 要是 0（不是 0 就看是誰：`npm test 2>&1 \| grep "﹣"` —— `aliases.json 不在這台機器上` 那一條才是沒接好；`這台沒有 python ＋ openpyxl` 那兩條是 `tests/sheet-xlsx-verify.test.js` 整支工具那一段，跟 `.local` 無關） |
 | `.codegraph/`（CodeGraph 索引） | **安靜地用錯**：往上找到主資料夾的索引，印一行警告照樣回答 —— 回的是主資料夾那條分支的程式碼，這條分支新改的符號查不到、呼叫端少列 | 在 worktree 裡 `codegraph init -i`（這條分支自己的索引；`codegraph.json` 有進版控，排除照舊） |
 | `graphify-out/`（程式碼＋文件＋決定的圖） | 大聲壞（`graph file not found`）—— 然後很容易就不查了，ADR、舊 issue、`.local` 目錄的牽連漏看 | 查主資料夾那一份：`graphify query "<問題>" --graph <主資料夾>/graphify-out/graph.json`。圖是快照（`GRAPH_REPORT.md` 寫了哪個 commit），程式碼那一半以 CodeGraph 為準。**不要在 worktree 裡 `graphify update`**（會拿這條分支的程式碼蓋掉主資料夾的圖）；`post-commit` 的 graphify hook 在 worktree 裡本來就不跑，合進 develop 之後在主資料夾更新 |
 | `node_modules/` | 大聲壞（找不到模組） | `npm ci` |

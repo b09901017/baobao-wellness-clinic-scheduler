@@ -26,6 +26,7 @@ import { followupsOfExam, nthLabel, nthOf, SECOND } from './nthFollowup.js';
 import { taskLine } from './todoFlow.js';
 import { shortDate, isValidDate, dayOf } from './dates.js';
 import { chartNosOf } from './identify.js';
+import { readMarks } from './customerMarks.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
@@ -543,7 +544,7 @@ function csvCell(value) {
 export const SYNC_FORMAT = 8;
 
 /**
- * 一頁的指紋（ADR-0161）：那一頁會畫出來的每一樣 —— 那一頁的整份資料、第一列的提醒、第三列的符號說明、格式版本 ——
+ * 一頁的指紋（ADR-0161）：那一頁會畫出來的每一樣 —— 那一頁的整份資料、第一列的提醒、產生時間那一列的符號說明、格式版本 ——
  * 雜湊成一串。**不含產生時間**（每一次都換）。`.gs` 只比字串，不算。
  *
  * 那一頁的資料是同一支 `syncBundle()` 照固定順序組的，所以 `JSON.stringify()` 的鍵順序每一次都一樣。
@@ -667,13 +668,13 @@ export function syncBundle({
     // 底下的 `totals` 與兩份註記的 `rowIndex` 都只看 `rows`（額度那幾列）。
     const extras = extraRows({ scheduled, visits, dates, coursesById, equipment: master.equipment ?? [] });
 
-    // 「這一天用了哪一台」（格式 4 起）。一筆額度一列，畫在它那一列的正下方 ——
+    // 「這一天用了哪一台」（格式 4 起）。`.gs` 併進那一格的字（「✓ IN」，2026-11-05 起，ADR-0175；以前畫在那一列的正下方）——
     // 帶 `label` 是因為一位客戶可能同時有四選一與三選一，兩列都要註記時
     // 得分得出來。
     const equipmentNotes = scheduled
       .map((e, rowIndex) => ({
         // **帶第幾列不是只帶名字**：一位客戶可能有兩筆同名的額度，
-        // 而 `.gs` 要把這一列畫在**那一列的正下方**（她的原話）。
+        // 而 `.gs` 要寫進**那一列**的那幾格（以前畫在它的正下方，她的原話）。
         rowIndex,
         label: e.label ?? '',
         cells: equipmentCells(e, visits, dates, master.equipment ?? []),
@@ -681,7 +682,7 @@ export function syncBundle({
       .filter((x) => x.cells.length);
 
     // 「那一段記了什麼」（格式 5 起）。跟上面那一份同一個形狀、同一個理由 ——
-    // `.gs` 把它畫在那一列的正下方。**每一筆額度都問**（不像器材那一份只問
+    // `.gs` 把它寫進那一列那一格的附註（2026-11-05 起，ADR-0175）。**每一筆額度都問**（不像器材那一份只問
     // 得選的擇一池）：一句話可以記在任何一段上。
     const slotNotes = scheduled
       .map((e, rowIndex) => ({
@@ -699,6 +700,9 @@ export function syncBundle({
       membershipExpiresAt: customer.membershipExpiresAt ?? '',
       flags: customer.flags ?? [],
       notes: customer.notes ?? '',
+      // 備註一則一列、用她替那則短備註挑的顏色（2026-11-05，.scratch/sheet-push-gaps/issues/12，ADR-0175）。
+      // 跟 `readMarks()` 同一個順序、只有短備註（長備註不進試算表）；`notes` 照舊送（還沒更新的 `.gs` 讀它），所以不升 `SYNC_FORMAT`
+      noteLines: readMarks(customer).map((m) => ({ text: m.text, color: m.color })),
       dates,
       // 不是今年的帶年份（`dateLabel()`，issue 19）
       dateLabels: dates.map((d) => dateLabel(d, today)),
@@ -1155,7 +1159,7 @@ export function describeSync({
 
 /**
  * 推好了之後那一句（設定頁「立刻推一次」「整份重畫」）。格式 8 起分得出重畫了幾頁、幾頁沒變（ADR-0161）——
- * 「沒變」的那幾頁只改了第三列的產生時間，跟推好了一樣是對的。
+ * 「沒變」的那幾頁只改了產生時間那一列，跟推好了一樣是對的。
  *
  * @param {{sheets?: number|null, kept?: number|null, stale?: boolean}} result `sheetSync.push()` 回的
  */

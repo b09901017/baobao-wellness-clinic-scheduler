@@ -59,6 +59,8 @@ const FORMAT_SETTERS = {
   setHorizontalAlignment: 'hAlign',
   setVerticalAlignment: 'vAlign',
   setWrap: 'wrap',
+  // 文字格式（'@'）：待辦區的日期寫成文字（.scratch/sheet-push-gaps/issues/08）
+  setNumberFormat: 'numberFormat',
 };
 
 class FakeRange {
@@ -93,6 +95,23 @@ class FakeRange {
 
   getValue() {
     return this.sheet.get(this.row, this.col);
+  }
+
+  /** 那一格的附註（Google 的 note：右上角小黑三角）。'' 等於拿掉。 */
+  setNote(text) {
+    this.sheet.checkBounds(this.row, this.col);
+    this.sheet.setNoteAt(this.row, this.col, text);
+    return this.#self();
+  }
+
+  setNotes(grid) {
+    if (grid.length !== this.rows) throw new Error(`setNotes 列數不合：${grid.length} vs ${this.rows}`);
+    this.sheet.checkBounds(this.row + this.rows - 1, this.col + this.cols - 1);
+    grid.forEach((row, r) => {
+      if (row.length !== this.cols) throw new Error(`setNotes 欄數不合：${row.length} vs ${this.cols}`);
+      row.forEach((v, c) => this.sheet.setNoteAt(this.row + r, this.col + c, v));
+    });
+    return this.#self();
   }
 
   merge() {
@@ -189,6 +208,8 @@ class FakeSheet {
     /** 同一份合併，但留著數字邊界 —— 凍結線的檢查要算得出來。 */
     this.mergeBounds = [];
     this.backgrounds = new Map();
+    /** 每一格的附註（記一句，.scratch/sheet-push-gaps/issues/11）。**`clear()` 不清它**（跟 Google 一樣要另外 `clearNotes()`） */
+    this.notes = new Map();
     /** 每一格最後一次設的格式（`FORMAT_SETTERS` 那幾種）。 */
     this.formats = Object.fromEntries(Object.values(FORMAT_SETTERS).map((k) => [k, new Map()]));
     this.fonts = new Set();
@@ -199,6 +220,8 @@ class FakeSheet {
     this.rowHeights = new Map();
     this.frozenRows = 0;
     this.frozenCols = 0;
+    /** 格線藏起來了沒（`setHiddenGridlines`，issues/08） */
+    this.gridlinesHidden = false;
     this.maxRows = 1000;
     this.maxCols = 26;
     this.hidden = false;
@@ -261,6 +284,15 @@ class FakeSheet {
 
   clearConditionalFormatRules() {}
 
+  clearNotes() { this.notes.clear(); }
+
+  setNoteAt(row, col, text) {
+    if (text === '' || text == null) this.notes.delete(A1(row, col));
+    else this.notes.set(A1(row, col), String(text));
+  }
+
+  noteAt(a1) { return this.notes.get(a1) ?? ''; }
+
   addMerge(row, col, rows, cols) {
     this.checkBounds(row + rows - 1, col + cols - 1);
     this.merges.push(`${A1(row, col)}:${A1(row + rows - 1, col + cols - 1)}`);
@@ -303,6 +335,9 @@ class FakeSheet {
     if (n < 1) throw new Error(`「${this.name}」setRowHeights 至少要一列：${start},${n}`);
     for (let i = 0; i < n; i += 1) this.rowHeights.set(start + i, h);
   }
+
+  setHiddenGridlines(v) { this.gridlinesHidden = Boolean(v); }
+  hasHiddenGridlines() { return this.gridlinesHidden; }
 
   hideSheet() { this.hidden = true; }
   isSheetHidden() { return this.hidden; }
@@ -360,9 +395,11 @@ export function snapshotOf(ss) {
     hidden: s.hidden,
     frozenRows: s.frozenRows,
     frozenCols: s.frozenCols,
+    gridlinesHidden: s.gridlinesHidden,
     maxRows: s.maxRows,
     maxCols: s.maxCols,
     values: sortedCells(s.cells, { dropEmpty: true }),
+    notes: sortedCells(s.notes),
     backgrounds: sortedCells(s.backgrounds),
     formats: Object.fromEntries(Object.entries(s.formats).map(([k, m]) => [k, sortedCells(m)])),
     merges: [...s.merges].sort(),
@@ -460,7 +497,7 @@ export function loadAppsScript({
       getActiveSpreadsheet: () => ss,
       // 真的 Google 會把排著的寫入做完；替身的寫入本來就是當下生效
       flush: () => {},
-      BorderStyle: { SOLID: 'SOLID' },
+      BorderStyle: { SOLID: 'SOLID', SOLID_MEDIUM: 'SOLID_MEDIUM' },
       ProtectionType: { SHEET: 'SHEET' },
     },
     ContentService: {

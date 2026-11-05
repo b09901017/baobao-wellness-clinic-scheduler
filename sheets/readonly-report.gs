@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 3;
+var LAYOUT_VERSION = 4;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -78,18 +78,31 @@ var COL = {
  */
 var TODO_COL = 1;
 var FINISH_COL = 11;
-var HEADER_ROWS = 4;  // 標題、客戶資訊、產生時間、空行
+var HEADER_ROWS = 4;  // 提醒、名字、號碼／購買名稱／合計、產生時間（2026-11-05 起沒有空行，issues/09）
 var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
+/** 產生時間那一列。沒變的那幾頁只改這一格（`render()`）—— 畫的那一側與改時間的那一側都讀這個數字。 */
+var STAMP_ROW = 4;
+/**
+ * 凍結前五欄（療程項目～剩餘；她 11/5：「我確實蠻希望可以另外前五欄凍結」，issues/09）。
+ * **凍結線不能穿過合併儲存格**（Google 會丟例外，`.scratch/first-real-import/issues/01`），所以**每一個合併都停在這一欄以內**：
+ * 最上面四列、下面「買過什麼」「營養品」「備註」「來訪紀錄」每一行與區塊抬頭都只合併到剩餘那一欄，長的折行、那一列跟著長高（`fitRows()`）。
+ * TODO（A～C）、FINISHED（K～M）本來就沒有穿過。
+ */
+var FROZEN_COLS = 5;
 
 var STYLE = {
   font: 'Noto Sans TC',
-  titleSize: 14,
+  // 名字 18 號（她 11/5：「字再大一點」；.scratch/sheet-push-gaps/issues/08）
+  titleSize: 18,
   bodySize: 11,
   labelWidth: 190,
   countWidth: 62,
-  dateWidth: 58,
+  // 78：「10/29(四)」一行放得下（58 的時候常被擠到第二行，issues/08）
+  dateWidth: 78,
   noteWidth: 300,
   rowHeight: 26,
+  // 名字那一列（18 號字一行）
+  titleHeight: 40,
 };
 
 var COLOR = {
@@ -105,6 +118,27 @@ var COLOR = {
   low: '#FFCDD2',      // 剩餘 0 或負數（超用）
   border: '#B0BEC5',
   noteHeader: '#ECEFF1',
+  // 應有～剩餘那四欄（issues/08：跟日期分開）：格子淡灰底、表頭比療程項目那一格淺一階、剩餘右邊一條粗線。
+  // 狀態色（已完成綠、已排未上黃、剩餘 ≤0 紅）照舊蓋在淡灰上面
+  count: '#EEF2F5',
+  countHeader: '#546E7A',
+  divider: '#546E7A',
+  // 備註那一塊「永久限制：…」那一行（issues/12）
+  flag: '#FDE7E7',
+};
+
+/**
+ * 備註一則一列的底色（issues/12）：她在 app 裡替那則短備註挑的顏色的**淡色版**（`tokens.css` 淺色主題的 `--mark-*` 跟白色 15:85 混，
+ * 黑字看得清楚）。鍵是 `domain/customerMarks.js` 的 `MARK_COLORS` 的 id —— `.gs` 讀不到 `tokens.css`，所以這裡另寫一份；
+ * 那六色改了要回來改這裡。認不得的照灰色（同 `colorToken()`）。
+ */
+var MARK_TINT = {
+  grey: '#EBEAE8',    // --mark-grey #7c7268
+  green: '#E2EBE7',   // --mark-green #3f7a5f
+  tea: '#F3EAE2',     // --mark-tea #b0763b
+  red: '#F3E3E1',     // --mark-red #b04434
+  blue: '#E4ECF0',    // --mark-blue #4d7f9c
+  violet: '#EBE7EF',  // --mark-violet #7a6096
 };
 
 // ---------- 收件口 ----------
@@ -208,7 +242,7 @@ function doPost(e) {
       return reply({
         ok: true,
         sheets: result.sheets,
-        // 沒變、只改了第三列產生時間的那幾頁（ADR-0161）
+        // 沒變、只改了產生時間那一列的那幾頁（ADR-0161）
         kept: result.kept,
         // 跳過的要講出來，不然她會以為推好了而那幾位其實沒更新
         skipped: result.skipped,
@@ -258,7 +292,7 @@ var PROTECT_NOTE = '由 app 產生，請勿手動編輯';
 
 /**
  * 畫整包。**沒變的那幾頁不重畫**（ADR-0161）：app 每一頁附一個指紋（那一頁會畫出來的每一樣），
- * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改第三列的產生時間。
+ * 跟這一頁上次畫的那一個一樣、分頁還在、第一列那句提醒也還在 → 只改產生時間那一列（`STAMP_ROW`）。
  * 指紋只記在這一側：她有手機與 iPad 兩台，各記各的會安靜地錯（8/27 那一支不照做的理由）。
  *
  * 每畫好一頁就上鎖、記下指紋 —— Apps Script 一次最多跑 6 分鐘，逾時的話下一次推送從沒畫完的那一頁接著做。
@@ -331,7 +365,7 @@ function render(ss, bundle, force, stored) {
     var kName = sheetNameFor(bundle.sheets[k0].name);
     var kEntry = book.byName[kName];
     if (planFor(kEntry, stored, kName, markOf(bundle.sheets[k0]), force) === 'keep') {
-      kEntry.sheet.getRange(3, 1).setValue(stamp);
+      kEntry.sheet.getRange(STAMP_ROW, 1).setValue(stamp);
       keep[kName] = true;
       kept += 1;
     } else {
@@ -569,7 +603,7 @@ function isOurs(a1) {
   return String(a1).indexOf(OURS_MARK) !== -1;
 }
 
-/** 第三列那一行。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
+/** 產生時間那一行（`STAMP_ROW`）。沒變的那幾頁只改這一格（她選的：「照樣更新成這一次推送的時間」）。 */
 function stampLine(bundle) {
   return '產生時間 ' + bundle.generatedAt + '　·　這一頁由 app 產生，改資料請回 app'
     + '　·　' + bundle.legend;
@@ -634,52 +668,48 @@ function renderCustomer(ss, data, bundle, book) {
     MATRIX_HEADER_ROW + data.rows.length + logLineCount(data)
       + ((data.purchases || []).length + 3)
       + ((data.products || []).length + 2)
+      + ((data.noteLines || []).length || String(data.notes || '').split(String.fromCharCode(10)).length) + 1
       + data.tasks.todo.length + data.tasks.finished.length + 20,
     width,
   );
   t = clockAdd('清空', t, true);
-  noticeRow(sheet, width, bundle);
+  noticeRow(sheet, FROZEN_COLS, bundle);
 
-  // 第 2 列：名字大字，右邊接購買名稱與合計
-  sheet.getRange(2, 1, 1, 2).merge().setValue(data.name)
+  // 第 2 列名字大字、第 3 列號碼＋購買名稱＋合計、第 4 列產生時間 —— 都只合併到剩餘那一欄（凍結線不能穿過合併，issues/09），長的折行
+  sheet.getRange(2, 1, 1, FROZEN_COLS).merge().setValue(data.name)
     .setFontSize(STYLE.titleSize).setFontWeight('bold')
     .setVerticalAlignment('middle');
-  sheet.getRange(2, 3, 1, Math.max(width - 2, 1)).merge()
+  sheet.getRange(3, 1, 1, FROZEN_COLS).merge()
     .setValue(infoLine(data))
     .setVerticalAlignment('middle').setWrap(true);
 
-  sheet.getRange(3, 1, 1, width).merge()
+  sheet.getRange(STAMP_ROW, 1, 1, FROZEN_COLS).merge()
     .setValue(stampLine(bundle))
-    .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle');
+    .setFontSize(9).setFontColor('#78909C').setVerticalAlignment('middle').setWrap(true);
 
   // 矩陣表頭
   var head = ['療程項目', '應有', '已完成', '已排未上', '剩餘'].concat(data.dateLabels);
   sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length).setValues([head]);
   styleHeader(sheet.getRange(MATRIX_HEADER_ROW, 1, 1, head.length));
+  sheet.getRange(MATRIX_HEADER_ROW, COL.TOTAL, 1, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.countHeader);
 
-  // 每一列的內容與它是什麼。**「這一天用了哪一台」那一列夾在它那一筆額度的
-  // 正下方**（格式 4，她的原話：「在當天的那一列下面」），所以不能先把
-  // `data.rows` 直接攤成矩陣 —— 上色那一圈的 index 要對得上真正的列號。
+  // 一筆額度一列。**器材與記一句不再多一列**（2026-11-05，issues/11，ADR-0175）：
+  // 「這一天用了哪一台」併進那一格的字（「✓ IN」，格式 4 的 `equipmentNotes`），
+  // 「那一段記了什麼」寫進那一格的附註（Google 的 note，右上角小黑三角，格式 5 的 `slotNotes`）—— 資料一個字都沒變，這裡畫的時候併。
+  //
+  // **照「做最多的在上面」畫**（她 11/5，issues/10）：`n` 照舊是 `data.rows` 裡原本的位置 —— 兩份註記的 `rowIndex` 指的是它，
+  // 所以器材與記一句跟著它那一筆額度走。
   var rows = [];
   var meta = [];
-  for (var n = 0; n < data.rows.length; n++) {
+  var order = rowOrder(data.rows);
+  for (var o = 0; o < order.length; o++) {
+    var n = order[o];
     var one = data.rows[n];
-    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(one.marks));
-    meta.push(one);
-
-    var note = equipmentNoteAt(data, n);
-    if (note) {
-      rows.push(noteLine(note, head.length));
-      meta.push(null);   // null = 註記列，不上色也沒有數字
-    }
-
-    // 「那一段記了什麼」（格式 5）。接在器材那一列後面，同樣夾在它那一筆
-    // 額度的正下方 —— 她 2026-09-16 要的：「記在當天那一列的下面」。
-    var said = noteRowAt(data.slotNotes, n);
-    if (said) {
-      rows.push(noteLine(said, head.length));
-      meta.push(null);
-    }
+    var equipmentByDate = cellsByDate(equipmentNoteAt(data, n), one.marks.length);
+    var marks = [];
+    for (var m = 0; m < one.marks.length; m++) marks.push(markWithEquipment(one.marks[m], equipmentByDate[m]));
+    rows.push([one.label, one.total, one.done, one.booked, one.remaining].concat(marks));
+    meta.push({ row: one, slotNotesByDate: cellsByDate(noteRowAt(data.slotNotes, n), one.marks.length) });
   }
 
   var top = MATRIX_HEADER_ROW + 1;
@@ -688,14 +718,14 @@ function renderCustomer(ss, data, bundle, book) {
     body.setValues(rows).setVerticalAlignment('middle').setWrap(true);
     sheet.getRange(top, 2, rows.length, head.length - 1).setHorizontalAlignment('center');
     banding(sheet, top, rows.length, head.length);
+    // 四個數字欄淡灰底（蓋掉斑馬紋那一格），下面的狀態色再蓋上去
+    sheet.getRange(top, COL.TOTAL, rows.length, COL.FIRST_DATE - COL.TOTAL).setBackground(COLOR.count);
 
     for (var i = 0; i < meta.length; i++) {
-      var r = meta[i];
-      if (!r) {
-        // 註記列：小一號的灰字，跟上面那一列分得出來但看得出是一組
-        sheet.getRange(top + i, 1, 1, head.length)
-          .setFontSize(9).setFontColor(COLOR.noticeText);
-        continue;
+      var r = meta[i].row;
+      // 記一句：那一格的附註（全文、換行照留；表外的丟掉 —— `cellsByDate()` 只收得到日期欄以內的）
+      for (var s2 = 0; s2 < meta[i].slotNotesByDate.length; s2++) {
+        if (meta[i].slotNotesByDate[s2]) sheet.getRange(top + i, COL.FIRST_DATE + s2).setNote(meta[i].slotNotesByDate[s2]);
       }
       if (r.done > 0) sheet.getRange(top + i, COL.DONE).setBackground(COLOR.done);
       if (r.booked > 0) sheet.getRange(top + i, COL.BOOKED).setBackground(COLOR.booked);
@@ -705,7 +735,7 @@ function renderCustomer(ss, data, bundle, book) {
         sheet.getRange(top + i, COL.REMAINING).setBackground(COLOR.low);
       }
       // 有東西的格子上色。符號看久了會漏看，一片顏色不會 ——
-      // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。
+      // 而且顏色要跟著符號分，否則三種狀態在畫面上又變回一種。**看原本的符號**（後面接了器材也一樣）
       for (var d = 0; d < r.marks.length; d++) {
         var colour = colourForMark(r.marks[d]);
         if (colour) sheet.getRange(top + i, COL.FIRST_DATE + d).setBackground(colour);
@@ -715,9 +745,9 @@ function renderCustomer(ss, data, bundle, book) {
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
   after = renderFollowupNotes(sheet, data, after, matrixWidth);
-  after = renderPurchases(sheet, data, after, width);
-  after = renderProducts(sheet, data, after, width);
-  after = renderNotes(sheet, data, after + 1, width);
+  after = renderPurchases(sheet, data, after);
+  after = renderProducts(sheet, data, after);
+  after = renderNotes(sheet, data, after + 1);
   renderTasks(sheet, data, after, width);
 
   sheet.setColumnWidth(COL.LABEL, STYLE.labelWidth);
@@ -725,16 +755,43 @@ function renderCustomer(ss, data, bundle, book) {
   for (var d2 = 0; d2 < dateCount; d2++) {
     sheet.setColumnWidth(COL.FIRST_DATE + d2, STYLE.dateWidth);
   }
-  // 只凍結列，**不要凍結欄**。表頭那三列是橫跨整張表的合併儲存格，
-  // 而 Google 試算表不讓凍結線穿過合併儲存格 —— 加回 setFrozenColumns(1)
-  // 會在這裡丟例外，第一位客戶之後一張都畫不出來。
-  // 見 .scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md
+  // 凍結五列五欄（issues/09）。**每一個合併都要停在 FROZEN_COLS 以內** —— 以前表頭三列橫跨整張表，凍結欄會丟例外、
+  // 第一位客戶之後一張都畫不出來（.scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md）。
+  // 草稿紙只記下來，`paint()` 在合併之後才凍結
   sheet.setFrozenRows(MATRIX_HEADER_ROW);
+  sheet.setFrozenColumns(FROZEN_COLS);
+  // 格線藏起來，只留矩陣的框線（issues/08，示意圖 6c）
+  sheet.setHiddenGridlines(true);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
+  // 名字那一列加高（18 號字）。折行的那幾列 `finish()` 已經照字數加高了
+  sheet.setRowHeights(2, 1, STYLE.titleHeight);
   clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
   return name;
+}
+
+/**
+ * 矩陣要照什麼順序畫：回 `data.rows` 的位置（issues/10）。**純函式**（`tests/sheet-layout.test.js`）。
+ *
+ * 額度那幾列照「已完成＋已排未上」由多到少，一樣多的照原本的先後（自己比位置，不靠排序穩不穩、不靠語系）；
+ * 沒有額度的那幾列（n返、送的／體驗、額度被刪的 —— `syncBundle()` 接在後面的 `extraRows()`，帶 `extra: true`、應有是一槓）
+ * 照舊在最下面、照原本的先後。**在這裡排、不在 `syncBundle()` 排**：只是畫的順序，月底對帳照 `syncBundle()` 的列順序對額度。
+ */
+function rowOrder(rows) {
+  var counted = [];
+  var extras = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.extra === true || typeof r.total !== 'number') extras.push(i);
+    else counted.push(i);
+  }
+  var doneAndBooked = function (i) {
+    var r = rows[i];
+    return (typeof r.done === 'number' ? r.done : 0) + (typeof r.booked === 'number' ? r.booked : 0);
+  };
+  counted.sort(function (a, b) { return doneAndBooked(b) - doneAndBooked(a) || a - b; });
+  return counted.concat(extras);
 }
 
 /** 符號決定顏色，不是「有沒有東西」決定顏色。 */
@@ -747,22 +804,22 @@ function colourForMark(mark) {
 }
 
 /**
- * 第 n 筆額度底下要不要接一列「這一天用了哪一台」（格式 4）。
+ * 第 n 筆額度「這一天用了哪一台」（格式 4）。2026-11-05 起併進那一格的字（`markWithEquipment()`），不再多一列。
  *
  * 只有**得選的擇一池**才有（`domain/sheetReport.js` 的 `equipmentCells()`）：
  * 單台的池那一列的名字已經是「超磁場(60)」了，再寫一次是噪音。
  *
- * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一列都不畫。
+ * 舊格式沒有這一份，`data.equipmentNotes` 是 undefined —— 那時候一格都不併。
  */
 function equipmentNoteAt(data, rowIndex) {
   return noteRowAt(data.equipmentNotes, rowIndex);
 }
 
 /**
- * 第 n 筆額度底下的那一列註記。**兩種註記共用一支**（器材那一份與
+ * 第 n 筆額度的那一份註記。**兩種註記共用一支**（器材那一份與
  * 「那一段記了什麼」那一份形狀一模一樣：`{rowIndex, label, cells}`）。
  *
- * 舊格式沒有那一份時傳進來的是 undefined —— 那時候一列都不畫。
+ * 舊格式沒有那一份時傳進來的是 undefined —— 那時候什麼都不畫。
  */
 function noteRowAt(notes, rowIndex) {
   var list = notes || [];
@@ -772,15 +829,22 @@ function noteRowAt(notes, rowIndex) {
   return null;
 }
 
-/** 那一列的內容：前五欄留白，日期欄放那一格的字。 */
-function noteLine(note, width) {
-  var line = [];
-  for (var i = 0; i < width; i++) line.push('');
-  for (var c = 0; c < note.cells.length; c++) {
-    var col = COL.FIRST_DATE - 1 + note.cells[c].dateIndex;
-    if (col < width) line[col] = note.cells[c].text;
+/** 一份註記攤成「第幾個日期 → 那一格的字」（`count` 個，沒有的是 ''）。落在表外的（`dateIndex` 超過日期欄）丟掉，同以前。 */
+function cellsByDate(note, count) {
+  var out = [];
+  for (var i = 0; i < count; i++) out.push('');
+  var cells = (note && note.cells) || [];
+  for (var c = 0; c < cells.length; c++) {
+    var at = cells[c].dateIndex;
+    if (typeof at === 'number' && at >= 0 && at < count) out[at] = cells[c].text;
   }
-  return line;
+  return out;
+}
+
+/** 那一格的字：符號＋空一格＋器材別稱（「✓ IN」「✓2 SIS」）。沒有器材照舊只有符號；只有器材沒有符號就只寫器材。 */
+function markWithEquipment(mark, equipment) {
+  if (!equipment) return mark;
+  return mark ? mark + ' ' + equipment : equipment;
 }
 
 /**
@@ -804,47 +868,55 @@ function renderFollowupNotes(sheet, data, top, matrixWidth) {
 }
 
 /**
- * 營養品那一區。緊接在二返註記底下。
+ * 營養品那一區。緊接在「買過什麼」底下。
  *
  * **格式 3 起它才自己一區。** 以前營養品混在矩陣裡，而那四個數字欄印的是
  * 月數 —— 「應有 2 已完成 0 已排未上 0 剩餘 2」沒有一個看得懂。
+ * **2026-11-05 起一筆一行**（像「買過什麼」，issues/12）：`營養品A　12,000 元・3 個月・魚油、益生菌　——　9/1　還差 益生菌`。
+ * 以前那張五欄的表寬到第 E 欄以外也看不懂，而凍結五欄之後一格只剩 62 像素。
  *
  * **一筆都沒有就整段不畫** —— 大部分客戶不買，而一個永遠空著的區塊只是在
  * 每次看報表時提醒她那件事不存在。
  */
-function renderProducts(sheet, data, top, width) {
+function renderProducts(sheet, data, top) {
   var rows = data.products || [];
   if (!rows.length) return top;
-
-  var head = top + 1;
-  blockHead(sheet, head, 1, '營養品');
-
-  var headers = ['品名', '金額', '幾個月', '哪幾種', '給了沒'];
-  sheet.getRange(head + 1, 1, 1, headers.length).setValues([headers]);
-  styleHeader(sheet.getRange(head + 1, 1, 1, headers.length));
-
-  var body = [];
+  var lines = [];
+  var colours = [];
   for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    body.push([
-      r.label || '',
-      r.amount == null ? '' : r.amount,
-      r.months == null ? '' : r.months,
-      (r.items || []).join('、'),
-      (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || ''),
-    ]);
+    lines.push(productLine(rows[i]));
+    // 還沒給完的那幾行標起來 —— 那是她要回去補的東西。
+    // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
+    colours.push(rows[i].done ? null : COLOR.booked);
   }
-  sheet.getRange(head + 2, 1, body.length, headers.length).setValues(body)
-    .setVerticalAlignment('middle').setWrap(true);
+  return noteBlock(sheet, top + 1, '營養品', lines, colours);
+}
 
-  // 還沒給完的那幾列標起來 —— 那是她要回去補的東西。
-  // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷：色不夠用了）。
-  for (var j = 0; j < rows.length; j++) {
-    if (rows[j].done) continue;
-    sheet.getRange(head + 2 + j, 1, 1, headers.length).setBackground(COLOR.booked);
+/**
+ * 營養品一行。字都是 app 給的（`syncBundle()` 的 `products`），這裡只接起來 —— 「給了沒」那一段（日期＋`delivery`）
+ * 跟手動貼上那條路的「給了沒」那一格一字不差（`customerReport()`）。沒有的那幾段不印。
+ */
+function productLine(r) {
+  var detail = [
+    r.amount == null || r.amount === '' ? '' : thousands(r.amount) + ' 元',
+    r.months == null || r.months === '' ? '' : r.months + ' 個月',
+    (r.items || []).join('、'),
+  ].filter(function (x) { return x !== ''; }).join('・');
+  var gave = (r.deliveredAt ? r.deliveredAt + '　' : '') + (r.delivery || '');
+  return [r.label || '', detail].filter(function (x) { return x !== ''; }).join('　')
+    + (gave ? '　——　' + gave : '');
+}
+
+/** 12000 → 「12,000」（不靠語系）。 */
+function thousands(n) {
+  var digits = String(Math.round(Number(n)));
+  var out = '';
+  for (var i = 0; i < digits.length; i++) {
+    var left = digits.length - i;
+    out += digits.charAt(i);
+    if (left > 1 && left % 3 === 1 && digits.charAt(i) !== '-') out += ',';
   }
-
-  return head + 2 + body.length + 1;
+  return out;
 }
 
 /**
@@ -856,13 +928,11 @@ function renderProducts(sheet, data, top, width) {
  *
  * 底下再接來訪紀錄：那天幾點、哪一間、誰做的、用了什麼，舊表從來記不住的東西。
  */
-function renderNotes(sheet, data, top, width) {
+function renderNotes(sheet, data, top) {
   var row = top;
 
-  row = noteBlock(sheet, row, width, '備註', [
-    data.flags && data.flags.length ? '永久限制：' + data.flags.join('、') : '',
-    data.notes || '',
-  ].filter(String));
+  var marks = noteLinesOf(data);
+  row = noteBlock(sheet, row, '備註', marks.lines, marks.colours);
 
   // **日期自己一行，底下一段一行、前面是那一段的狀態**（格式 6）。她 2026-09-24：
   // 「第一段會接在日期後面，然後下面的不會，能不能就是第一行是日期，然後換行後在寫每一段，
@@ -893,11 +963,41 @@ function renderNotes(sheet, data, top, width) {
       ].filter(function (x) { return x != null && x !== ''; }).join('　') });
     }
   }
-  var end = noteBlock(sheet, row, width, '來訪紀錄', lines.map(function (l) { return l.text; }));
+  var end = noteBlock(sheet, row, '來訪紀錄', lines.map(function (l) { return l.text; }));
   for (var k = 0; k < lines.length; k++) {
-    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, width).setFontWeight('bold');
+    if (lines[k].day) sheet.getRange(row + 1 + k, 1, 1, FROZEN_COLS).setFontWeight('bold');
   }
   return end;
+}
+
+/**
+ * 備註那一塊：「永久限制：…」一行（淡紅）＋每一則短備註一行、用她在 app 裡替那一則挑的顏色（淡色版，issues/12）。
+ * **還沒更新的 app 沒送 `noteLines`** → 照 `notes`（短備註換行接起來的那一串）一行一列、統一淡灰 —— 新舊兩邊都合得來，不升 `SYNC_FORMAT`。
+ */
+function noteLinesOf(data) {
+  var lines = [];
+  var colours = [];
+  if (data.flags && data.flags.length) {
+    lines.push('永久限制：' + data.flags.join('、'));
+    colours.push(COLOR.flag);
+  }
+  if (Array.isArray(data.noteLines)) {
+    for (var i = 0; i < data.noteLines.length; i++) {
+      var one = data.noteLines[i] || {};
+      if (!one.text) continue;
+      lines.push(String(one.text));
+      colours.push(MARK_TINT[one.color] || MARK_TINT.grey);
+    }
+  } else {
+    var parts = String(data.notes || '').split(String.fromCharCode(10));
+    for (var j = 0; j < parts.length; j++) {
+      var text = parts[j].trim();
+      if (!text) continue;
+      lines.push(text);
+      colours.push(MARK_TINT.grey);
+    }
+  }
+  return { lines: lines, colours: colours };
 }
 
 /** 來訪紀錄會佔幾列：一天一列日期、一段一列。`ensureSize()` 要先開夠。 */
@@ -913,11 +1013,11 @@ function logLineCount(data) {
  * 那一行在 app 組好（`purchaseLines()`，跟 app 的「買過什麼」那一頁同一支算），這裡一個字都不組。
  * **一筆都沒有就整段不畫**（同營養品）。
  */
-function renderPurchases(sheet, data, top, width) {
+function renderPurchases(sheet, data, top) {
   var lines = data.purchases || [];
   if (!lines.length) return top;
   // noteBlock 底下留了一列空白，營養品那一區自己會再空一列 —— 退一列，中間只空一列
-  return noteBlock(sheet, top + 1, width, '買過什麼', lines) - 1;
+  return noteBlock(sheet, top + 1, '買過什麼', lines) - 1;
 }
 
 /**
@@ -959,6 +1059,9 @@ function blockHead(sheet, row, col, title) {
 function taskLines(sheet, top, col, items, done) {
   for (var i = 0; i < items.length; i++) {
     var t = items[i];
+    // 日期那一格寫成文字（issues/08）：不然 Google 把「2026-09-15」認成日期格、照它自己的格式印。
+    // `paint()` 先下這個格式再寫值
+    sheet.getRange(top + i, col + 2).setNumberFormat('@');
     sheet.getRange(top + i, col, 1, 3).setValues([[
       t.label,
       t.kind,
@@ -973,20 +1076,29 @@ function emptyLine(sheet, row, col) {
     .setFontColor('#90A4AE').setVerticalAlignment('middle');
 }
 
-function noteBlock(sheet, top, width, title, lines) {
-  sheet.getRange(top, 1, 1, width).merge().setValue(title)
+/**
+ * 一塊：抬頭一列、底下一行一列。**每一列只合併到剩餘那一欄**（`FROZEN_COLS`，凍結線不能穿過合併，issues/09），
+ * 長的折行、那一列由 `finish()` 照字數加高。
+ * `colours`（選填）：每一行的底色（null ＝不上色；營養品沒給完、備註的顏色，issues/12）。
+ *
+ * **每一行都是文字格式**（`'@'`，同待辦的日期）：一則一格之後，看起來像數字、日期、公式的那一則（「0912345678」「5/20」「=…」）
+ * 寫進去的那一刻會被 Google 認成數字（掉前面的 0）、日期、公式（段二審查）。`paint()` 先下數字格式再寫值。
+ */
+function noteBlock(sheet, top, title, lines, colours) {
+  sheet.getRange(top, 1, 1, FROZEN_COLS).merge().setValue(title)
     .setFontWeight('bold').setBackground(COLOR.noteHeader)
     .setVerticalAlignment('middle');
 
   if (!lines.length) {
-    sheet.getRange(top + 1, 1, 1, width).merge().setValue('（沒有）')
+    sheet.getRange(top + 1, 1, 1, FROZEN_COLS).merge().setValue('（沒有）')
       .setFontColor('#90A4AE').setVerticalAlignment('middle');
     return top + 3;
   }
 
   for (var i = 0; i < lines.length; i++) {
-    sheet.getRange(top + 1 + i, 1, 1, width).merge()
-      .setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
+    var line = sheet.getRange(top + 1 + i, 1, 1, FROZEN_COLS).merge()
+      .setNumberFormat('@').setValue(lines[i]).setWrap(true).setVerticalAlignment('middle');
+    if (colours && colours[i]) line.setBackground(colours[i]);
   }
   return top + lines.length + 2;
 }
@@ -994,7 +1106,8 @@ function noteBlock(sheet, top, width, title, lines) {
 function infoLine(data) {
   return [
     // 病歷號（格式 8）：它從備註搬成一格之後（ADR-0160），備註那一區就不再印它
-    data.chartNo ? '病歷號 ' + data.chartNo : '',
+    // 只寫號碼（她 11/5：「不用病歷號，直接寫1234就好」；issues/08）。手動貼上那條路（customerReport）不動
+    data.chartNo ? String(data.chartNo) : '',
     data.source ? '購買名稱：' + data.source : '',
     data.membershipExpiresAt ? '會籍到期：' + data.membershipExpiresAt : '',
     '合計　應有 ' + data.totals.total + '　已完成 ' + data.totals.done
@@ -1026,6 +1139,8 @@ var CANVAS_FORMATS = [
   ['setHorizontalAlignment', 'hAlign'],
   ['setVerticalAlignment', 'vAlign'],
   ['setWrap', 'wrap'],
+  // 數字格式要在寫值之前下（寫進去的那一刻 Google 就照格式認值），`paint()` 另外先寫它
+  ['setNumberFormat', 'numberFormat'],
 ];
 
 function Canvas() {
@@ -1034,10 +1149,14 @@ function Canvas() {
   this.formats = {};
   for (var i = 0; i < CANVAS_FORMATS.length; i++) this.formats[CANVAS_FORMATS[i][1]] = [];
   this.merges = [];
+  /** 每一格的附註（Google 的 note；記一句，issues/11）。notes[列][欄]。 */
+  this.notes = [];
   this.borders = [];
   this.widths = [];
   this.heights = [];
   this.frozenRows = null;
+  this.frozenCols = null;
+  this.hiddenGridlines = null;
 }
 
 Canvas.prototype.getRange = function (row, col, rows, cols) {
@@ -1052,6 +1171,8 @@ Canvas.prototype.getRange = function (row, col, rows, cols) {
 Canvas.prototype.setColumnWidth = function (col, width) { this.widths[col] = width; };
 Canvas.prototype.setRowHeights = function (start, count, height) { this.heights.push([start, count, height]); };
 Canvas.prototype.setFrozenRows = function (n) { this.frozenRows = n; };
+Canvas.prototype.setFrozenColumns = function (n) { this.frozenCols = n; };
+Canvas.prototype.setHiddenGridlines = function (hidden) { this.hiddenGridlines = hidden; };
 
 /** 跟 Google 一樣：最後一列**有內容**的（寫進 '' 或 null 的不算）。 */
 Canvas.prototype.getLastRow = function () {
@@ -1092,6 +1213,11 @@ CanvasRange.prototype.setValues = function (grid) {
   return this;
 };
 
+CanvasRange.prototype.setNote = function (text) {
+  this.canvas.put(this.canvas.notes, this.row, this.col, text);
+  return this;
+};
+
 CanvasRange.prototype.merge = function () {
   this.canvas.merges.push([this.row, this.col, this.rows, this.cols]);
   return this;
@@ -1126,12 +1252,14 @@ CANVAS_FORMATS.forEach(function (pair) {
 });
 
 /**
- * 草稿紙寫上去。順序：值 → 格式 → 合併 → 框線 → 欄寬 → 列高 → 凍結。
+ * 草稿紙寫上去。順序：數字格式 → 值 → 備註 → 其餘格式 → 合併 → 框線 → 欄寬 → 列高 → 格線 → 凍結。
  * 值先寫、再合併（合併區除了左上角都是 ''）：寫進已經合併的範圍 Google 會怎樣，替身驗不出來，就不要走那條路。
  * 凍結最後（凍結線不能穿過合併儲存格，合併要先在）。
  */
 function paint(sheet, canvas) {
   var t = Date.now();
+  // 數字格式先下（寫值的那一刻 Google 就照它認：先寫再下的話「2026-09-15」已經被認成日期了）
+  paintFormat(sheet, canvas, 'setNumberFormat', 'numberFormat');
   var rows = 0;
   var cols = 0;
   for (var r = 1; r < canvas.values.length; r++) {
@@ -1149,13 +1277,12 @@ function paint(sheet, canvas) {
     }
     sheet.getRange(1, 1, rows, cols).setValues(grid);
   }
+  paintNotes(sheet, canvas.notes);
   t = clockAdd('寫值', t, true);
 
   for (var f = 0; f < CANVAS_FORMATS.length; f++) {
-    var groups = rectsByValue(canvas.formats[CANVAS_FORMATS[f][1]]);
-    for (var g = 0; g < groups.length; g++) {
-      sheet.getRangeList(groups[g].ranges)[CANVAS_FORMATS[f][0]](groups[g].value);
-    }
+    if (CANVAS_FORMATS[f][1] === 'numberFormat') continue;
+    paintFormat(sheet, canvas, CANVAS_FORMATS[f][0], CANVAS_FORMATS[f][1]);
   }
 
   t = clockAdd('格式', t, true);
@@ -1180,8 +1307,46 @@ function paint(sheet, canvas) {
   for (var h = 0; h < canvas.heights.length; h++) {
     sheet.setRowHeights(canvas.heights[h][0], canvas.heights[h][1], canvas.heights[h][2]);
   }
+  if (canvas.hiddenGridlines != null) sheet.setHiddenGridlines(canvas.hiddenGridlines);
   if (canvas.frozenRows != null) sheet.setFrozenRows(canvas.frozenRows);
+  if (canvas.frozenCols != null) sheet.setFrozenColumns(canvas.frozenCols);
   clockAdd('框線欄寬', t, true);
+}
+
+/**
+ * 備註（記一句）一次寫上去：框住每一格有備註的那一塊、一次 `setNotes()`，其餘寫 ''（`resetSheet()` 先清過了，寫 '' 等於沒有）。
+ */
+function paintNotes(sheet, notes) {
+  var top = 0;
+  var bottom = 0;
+  var left = 0;
+  var right = 0;
+  for (var r = 1; r < notes.length; r++) {
+    if (!notes[r]) continue;
+    for (var c = 1; c < notes[r].length; c++) {
+      if (!notes[r][c]) continue;
+      if (!top) top = r;
+      bottom = r;
+      if (!left || c < left) left = c;
+      if (c > right) right = c;
+    }
+  }
+  if (!top) return;
+  var grid = [];
+  for (var r2 = top; r2 <= bottom; r2++) {
+    var line = [];
+    for (var c2 = left; c2 <= right; c2++) line.push((notes[r2] && notes[r2][c2]) || '');
+    grid.push(line);
+  }
+  sheet.getRange(top, left, grid.length, grid[0].length).setNotes(grid);
+}
+
+/** 一種格式照值分組、每一組一次 `RangeList` 寫上去。 */
+function paintFormat(sheet, canvas, setter, key) {
+  var groups = rectsByValue(canvas.formats[key]);
+  for (var g = 0; g < groups.length; g++) {
+    sheet.getRangeList(groups[g].ranges)[setter](groups[g].value);
+  }
 }
 
 /**
@@ -1274,7 +1439,7 @@ function noticeRow(sheet, width, bundle) {
   sheet.getRange(1, 1, 1, width).merge()
     .setValue(bundle.notice)
     .setBackground(COLOR.notice).setFontColor(COLOR.noticeText).setFontWeight('bold')
-    .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
 }
 
 function styleHeader(range) {
@@ -1295,14 +1460,65 @@ function banding(sheet, top, rowCount, width) {
 function finish(sheet, headerRow, rowCount, matrixWidth, fullWidth) {
   var width = fullWidth || matrixWidth;
   var all = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), headerRow), width);
-  // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的 14 號、第 3 列與註記列的 9 號都蓋掉了
+  // **只補沒設過字級的格子**（issues/05）：以前整頁 `setFontSize(11)`，把名字的大字、產生時間那一列與二返註記的 9 號都蓋掉了
   all.setFontFamily(STYLE.font).fillFontSize(STYLE.bodySize);
   if (rowCount) {
     sheet.getRange(headerRow, 1, rowCount + 1, matrixWidth)
       .setBorder(true, true, true, true, true, true, COLOR.border,
         SpreadsheetApp.BorderStyle.SOLID);
+    // 剩餘右邊一條粗線（issues/08）：數字那四欄跟日期分開。畫在格線之後（後畫的蓋掉先畫的）
+    sheet.getRange(headerRow, COL.REMAINING, rowCount + 1, 1)
+      .setBorder(null, null, null, true, null, null, COLOR.divider,
+        SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
   sheet.setRowHeights(1, Math.max(sheet.getLastRow(), 1), STYLE.rowHeight);
+  // 折行的合併儲存格：Google 不會替合併的格子自己長高（只看得到第一行），照字數估幾行、那一列加高（issues/09）
+  var tall = fitRows(sheet);
+  for (var t = 0; t < tall.length; t++) sheet.setRowHeights(tall[t][0], 1, tall[t][1]);
+}
+
+/**
+ * 草稿紙上每一個「一列高、折行、有字」的合併儲存格估幾行，要比 `STYLE.rowHeight` 高的回 `[列, 高]`（同一列取最高的）。
+ * 欄寬要先設好（`renderCustomer()` 在 `finish()` 之前設）。
+ */
+function fitRows(canvas) {
+  var best = {};
+  for (var i = 0; i < canvas.merges.length; i++) {
+    var m = canvas.merges[i];
+    if (m[2] !== 1) continue;
+    var row = canvas.values[m[0]];
+    var value = row ? row[m[1]] : undefined;
+    var wrap = canvas.formats.wrap[m[0]] && canvas.formats.wrap[m[0]][m[1]];
+    if (wrap !== true || typeof value !== 'string' || !value) continue;
+    var px = 0;
+    for (var c = m[1]; c < m[1] + m[3]; c++) px += canvas.widths[c] || 100;
+    var sizes = canvas.formats.fontSize[m[0]];
+    var size = (sizes && sizes[m[1]]) || STYLE.bodySize;
+    var h = rowHeightFor(value, px, size);
+    if (h > STYLE.rowHeight && (!best[m[0]] || best[m[0]] < h)) best[m[0]] = h;
+  }
+  var out = [];
+  for (var r in best) out.push([Number(r), best[r]]);
+  out.sort(function (a, b) { return a[0] - b[0]; });
+  return out;
+}
+
+/**
+ * 一段字放進 `px` 寬、`size` 號字要多高（像素）。**純函式**（`tests/sheet-layout.test.js`）。
+ * **估的**：中日文、全形字算一個字寬（字級的 4/3 像素）、其餘 0.55 個；換行照算。Google 真的折成幾行只有貼上去才知道 ——
+ * 估多了是那一列高一點，估少了是最後一行被切掉，所以寬度先扣 8 像素的邊距。
+ */
+function rowHeightFor(text, px, size) {
+  var em = size * 4 / 3;
+  var usable = Math.max(px - 8, em);
+  var lines = 0;
+  var parts = String(text).split(String.fromCharCode(10));
+  for (var p = 0; p < parts.length; p++) {
+    var w = 0;
+    for (var k = 0; k < parts[p].length; k++) w += parts[p].charCodeAt(k) >= 0x2E80 ? em : em * 0.55;
+    lines += Math.max(1, Math.ceil(w / usable));
+  }
+  return Math.max(STYLE.rowHeight, lines * Math.round(em * 1.35) + 6);
 }
 
 /**
@@ -1345,6 +1561,8 @@ function resetSheet(ss, name, book) {
     // 鎖對了就留著（`render()` 讀的那一段判好了 `keepLock`）：用她的身分清、畫，鎖擋不住
     if (!entry.keepLock) unprotect(entry);
     sheet.clear();
+    // 備註（記一句，issues/11）不在 clear() 的範圍裡：不清的話，搬了位置的那一句會留在舊的那一格
+    sheet.clearNotes();
     sheet.clearConditionalFormatRules();
     // 上一次的合併留著會讓這一次的 setValues 整個炸掉
     sheet.getRange(1, 1, entry.maxRows, entry.maxCols).breakApart();

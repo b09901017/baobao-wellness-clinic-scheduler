@@ -385,7 +385,7 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
 
   test('第二列那句合計不把它算進去', () => {
     const sheet = render(bundleOf([day('2026-10-01', [free('fm')])]));
-    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 0　已排未上 0　剩餘 12/);
+    assert.match(String(sheet.at('A3')), /合計　應有 12　已完成 0　已排未上 0　剩餘 12/);
   });
 
   test('一筆額度都沒有的客戶：畫得出來，不出錯', () => {
@@ -409,7 +409,7 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
     );
     assert.notEqual(sheet.backgrounds.get('E8'), '#FFCDD2', '一槓不是 0');
     assert.equal(sheet.backgrounds.get('G8'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
-    assert.match(String(sheet.at('C2')), /合計　應有 2　已完成 1　已排未上 0　剩餘 1/);
+    assert.match(String(sheet.at('A3')), /合計　應有 2　已完成 1　已排未上 0　剩餘 1/);
     const under = [...sheet.cells.entries()].filter(([a1, v]) => a1.startsWith('F') && String(v).includes('9/20 三返(夏)'));
     assert.equal(under.length, 1, '健檢那一欄底下那一行照舊');
   });

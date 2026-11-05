@@ -49,29 +49,30 @@ function render(body = {}) {
   return { app, sheet, size };
 }
 
-describe('字級：名字 14 號、第 3 列與註記列 9 號，其餘 11 號', () => {
-  test('名字那一格 14 號', () => {
+describe('字級：名字 18 號（第三輪 08 從 14 放大）、產生時間那一列與二返註記 9 號，其餘 11 號', () => {
+  test('名字那一格 18 號', () => {
     const { size } = render();
-    assert.equal(size.A2, 14);
+    assert.equal(size.A2, 18);
   });
 
-  test('第 3 列（產生時間）9 號', () => {
+  test('產生時間那一列（第三輪 09 起第 4 列）9 號', () => {
     const { size } = render();
-    assert.equal(size.A3, 9);
+    assert.equal(size.A4, 9);
   });
 
-  test('器材那一列（夾在額度底下的註記列）9 號；額度那一列照舊 11 號', () => {
-    // 表頭第 5 列；第 6 列是復能那一筆、第 7 列是它底下的器材、第 8 列是健檢
-    const { size } = render();
+  test('器材併進那一格（第三輪 11 起不再多一列）：額度那幾列與那一格都 11 號', () => {
+    // 表頭第 5 列；第 6 列是復能那一筆（F6「✓ SIS」）、第 7 列是健檢
+    const { size, app } = render();
+    assert.equal(app.ss.getSheetByName('客戶A').at('F6'), '✓ SIS');
     assert.equal(size.A6, 11);
-    assert.equal(size.F7, 9);
-    assert.equal(size.A8, 11);
+    assert.equal(size.F6, 11);
+    assert.equal(size.A7, 11);
   });
 
   test('二返註記（矩陣底下那一列、寫在那次健檢那一欄）9 號', () => {
-    // 矩陣 3 列（6～8）→ 註記在第 9 列，日期第 2 個 → G 欄
+    // 矩陣 2 列（6～7）→ 註記在第 8 列，日期第 2 個 → G 欄
     const { size } = render();
-    assert.equal(size.G9, 9);
+    assert.equal(size.G8, 9);
   });
 
   test('第 1 列的提醒、表頭照舊 11 號', () => {
@@ -80,9 +81,9 @@ describe('字級：名字 14 號、第 3 列與註記列 9 號，其餘 11 號',
     assert.equal(size.A5, 11);
   });
 
-  test('改了畫法：LAYOUT_VERSION 是 3（部署之後第一次推送每一頁重畫一次，字級才換得過去）', () => {
+  test('改了畫法：LAYOUT_VERSION 至少 3（部署之後第一次推送每一頁重畫一次，字級才換得過去）', () => {
     const { app } = render();
-    assert.equal(app.context.LAYOUT_VERSION, 3);
+    assert.ok(app.context.LAYOUT_VERSION >= 3);
   });
 });
 

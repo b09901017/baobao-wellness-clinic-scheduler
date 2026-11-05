@@ -32,6 +32,7 @@
 | [0088](./0088-the-day-lives-on-the-read-card.md) 整天的那幾顆離開來訪編輯器，搬到讀取卡片上 | 整支被取代：「改這一天」連同整天的狀態卡與危險區收掉 | [0089](./0089-the-day-is-only-a-heading.md) |
 | [0093](./0093-an-imported-visit-grows-no-tasks.md) 已經發生的那一筆匯進來，一張任務都不長 | 有取消掉的段時，取消類的待辦一出生就勾好（其餘照舊） | [0164](./0164-imported-cancelled-slots-settle-their-cancel-task.md) |
 | [0094](./0094-a-room-holds-how-many.md) 一間診間裝得下幾個人 | 拿點滴8 當「一間裝得下兩位」的那個例子 | [0127](./0127-bed-rooms-are-rooms.md) |
+| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) 那一段的記一句會上試算表 | 「記在當天那一列的下面」—— 改成那一格的附註（右上角小黑三角），矩陣不再夾註記列 | [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | 「一次確認整天」與「visitsToClose() 不改」兩句 | [0110](./0110-both-todo-drawers-decide-some-slots.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | issue 14「整筆也要准」的那一層交集 | [0111](./0111-a-no-show-only-goes-back-to-closing.md) |
 | [0104](./0104-many-slots-from-one-photo.md) 照片一次記很多段 —— 確認層就是第一道、存檔前只問一次、直接標成壓完 | 第 2、3、4（壓完）、6 點 —— 拍 Abovee 照片上的狀態為準 | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
@@ -160,7 +161,7 @@
 | [0093](./0093-an-imported-visit-grows-no-tasks.md) | 已經發生的那一筆匯進來，一張任務都不長 | 2026-09-16 | 部分被推翻 → ADR-0164 |
 | [0094](./0094-a-room-holds-how-many.md) | 一間診間裝得下幾個人 | 2026-09-16 | 部分被推翻 → ADR-0127 |
 | [0095](./0095-imported-entitlements-take-the-apps-names.md) | 匯進來的額度用 app 的寫法，算不出來的保留她原本的字 | 2026-09-16 | 現行 |
-| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) | 那一段的記一句會上試算表 | 2026-09-16 | 現行 |
+| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) | 那一段的記一句會上試算表 | 2026-09-16 | 部分被推翻 → ADR-0175 |
 | [0097](./0097-confirming-is-per-slot-too.md) | 確認也是逐段的 | 2026-09-16 | 部分被推翻 → ADR-0110、ADR-0111 |
 | [0098](./0098-an-iv-product-carries-its-own-duration.md) | 一款營養點滴品項自己帶時長，而且它排在額度前面 | 2026-09-16 | 現行 |
 | [0099](./0099-ai-only-copies-the-words.md) | AI 只抄字，不翻譯 | 2026-09-17 | 現行 |
@@ -238,3 +239,4 @@
 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
 | [0172](./0172-a-one-time-guest-is-a-customer-off-every-list.md) | 一次性客人：不在任何名單上的客戶，他的段標成一次性；健檢那一串用一對只在算的時候存在的額度 | 2026-11-05 | 現行 |
 | [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |
+| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) | 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 2026-11-05 | 現行 |
