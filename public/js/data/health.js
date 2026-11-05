@@ -539,6 +539,8 @@ function opFor(fix) {
         bookedCount: fix.to.booked,
         lastReconciledAt: new Date().toISOString(),
       },
+      // 掃描之後別台改過這一筆（存了一段來訪）就不寫：那一台已經寫對了，蓋回去的是舊的數字（11/4 健檢 #3）
+      ifUpdatedAt: fix.updatedAt ?? null,
       note: '資料健檢：計數欄位改成從來訪重算的值',
     };
   }

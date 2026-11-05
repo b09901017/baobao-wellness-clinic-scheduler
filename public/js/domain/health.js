@@ -419,6 +419,9 @@ function checkCounts(ctx) {
           label: `${customer.name}・${e.label}`,
           from: { done: rec.stored.done, booked: rec.stored.booked },
           to: { done: rec.actual.done, booked: rec.actual.booked },
+          // 算的是掃描那一刻（11/4 健檢 #3）：掃完不按、別台替這位排了一段（額度已經被那一台寫對）再回來按，
+          // 寫的是舊的數字。額度每存一次來訪都換 `updatedAt`，帶著它 `repo.commit()` 就擋得住
+          updatedAt: e.updatedAt ?? null,
         },
       });
     }

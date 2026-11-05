@@ -816,8 +816,10 @@ async function applyAndReload(el, fixes, { title, consequences }) {
       key: `health:fix:${fixes.map(fixKey).join(',')}`,
     });
     render(el);
-  } catch {
-    /* withSaveState 已顯示錯誤與重試 */
+  } catch (err) {
+    // withSaveState 已顯示錯誤與重試。掃描之後別處改過那一筆（`StaleWriteError`：重算次數、整包寫 slots 那幾種）——
+    // toast 講了「重新整理再改一次」、不給重試；這一頁直接重新掃描，留著舊的那一列她再按也是一樣被擋
+    if (err?.name === 'StaleWriteError') render(el);
   }
 }
 

@@ -1,6 +1,6 @@
 # 資料健檢「重算次數」：掃描之後額度被改過就不寫
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`.scratch/code-health-2026-11-04/issues/03-health-recount-writes-scan-time-numbers.md`；
 `public/js/data/health.js` 的 `opFor()` `recount` 那一段，對照同一支帶 `ifUpdatedAt` 的 `clearBeds`、`moveBedToRoom`、`restatVisit`；
@@ -27,3 +27,14 @@ Blocked by: —
 - 沒人改過 → 照常修好？
 
 ## 做完時留下的
+
+- `domain/health.js` 的 `checkCounts()`：`fix.updatedAt = e.updatedAt ?? null`；`data/health.js` 的 `recount` op 帶 `ifUpdatedAt: fix.updatedAt ?? null`
+- `views/health.js` 的 `applyAndReload()`：catch 到 `StaleWriteError` 時 `render(el)` 重新掃描（toast 照 `failureOf()` 講「剛剛在別的地方被改過，重新整理再改一次」、不給重試）——
+  整包寫 slots 那幾種被擋時也一起受惠
+- **主控那一條（客戶詳情的 `fixCounts`）一起修了**：同一個形狀、改法一樣小。按下去那一刻跟 `listWhole()` 一起重讀額度（`data.listEntitlements()`），
+  寫的時候帶那一份的 `updatedAt`；`data/customers.js` 的 `updateEntitlement()` 多一個選填的 `{ ifUpdatedAt }`（沒給就不比，另一個呼叫端「改這一筆額度」照舊）。
+  **不拿打開這一頁那一刻的那一份比**：這一頁存過一段來訪它就換了，會假擋
+- 新單元 `tests/recount-stale-guard.test.js`（domain 那一半真的跑 `runHealthCheck()`）；新 E2E `90-recount-stale`（登記在 `related.js`）：
+  R1 資料健檢掃描後別處改過 → 不蓋回去；R2 客戶詳情確認框開著時別處改過 → 不蓋回去；R3 沒人改過照常修好。單元先紅再綠；E2E 是修完才寫的（R1、R2 在舊程式碼上一定紅：舊的會寫成 1／0）
+- `sw.js` `v233` → `v234`
+

@@ -676,6 +676,11 @@ export const COVERAGE = {
   '88-editor-rereads-on-save': [
     'public/js/ui/views/visitEditor.js', 'public/js/data/visits.js',
   ],
+  // 重算次數：算完之後那一筆額度被別處改過就不寫（small-fixes-2026-11-05 03，11/4 健檢 #3）
+  '90-recount-stale': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/data/customers.js',
+  ],
 };
 
 /**
