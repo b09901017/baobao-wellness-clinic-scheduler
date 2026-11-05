@@ -135,7 +135,7 @@ function doPost(e) {
       // **拿到鎖之後才比、才記**（ADR-0174）：比較舊的那一包不畫 —— 整份重畫（force）也一樣
       var props = PropertiesService.getDocumentProperties();
       var stored = props.getProperties();
-      var dataAt = dataAtOf(body);
+      var dataAt = requestDataAt(body);
       if (isStaleBundle(dataAt, stored[LAST_DATA_AT])) return reply({ ok: true, stale: true });
       var result = render(SpreadsheetApp.getActiveSpreadsheet(), bundle, body.force === true, stored);
       // 畫完才記（畫到一半逾時不記）。沒帶時間的（舊版 app）照畫、不記
@@ -157,7 +157,7 @@ function doPost(e) {
 }
 
 /** 請求最外層的 `dataAt`（毫秒）。沒帶、不是有限的數字 → null（舊版 app、或那一則稽核還沒送上雲端）。 */
-function dataAtOf(body) {
+function requestDataAt(body) {
   var at = body && body.dataAt;
   return typeof at === 'number' && isFinite(at) ? at : null;
 }
@@ -222,7 +222,7 @@ function render(ss, bundle, force, stored) {
     var plan0 = planFor(entry0, stored, name0, markOf(bundle.sheets[p0]), force);
     if (plan0 === 'draw' && entry0) {
       // 要重畫的那幾頁：認不認得（第一列空著才要問整頁是不是空的）、多大、上面有幾道鎖
-      emptyOf(entry0);
+      lastRowOf(entry0);
       if (isOurs(entry0.a1) || entry0.lastRow === 0) {
         sizeOf(entry0);
         protectionsOf(entry0);
@@ -270,13 +270,8 @@ function render(ss, bundle, force, stored) {
       skipped.push(data.name);
       continue;
     }
+    // resetSheet() 已經把這一頁放進 book（新建的也是）
     var drawn = book.byName[written];
-    if (!drawn) {
-      // renderCustomer() 被單獨叫、自己讀了一份（測試會這樣包它）：這一頁補進手上這一份
-      drawn = { sheet: ss.getSheetByName(written), name: written };
-      book.byName[written] = drawn;
-      book.list.push(drawn);
-    }
     // resetSheet() 已經把舊的鎖拆了
     protectSheet(drawn.sheet, me, []);
     drawn.protections = null;
@@ -298,7 +293,7 @@ function render(ss, bundle, force, stored) {
 /**
  * 一開始一次讀完：每一張分頁的名字與第一列那一格（認得出是不是我們畫的）。
  * 整次推送只看這一份 —— 新建的分頁、畫好的分頁、大小變了都要回來改它（`resetSheet()`、`ensureSize()`、`render()`）。
- * 大小、鎖、整頁是不是空的要用到才讀（`sizeOf()`、`protectionsOf()`、`emptyOf()`），`render()` 在開始寫之前先問好。
+ * 大小、鎖、整頁是不是空的要用到才讀（`sizeOf()`、`protectionsOf()`、`lastRowOf()`），`render()` 在開始寫之前先問好。
  */
 function readBook(ss) {
   var byName = {};
@@ -328,10 +323,10 @@ function protectionsOf(entry) {
 }
 
 /**
- * 那一頁有沒有內容（`getLastRow()`）。**第一列有字就一定不是空的**，不用問 ——
+ * 那一頁最後一列有字的是第幾列（`getLastRow()`，0 ＝整頁空著）。**第一列有字就一定不是空的**，不用問 ——
  * 只有第一列空著的才要問：整頁空著的那一種（她清掉了、或剛建好）照舊算我們的、可以畫。
  */
-function emptyOf(entry) {
+function lastRowOf(entry) {
   if (entry.lastRow == null) entry.lastRow = entry.a1 === '' || entry.a1 == null ? entry.sheet.getLastRow() : 1;
   return entry.lastRow;
 }
@@ -428,11 +423,10 @@ function stashRawData(ss, bundle, book, entry) {
 }
 
 /**
- * 畫一位。`book` 是 `render()` 一開始讀的那一份（沒給就自己讀 —— 測試會單獨叫這一支）。
+ * 畫一位。`book` 是 `render()` 一開始讀的那一份（一定要給：畫好的那一頁由 `resetSheet()` 放進去，`render()` 接著上鎖、記指紋）。
  * 回畫好的分頁名；那一頁是她自己的（認不出來）→ null，這一位這次不畫。
  */
 function renderCustomer(ss, data, bundle, book) {
-  book = book || readBook(ss);
   var name = sheetNameFor(data.name);
   var entry = resetSheet(ss, name, book);
   if (!entry) return null;   // 這張是她自己的，不動它
@@ -1135,7 +1129,7 @@ function ensureSize(entry, rows, cols) {
 function resetSheet(ss, name, book) {
   var entry = book.byName[name];
   if (entry) {
-    if (emptyOf(entry) > 0 && !isOurs(entry.a1)) return null;
+    if (lastRowOf(entry) > 0 && !isOurs(entry.a1)) return null;
     var sheet = sizeOf(entry).sheet;
     unprotect(entry);
     sheet.clear();
