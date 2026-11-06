@@ -863,8 +863,8 @@ export function pick(files = []) {
       continue;
     }
 
-    // 改到 spec 自己就跑它自己。
-    const own = file.match(/^tests-e2e\/specs\/(\d\d-[^.]+)\./);
+    // 改到 spec 自己就跑它自己。編號是三位數的（`100-keyboard-layout`）也要認得 —— 以前只認兩位數，那一支被當成沒登記、退回全跑
+    const own = file.match(/^tests-e2e\/specs\/(\d+-[^.]+)\./);
     if (own) { specs.add(own[1]); continue; }
 
     // Rules 的測試、start-emulators 之類的，不影響 app 行為。
