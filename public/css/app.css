@@ -7765,8 +7765,8 @@ summary {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-2);
-}
-
+}
+
 /* 跳出來的是「建議」，不是那一排的選項：綠框綠字，跟底下四顆分得出來（字色用 `--accent`，不是綠底上的字那一個） */
 .notesuggest .chip {
   border-color: var(--accent);
