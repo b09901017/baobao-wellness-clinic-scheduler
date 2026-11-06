@@ -49,6 +49,7 @@ import tw.baofu.notes.Backend
 class CaptureActivity : FloatingActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!signedInOrLeave()) return
         val app = applicationContext
         AppScope.launch { WidgetSync.pull(app) }
         setContent { CompositionLocalProvider(LocalPalette provides palette) { Capture() } }

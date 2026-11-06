@@ -84,7 +84,13 @@ private fun NotesScreen(activity: MainActivity) {
                 val app = activity.applicationContext
                 scope.launch { WidgetSync.pull(app, full = true) }
             }
-            is SignIn.Outcome.NotAllowed -> { gate = Gate.SignedOut; message = "這個帳號（${outcome.email ?: "沒有 email"}）沒有權限，沒有寫任何東西" }
+            is SignIn.Outcome.NotAllowed -> {
+                gate = Gate.SignedOut
+                message = "這個帳號（${outcome.email ?: "沒有 email"}）沒有權限，沒有寫任何東西"
+                // 被登出了：小工具跟著換成「還沒登入」
+                val app = activity.applicationContext
+                scope.launch { WidgetSync.forget(app) }
+            }
             SignIn.Outcome.Cancelled -> { gate = Gate.SignedOut; message = "" }
             is SignIn.Outcome.Failed -> { gate = if (Backend.auth.currentUser == null) Gate.SignedOut else Gate.Checking; message = outcome.message }
         }

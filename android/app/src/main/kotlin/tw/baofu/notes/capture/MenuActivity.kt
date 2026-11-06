@@ -68,6 +68,7 @@ class MenuActivity : FloatingActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!signedInOrLeave()) return
         val id = intent.getStringExtra(EXTRA_ID)
         val cached = id?.let { want -> WidgetStore.current(this)?.notes?.firstOrNull { it["id"] == want } }
         if (id == null) {

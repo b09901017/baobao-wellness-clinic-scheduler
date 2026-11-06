@@ -53,10 +53,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import tw.baofu.notes.MainActivity
 import tw.baofu.notes.core.Doc
 import tw.baofu.notes.core.Js
 import tw.baofu.notes.widget.Palette
 import tw.baofu.notes.widget.WidgetStore
+import tw.baofu.notes.widget.WidgetSync
 import java.time.LocalDate
 
 /**
@@ -78,6 +80,18 @@ abstract class FloatingActivity : ComponentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
             window.attributes = window.attributes.apply { blurBehindRadius = BLUR }
         }
+    }
+
+    /**
+     * 沒登入（或不在白名單上）就不打開這一層：換成「隨手記」主畫面去登入、自己收掉（REVIEW-android R5 ——
+     * 以前 ＋ 照樣打得開、記得下來：有網路是一串英文的 PERMISSION_DENIED，沒網路一句都不講、連上之後被 Rules 擋掉、她打的字安安靜靜地沒了）。
+     * 回 false 時呼叫端不要畫。
+     */
+    protected fun signedInOrLeave(): Boolean {
+        if (WidgetSync.allowedUid(this) != null) return true
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        finish()
+        return false
     }
 
     companion object {

@@ -84,10 +84,11 @@ class NotesWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val store = WidgetStore.flow(context)
         val dark = WidgetStore.darkFlow(context)
-        val uid = WidgetSync.allowedUid(context)
         provideContent {
             val view by store.collectAsState()
             val isDark by dark.collectAsState()
+            // 在這裡面讀（每次重畫都問）：Glance 一個 session 裡 provideGlance() 只跑一次，在外面讀的話登出／登入之後還是舊的（REVIEW-android R5）
+            val uid = WidgetSync.allowedUid(context)
             Content(context, if (uid == null || view?.uid != uid) null else view, signedIn = uid != null, palette = Palette.of(isDark == true))
         }
     }
@@ -160,7 +161,7 @@ private fun Content(context: Context, view: WidgetStore.View?, signedIn: Boolean
         GlanceModifier.fillMaxSize().appWidgetBackground().background(c(palette.glass)).cornerRadius(24.dp)
             .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
     ) {
-        Header(context, count.takeIf { view?.loaded == true }, palette)
+        Header(context, count.takeIf { view?.loaded == true }, signedIn, palette)
         when {
             !signedIn -> Message("還沒登入：點這裡打開「隨手記」登入", palette, actionStartActivity<MainActivity>())
             view == null || !view.loaded -> Message("讀取中…", palette, null)
@@ -182,7 +183,7 @@ private fun Content(context: Context, view: WidgetStore.View?, signedIn: Boolean
 }
 
 @Composable
-private fun Header(context: Context, count: Int?, palette: Palette) {
+private fun Header(context: Context, count: Int?, signedIn: Boolean, palette: Palette) {
     Row(GlanceModifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
             GlanceModifier.defaultWeight().clickable(openUrl("${BuildConfig.WEB_ORIGIN}/#/todo/notes")),
@@ -200,7 +201,9 @@ private fun Header(context: Context, count: Int?, palette: Palette) {
         }
         Spacer(GlanceModifier.width(8.dp))
         Box(
-            GlanceModifier.size(42.dp).background(c(palette.accent)).cornerRadius(21.dp).clickable(actionStartActivity<CaptureActivity>()),
+            // 沒登入時 ＋ 帶去登入（輸入卡自己也會擋：`FloatingActivity.signedInOrLeave()`）
+            GlanceModifier.size(42.dp).background(c(palette.accent)).cornerRadius(21.dp)
+                .clickable(if (signedIn) actionStartActivity<CaptureActivity>() else actionStartActivity<MainActivity>()),
             contentAlignment = Alignment.Center,
         ) {
             Image(ImageProvider(R.drawable.ic_plus), contentDescription = "記一筆", colorFilter = ColorFilter.tint(c(palette.onAccent)), modifier = GlanceModifier.size(22.dp))
