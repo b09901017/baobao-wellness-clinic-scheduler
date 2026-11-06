@@ -299,13 +299,14 @@ describe('渲染', () => {
     assert.match(text, /時間不詳/, '匯入的來訪沒有時間，要寫時間不詳不是留白（ADR-0011）');
   });
 
-  test('表頭與備註區有合併儲存格、有凍結列、有欄寬', () => {
+  test('表頭與備註區有合併儲存格、沒有凍結、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
     // 2026-11-05 晚起欄不凍結、第一列又是整頁寬（.scratch/sheet-push-gaps/issues/14，ADR-0176）——
     // 凍結欄的話凍結線會穿過它（.scratch/first-real-import/issues/01），所以兩件一起看
     assert.ok(sheet.merges.includes('A1:M1'), `第一列整頁寬，實際：${sheet.merges.join(' ')}`);
-    assert.equal(sheet.frozenRows, 5);
+    // 2026-11-06 起列也不凍結（.scratch/sheet-push-gaps/issues/16，ADR-0178：她「就都不要有凍結，太割裂了」）
+    assert.equal(sheet.frozenRows, 0);
     assert.equal(sheet.frozenCols, 0);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');

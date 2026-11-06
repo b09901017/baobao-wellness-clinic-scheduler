@@ -193,29 +193,34 @@ describe('14 欄不凍結、上下那幾塊整頁寬', () => {
     }
   });
 
-  test('凍結 5 列、欄不凍結（從來沒有凍結過任何一欄）', () => {
+  // 2026-11-06 她：「我也不想要1~5欄被凍結，就都不要有凍結，太割裂了」（issues/16，ADR-0178）—— 列也不凍結了
+  test('列與欄都不凍結（從來沒有凍結過任何一列、一欄）', () => {
     const app = loadAppsScript();
     const seen = [];
     const insert = app.ss.insertSheet.bind(app.ss);
     app.ss.insertSheet = (name) => {
       const sheet = insert(name);
-      const freeze = sheet.setFrozenColumns.bind(sheet);
-      sheet.setFrozenColumns = (n) => { seen.push(n); freeze(n); };
+      const rows = sheet.setFrozenRows.bind(sheet);
+      const cols = sheet.setFrozenColumns.bind(sheet);
+      sheet.setFrozenRows = (n) => { seen.push(n); rows(n); };
+      sheet.setFrozenColumns = (n) => { seen.push(n); cols(n); };
       return sheet;
     };
     assert.equal(app.post({ token: 'secret', bundle: bundleOf([page()]) }).ok, true);
     const sheet = app.ss.getSheetByName('客戶A');
-    assert.equal(sheet.frozenRows, 5);
+    assert.equal(sheet.frozenRows, 0);
     assert.equal(sheet.frozenCols, 0);
     assert.ok(seen.every((n) => n === 0), String(seen));
   });
 
-  test('第三輪凍結了五欄的那一頁：重畫之後凍結的欄拿掉了', () => {
+  test('以前畫的凍結了五列（第四輪）或五列五欄（第三輪）：重畫之後都拿掉', () => {
     const app = loadAppsScript();
     app.post({ token: 'secret', bundle: bundleOf([page()]) });
     const sheet = app.ss.getSheetByName('客戶A');
+    sheet.frozenRows = 5;
     sheet.frozenCols = 5;   // 假裝是第三輪畫的
     app.post({ token: 'secret', bundle: bundleOf([page({ fingerprint: 'a2' })]) });
+    assert.equal(app.ss.getSheetByName('客戶A').frozenRows, 0);
     assert.equal(app.ss.getSheetByName('客戶A').frozenCols, 0);
   });
 
@@ -407,6 +412,49 @@ describe('15 記一句也疊在那一個日期的最下面、塗淡色', () => {
     const { sheet } = draw([page({ slotNotes: [] })]);
     assert.equal(sheet.at(`H${BELOW}`), '9/15 二返(某明)');
     assert.equal(rowOf(sheet, '買過什麼'), BELOW + 2);
+  });
+
+  // 11/6 staging 匯出檔：18 句要折兩行以上的記一句，那一列照舊 26 高 —— 設過高度的列 Google 不會自己長高，只看得到第一行。
+  // 照字數估高（同合併的那幾格，`rowHeightFor()`；日期欄 78 寬、記一句 10 號、二返註記 9 號），那一列取最高的
+  test('疊下去的那一句要折行：那一列照字數長高；短的那幾列照舊 26', () => {
+    const long = '十月十五他忘記了又加了醫美顧客會';
+    const slotNotes = [
+      { rowIndex: 3, label: 'EECP(60)', cells: [{ dateIndex: 2, text: long }] },
+      { rowIndex: 1, label: '復能-三選一(60)', cells: [{ dateIndex: 3, text: '好' }] },
+    ];
+    const { app, sheet } = draw([page({ slotNotes, followupNotes: [] })]);
+    const want = app.context.rowHeightFor(long, 78, 10);
+    assert.ok(want > 26, String(want));
+    assert.equal(sheet.at(`I${BELOW}`), long);
+    assert.equal(sheet.rowHeights.get(BELOW), want, '那一列取最高的那一句');
+    assert.equal(sheet.at(`J${BELOW + 1}`), '', '第二列沒有東西');
+    assert.equal(sheet.rowHeights.get(BELOW + 1) ?? 26, 26);
+  });
+
+  test('二返註記那一格太長也算（9 號字）', () => {
+    const text = '10/24 二返(某明)、11/30 三返(某華)';
+    const { app, sheet } = draw([page({ slotNotes: [], followupNotes: [{ dateIndex: 1, text }] })]);
+    assert.equal(sheet.rowHeights.get(BELOW), app.context.rowHeightFor(text, 78, 9));
+  });
+
+  // 同一份記一句輪流塗色時每一頁都從第一色開始 → 大部分頁只有一兩句，25 句裡 17 句淡紫（11/6 staging）。
+  // 改成照「第幾個日期＋疊在第幾格」錯開：只有一句的那幾頁也不會全是同一色；上下、左右挨著的不同色
+  test('顏色照日期那一欄錯開：一句一頁的也不會全是同一色；上下、左右挨著的不同色', () => {
+    const { context } = loadAppsScript();
+    const one = (dateIndex) => {
+      const { sheet } = draw([page({ followupNotes: [], slotNotes: [{ rowIndex: 3, label: 'EECP(60)', cells: [{ dateIndex, text: '一句' }] }] })]);
+      return sheet.backgrounds.get(`${'GHIJ'[dateIndex]}${BELOW}`);
+    };
+    assert.equal(new Set([0, 1, 2, 3].map(one)).size, 4, '四個日期各一句：四種顏色');
+    const slotNotes = [
+      { rowIndex: 1, label: '復能', cells: [{ dateIndex: 1, text: '上' }, { dateIndex: 2, text: '左右' }] },
+      { rowIndex: 3, label: 'EECP', cells: [{ dateIndex: 1, text: '下' }] },
+    ];
+    const { sheet } = draw([page({ followupNotes: [], slotNotes })]);
+    const at = (a1) => sheet.backgrounds.get(a1);
+    assert.notEqual(at(`H${BELOW}`), at(`H${BELOW + 1}`), '上下');
+    assert.notEqual(at(`H${BELOW}`), at(`I${BELOW}`), '左右');
+    for (const a1 of [`H${BELOW}`, `H${BELOW + 1}`, `I${BELOW}`]) assert.ok(context.NOTE_FILLS.includes(at(a1)), a1);
   });
 
   test('NOTE_FILLS 避開狀態色（綠、黃、淡藍、灰、紅）與斑馬紋、白', () => {
