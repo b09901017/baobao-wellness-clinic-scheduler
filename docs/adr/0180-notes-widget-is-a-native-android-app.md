@@ -36,13 +36,12 @@
    Android 那一側 `android/core` 的 `ParityTest` 讀同一份比。網頁改了一條規則 → 網頁的測試紅 → 確定要的就重算 → Kotlin 紅 → 改 Kotlin。
    網頁的測試也掃 `ParityTest`：情境檔每多一段，Kotlin 那一側要多一個分支。
 5. **開發時寫本機模擬器，不寫 staging**（`-Pemulator` 建的 debug：`demo-scheduler`，跟網頁的 E2E 同一個命名空間；HTC 用 `adb reverse` 接到筆電）。staging 留給她點。
-6. **簽章兩把**：筆電的 debug 鑰匙（`~/.android/debug.keystore`）、release 鑰匙（`~/.android/baofu-notes-release.jks`，密碼在 `~/.gradle/gradle.properties`；CI 從 GitHub Secrets 拿，issue 09 放）。
+6. **簽章兩把**：開發用的 debug 鑰匙、派送用的 release 鑰匙（放在哪、備份在哪：`docs/STAGING.md`「簽章鑰匙在哪」）。
    兩把的 SHA-1 都登記在兩個 Firebase 專案的 Android app 上（少一把，那一把簽的那一支 Google 登入就失敗）。**鑰匙與密碼不進 repo、不印進 log**；`google-services.json` 進版控（跟 `firebase-config.js` 同一類公開設定）。
 7. **CI 另開 `android.yml`**：只在 `android/**`、情境檔、`domain/notes.js` 變了才跑，不放進 `deploy.yml`（那裡的 concurrency 會讓每一次部署等 Gradle）、不設成必要檢查。
-8. 工具鏈在她的使用者資料夾（`%LOCALAPPDATA%\Android\Sdk`：指令列工具、platform、build-tools），不裝 Android Studio、不跑 Android 模擬器。
-   `compileSdk` 37.2（2026 的 AndroidX／Compose 要）、`targetSdk` 36、`minSdk` 26。Gradle 限 4 個 worker（她的筆電過熱斷電過）。
+8. 只裝指令列的工具鏈，不裝 Android Studio、不跑 Android 模擬器（她的筆電過熱斷電過；畫面在 HTC 實機上看）。
 
-9. **小工具什麼時候更新**（她 11/6「好照建議做」）：自己寫的存完馬上、按 ＋ 打開輸入卡時抓一次、背景 WorkManager 最短 15 分鐘**只問 `updatedAt` 大於上次的**（含刪掉、勾掉的；沒變是 1 次讀取；手機睡著讓系統延後）。游標是讀回來最大的 `updatedAt`（伺服器時間）。單欄位查詢用自動索引，Rules 不用改（core 的 `NotesSync`）。即時推播（Cloud Function＋FCM）這一輪不做。
+9. **小工具什麼時候更新**（她 11/6「好照建議做」）：自己寫的存完馬上、按 ＋ 打開輸入卡時抓一次、背景 WorkManager 最短 15 分鐘**只問 `updatedAt` 大於上次的**（含刪掉、勾掉的；沒變是 1 次讀取；手機睡著讓系統延後）。游標是讀回來最大的 `updatedAt`（伺服器時間），**而且只認伺服器的答案**：連不上時 SDK 回手機的快取、不丟錯，快取裡最新的只是這台手機看過的那幾筆，拿它推游標會跳過別台改的（段九 REVIEW-android R2）。單欄位查詢用自動索引，Rules 不用改（core 的 `NotesSync`）。即時推播（Cloud Function＋FCM）這一輪不做。
 
 ## 為什麼
 
@@ -64,5 +63,6 @@
 - **改隨手記的形狀或規則要兩邊一起改**（`CLAUDE.md` 連動表「隨手記的形狀或規則 → Kotlin 那一份與情境檔」）。情境檔沒涵蓋到的新規則，先在情境檔加一題再改。
 - 小工具本體（07）、輸入卡與選單（08）在 `android/app`，都用 `android/core` 的那幾支，不在畫面裡另寫一份規則。
 - 背景同步靠**每一次寫入都帶 `updatedAt`**（含軟刪除與還原，`repo.commit()` 一律寫）：另開一條不經過它寫隨手記的路，小工具就看不到那一筆。
-- 筆電 debug 簽的與 CI release 簽的是兩把鑰匙：HTC 上從自己建的那一支換到 App Distribution 派的那一支，要先移除再裝一次（09 的派送寫進手動驗收）。
-- release 鑰匙只有她筆電上一份、還沒放進 GitHub Secrets 與備份（09）；弄丟了，已經裝好的那一支要移除重裝、Firebase 上換登記一把 SHA-1。
+- debug 簽的與 release 簽的是兩把鑰匙：手機上從開發時裝的那一支換到 App Distribution 派的那一支，要先移除再裝一次。
+- release 鑰匙弄丟了，已經裝好的那一支要移除重裝、Firebase 上換登記一把 SHA-1 —— 所以有備份（`docs/STAGING.md`「簽章鑰匙在哪」）。
+- **還原備份不經過 `repo.commit()`**（`scripts/restore-backup.mjs` 照備份原樣寫回，`updatedAt` 是備份那一刻的）：還原回來的那幾筆比游標舊，小工具問不到 —— 還原之後手機上的「隨手記」要登出再登入一次（整份重讀；`docs/STAGING.md`「還原演練」）。

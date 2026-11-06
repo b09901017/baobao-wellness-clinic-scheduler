@@ -431,6 +431,9 @@ release 版用同一把鑰匙簽（兩個 Firebase 專案都登記了它的 SHA-
 
 ### 建一版、派送
 
+**從合進 develop（正式版：main）的那一個 commit、`git status` 乾淨的 checkout 建**：筆電上還沒 commit 的改動會跟著建進去、派到手機上
+（另開一個 `git worktree add <資料夾> origin/develop` 建最乾淨；`android/local.properties` 要複製過去）。
+
 ```bash
 cd android
 # 1. app/build.gradle.kts 的 versionCode 加一（同一個號碼手機裝不上去、App Distribution 也不會講有新版）
@@ -508,6 +511,9 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
 `.local/` 是整個資料夾都擋 —— 放那裡不用記得檔名長怎樣。
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
+
+**還原到真的專案之後，手機上的「隨手記」登出再登入一次**（整份重讀）：還原回來的那幾筆 `updatedAt` 是備份那一刻的，
+小工具的背景同步只問比上次新的，問不到它們（ADR-0180）。
 
 **療程單的照片不在備份裡**（ADR-0101）：還原的是抄出來的列，照片檔要是原本那個專案的
 Storage 裡還在就看得到，不在的那一張卡會寫「照片不在備份裡」—— 那是預期的，有紙本正本。
