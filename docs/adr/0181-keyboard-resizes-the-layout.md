@@ -20,8 +20,9 @@
 
 1. **`index.html` 的 viewport 加 `interactive-widget=resizes-content`**：鍵盤跳出來時版面（layout viewport）跟著縮。
    同一台實機量：`innerHeight` 800 → 404，抽屜、卡片、整頁表單全部落在鍵盤上面，拖抽屜不再帶著整頁跑。不寫一行 JS 讓開。
-2. **打字時收起底部導覽列**（`ui/keyboard.js` 寫 `html[data-keyboard]`、`app.css` 在手機寬度收起 `.app__nav`）：
-   版面縮成一半時導覽列會站到鍵盤上面、吃掉一截（新增客戶那一頁剩不到 170px 看得到表單），而打字時她用不到它。
+2. **打字時收起底部導覽列與右下角那一顆**（`ui/keyboard.js` 寫 `html[data-keyboard]`、`app.css` 在手機寬度收起 `.app__nav` 與 `.fab`）：
+   版面縮成一半時導覽列會站到鍵盤上面、吃掉一截（新增客戶那一頁剩不到 170px 看得到表單），而打字時她用不到它；
+   右下角那一顆（`position: fixed`）同一個理由，首頁那張卡打字時它蓋在框與底下那兩排上面（段三審查 R1）。
    判斷是「焦點在一格會叫出鍵盤的欄位裡，而且版面比這個寬度量過最高的矮了 120px 以上」。
 3. **不用 VirtualKeyboard API**（`navigator.virtualKeyboard.overlaysContent` ＋ `env(keyboard-inset-height)`）：
    它是全站的開關，一開每一頁的表單都要自己讓開（聚焦時自己捲）；`resizes-content` 是瀏覽器替每一頁讓開，而且實機上就夠了。

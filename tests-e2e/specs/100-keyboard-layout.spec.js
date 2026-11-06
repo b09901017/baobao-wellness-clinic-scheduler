@@ -55,3 +55,25 @@ test('K3 整頁的表單（新增客戶）：打字時導覽列收起來、那�
   const box = await name.boundingBox();
   expect(box.y + box.height).toBeLessThanOrEqual(WITH_KEYBOARD);
 });
+
+// 段三審查 R1：導覽列收了，右下角那一顆泡泡（`.fab`）也站到鍵盤上面 —— 首頁那張卡的框右邊是「記」、底下是新加的兩排
+test('K4 首頁那張卡的「記一筆…」：打字時右下角那一顆也收起來；框、「記」都在畫面裡', async ({ app, page }) => {
+  await app.seed([...masterDocs()]);
+  await app.signIn('/');
+  await expect(page.locator('.fab')).toBeVisible();
+  const input = page.locator('[data-newnote] input[name="text"]');
+  await input.focus();
+  await page.setViewportSize({ width: W, height: WITH_KEYBOARD });
+  await expect(page.locator('html')).toHaveAttribute('data-keyboard', '');
+  await expect(page.locator('.fab'), '泡泡跟導覽列一起收').toBeHidden();
+  await expect(page.locator('.app__nav')).toBeHidden();
+  await input.scrollIntoViewIfNeeded();
+  for (const el of [input, page.locator('[data-newnote] button[type="submit"]')]) {
+    const box = await el.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(WITH_KEYBOARD);
+  }
+
+  await input.blur();
+  await page.setViewportSize({ width: W, height: FULL });
+  await expect(page.locator('.fab')).toBeVisible();
+});

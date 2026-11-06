@@ -245,9 +245,11 @@ svg {
 }
 
 /* 打字的時候收起來（ADR-0181，`ui/keyboard.js`）：版面跟著鍵盤縮（`interactive-widget=resizes-content`）之後，
-   導覽列會站到鍵盤上面、吃掉一截；打字時她用不到它。只在手機寬度 —— iPad 橫放是側邊那一排，而且 Safari 不縮版面 */
+   導覽列會站到鍵盤上面、吃掉一截；打字時她用不到它。只在手機寬度 —— iPad 橫放是側邊那一排，而且 Safari 不縮版面。
+   右下角那一顆（`.fab`，`position: fixed`）同一個理由一起收：首頁那張卡打字時它蓋在框與底下那兩排上面（段三審查 R1） */
 @media (max-width: 899px) {
-  html[data-keyboard] .app__nav {
+  html[data-keyboard] .app__nav,
+  html[data-keyboard] .fab {
     display: none;
   }
 }
