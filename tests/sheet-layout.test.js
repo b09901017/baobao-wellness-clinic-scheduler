@@ -193,29 +193,34 @@ describe('14 欄不凍結、上下那幾塊整頁寬', () => {
     }
   });
 
-  test('凍結 5 列、欄不凍結（從來沒有凍結過任何一欄）', () => {
+  // 2026-11-06 她：「我也不想要1~5欄被凍結，就都不要有凍結，太割裂了」（issues/16，ADR-0178）—— 列也不凍結了
+  test('列與欄都不凍結（從來沒有凍結過任何一列、一欄）', () => {
     const app = loadAppsScript();
     const seen = [];
     const insert = app.ss.insertSheet.bind(app.ss);
     app.ss.insertSheet = (name) => {
       const sheet = insert(name);
-      const freeze = sheet.setFrozenColumns.bind(sheet);
-      sheet.setFrozenColumns = (n) => { seen.push(n); freeze(n); };
+      const rows = sheet.setFrozenRows.bind(sheet);
+      const cols = sheet.setFrozenColumns.bind(sheet);
+      sheet.setFrozenRows = (n) => { seen.push(n); rows(n); };
+      sheet.setFrozenColumns = (n) => { seen.push(n); cols(n); };
       return sheet;
     };
     assert.equal(app.post({ token: 'secret', bundle: bundleOf([page()]) }).ok, true);
     const sheet = app.ss.getSheetByName('客戶A');
-    assert.equal(sheet.frozenRows, 5);
+    assert.equal(sheet.frozenRows, 0);
     assert.equal(sheet.frozenCols, 0);
     assert.ok(seen.every((n) => n === 0), String(seen));
   });
 
-  test('第三輪凍結了五欄的那一頁：重畫之後凍結的欄拿掉了', () => {
+  test('以前畫的凍結了五列（第四輪）或五列五欄（第三輪）：重畫之後都拿掉', () => {
     const app = loadAppsScript();
     app.post({ token: 'secret', bundle: bundleOf([page()]) });
     const sheet = app.ss.getSheetByName('客戶A');
+    sheet.frozenRows = 5;
     sheet.frozenCols = 5;   // 假裝是第三輪畫的
     app.post({ token: 'secret', bundle: bundleOf([page({ fingerprint: 'a2' })]) });
+    assert.equal(app.ss.getSheetByName('客戶A').frozenRows, 0);
     assert.equal(app.ss.getSheetByName('客戶A').frozenCols, 0);
   });
 
