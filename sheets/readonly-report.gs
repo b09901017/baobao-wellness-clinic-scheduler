@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 6;
+var LAYOUT_VERSION = 7;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -87,7 +87,8 @@ var MATRIX_HEADER_ROW = HEADER_ROWS + 1;
 var STAMP_ROW = 4;
 /*
  * **欄不凍結**（2026-11-05 晚，issues/14，ADR-0176 推翻 ADR-0175 的「凍結前五欄」）：她看了凍結的樣子說分裂感太重 ——
- * 所以最上面四列與下面「買過什麼」「營養品」「備註」「來訪紀錄」又是整頁寬（`width`）。列照舊凍結到矩陣表頭（第 5 列）。
+ * 所以最上面四列與下面「買過什麼」「營養品」「備註」「來訪紀錄」又是整頁寬（`width`）。
+ * **列也不凍結**（2026-11-06，issues/16，ADR-0178 推翻 ADR-0176 的「列照舊凍結到矩陣表頭」）：她「就都不要有凍結，太割裂了」。
  * **哪天要再凍結欄**：凍結線不能穿過合併儲存格（Google 會丟例外，`.scratch/first-real-import/issues/01`），那些整頁寬的合併要先收回來。
  */
 
@@ -772,9 +773,8 @@ function renderCustomer(ss, data, bundle, book) {
   for (var d2 = 0; d2 < dateCount; d2++) {
     sheet.setColumnWidth(COL.FIRST_DATE + d2, STYLE.dateWidth);
   }
-  // 凍結五列（到矩陣表頭）。**欄不凍結**（issues/14，ADR-0176）：上下那幾塊是整頁寬的合併，凍結欄會穿過它們、Google 丟例外
-  //（.scratch/first-real-import/issues/01-frozen-column-splits-a-merged-cell.md）。`resetSheet()` 先把凍結歸 0，第三輪凍結的五欄也跟著拿掉
-  sheet.setFrozenRows(MATRIX_HEADER_ROW);
+  // **列與欄都不凍結**（她 11/6：「就都不要有凍結，太割裂了」，issues/16，ADR-0178；欄是 issues/14、ADR-0176 拿掉的）。
+  // `resetSheet()` 先把凍結歸 0，以前凍結的五列（第四輪）、五列五欄（第三輪）重畫時都拿掉；這裡不再設
   // 格線藏起來，只留矩陣的框線（issues/08，示意圖 6c）
   sheet.setHiddenGridlines(true);
   // 字體蓋整張寬度（含 FINISHED 那幾欄），框線只框矩陣

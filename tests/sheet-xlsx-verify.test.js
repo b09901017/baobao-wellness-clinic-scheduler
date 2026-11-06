@@ -244,15 +244,15 @@ describe('一樣的說一樣、改一格說一格', () => {
     assert.deepEqual(out.totals.info, { 'rowHeight.grew': 1 });
   });
 
-  test('凍結欄、合併、記一句的備註不見了 → 各算一個', () => {
+  test('凍結、合併、記一句的備註不見了 → 各算一個', () => {
     const dump = dumpLike(snapshot);
     const sheet = sheetOf(dump, '王小明');
-    sheet.freeze = 'F6';   // 2026-11-05 晚起欄不凍結（issues/14）：匯出檔凍結了五欄就是不一樣
+    sheet.freeze = 'F6';   // 2026-11-06 起列與欄都不凍結（issues/16）：匯出檔凍結了五列五欄就是兩樣都不一樣
     assert.ok(sheet.merges.some((r) => r.startsWith('A2:')));
     sheet.merges = sheet.merges.filter((r) => !r.startsWith('A2:'));
     for (const [, c] of sheet.cells) if (c.note) delete c.note;
     const out = compareBook(dump, snapshot);
-    assert.deepEqual(out.totals.diffs, { 'sheet.frozenCols': 1, merge: 1, note: 1 });
+    assert.deepEqual(out.totals.diffs, { 'sheet.frozenRows': 1, 'sheet.frozenCols': 1, merge: 1, note: 1 });
   });
 
   test('備註前面多了作者 → 已知；產生時間不一樣 → 已知；她自己開的分頁 → 已知；替身有、匯出檔沒有 → 要查', () => {
