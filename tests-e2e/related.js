@@ -731,6 +731,10 @@ export const COVERAGE = {
   '99-notes-widget-links': [
     'public/js/ui/views.js', 'public/js/ui/views/home.js', 'public/js/ui/components/note.js', 'public/js/ui/router.js',
   ],
+  // 鍵盤開著的時候（notes-widget 01，ADR-0181）：版面跟著鍵盤縮、打字時收起底部導覽列
+  '100-keyboard-layout': [
+    'public/js/ui/keyboard.js', 'public/index.html', 'public/js/app.js', 'public/css/app.css',
+  ],
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
     'public/js/data/customers.js',

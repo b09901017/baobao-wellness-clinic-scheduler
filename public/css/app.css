@@ -244,6 +244,14 @@ svg {
   padding-bottom: max(var(--space-1), env(safe-area-inset-bottom));
 }
 
+/* 打字的時候收起來（ADR-0181，`ui/keyboard.js`）：版面跟著鍵盤縮（`interactive-widget=resizes-content`）之後，
+   導覽列會站到鍵盤上面、吃掉一截；打字時她用不到它。只在手機寬度 —— iPad 橫放是側邊那一排，而且 Safari 不縮版面 */
+@media (max-width: 899px) {
+  html[data-keyboard] .app__nav {
+    display: none;
+  }
+}
+
 .app__nav a {
   flex: 1;
   min-height: 46px;

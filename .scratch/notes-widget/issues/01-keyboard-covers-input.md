@@ -1,6 +1,6 @@
 # 01：鍵盤跳出來蓋住輸入框（全螢幕的 app）—— 全站排查、一起修
 
-Status: todo
+Status: done
 Blocked by: —
 
 ## 動工前先讀
@@ -52,4 +52,29 @@ Blocked by: —
 
 ## 做完時留下的
 
-（做完補）
+段二（2026-11-06）。**ADR-0181**。單元 `tests/keyboard.test.js`、E2E `100-keyboard-layout`（K1–K3，登記進 `related.js`）。sw.js v307；`keyboard.js` 進了 `SHELL`。
+
+**原因（HTC 實機量的，裝到主畫面的那一顆、Chrome 156）**：鍵盤跳出來時 `innerHeight` 停在 800、只有 `visualViewport.height` 縮成 452 —— 版面不縮，`.drawer-backdrop`（`fixed; inset: 0`）整張在鍵盤底下。
+`navigator.virtualKeyboard` 有、`overlaysContent` 是 false、`boundingRect` 全 0（不靠它）。
+
+**修法**：
+1. `index.html` viewport 加 `interactive-widget=resizes-content` —— 實機上 `innerHeight` 800 → 404，抽屜落在鍵盤上面。**這一行就是修法**，沒有 JS 在讓開
+2. `ui/keyboard.js`（`watchKeyboard()`，`app.js` 一開機掛一次）：焦點在打字的格子裡（`typesText()`：text／search／tel／url／email／number／password、textarea、contenteditable；日期、時間、勾選框不算）
+   而且版面比這個寬度量過最高的矮了 `KEYBOARD_MIN_PX`（120）以上 → `html[data-keyboard]`；`app.css` 在 `max-width: 899px` 收起 `.app__nav`。轉方向重新量
+3. `CLAUDE.md`「蓋住整頁的一層…」那一列補一句：不要拿掉那一格、新的一層不用自己讓開
+
+**HTC 上點過的（v307，全螢幕的那一顆，模擬器的假資料）**：
+
+| 入口 | 鍵盤開著 |
+|---|---|
+| 隨手記那一頁右下角鉛筆「記一筆」 | 抽屜貼在鍵盤上面，框、四顆丸子、「記下來」都看得到；導覽列收起來 |
+| 同一張抽屜往上拉（她的圖四） | 抽屜在剩下的畫面裡變滿高，**整頁不跟著跑**（`visualViewport.offsetTop` 0） |
+| 長按 → 改文字（`.popcard`） | 卡片在鍵盤上面 |
+| 日曆 ＋ → 待辦（滿高的抽屜） | 「記什麼」、哪一天、掛給誰都在；「記下來」在抽屜裡往下捲一點 |
+| 新增客戶（整頁的表單）「其他限制」 | 那一格捲進來、在鍵盤上面；導覽列收起來（沒收之前導覽列＋「建立客戶」那一條站在鍵盤上，看得到的表單不到 170px） |
+
+**沒有逐一點的**（同一種東西，修法是瀏覽器替每一頁縮版面，不是一處一處讓開）：客戶詳情備註編輯、訊息框、加購／批次建立的數字、長備註「寫給誰」、
+`pushLayer` 那幾層（長備註／備忘錄編輯器、`confirmWithReason`、拍 Abovee 與療程單的搜尋、壓表那疊卡片的時間）、設定那幾頁、LINE 回覆模板、客戶清單與壓表的搜尋 —— 列進手動驗收清單。
+
+**實機才驗得到的**：staging 部署之後她在 HTC／三星的主畫面那一顆點（真的鍵盤、注音、三星鍵盤的高度）；iPad 主畫面那一顆照舊（Safari 不認這一格）。
+**HTC 上留著的**：「暴富日常」（`http://localhost:5000`，本機模擬器）那一顆 —— 段二收尾時移除（見 HANDOFF）。

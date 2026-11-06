@@ -13,7 +13,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 |---|---|---|---|
 | 設計 | grilling 四輪、spec、issue 01–09、subagent 過目 | xhigh | **做完**（11/6） |
 | 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 `c86ed1e8`、合 develop `696826bc`；已推） |
-| 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | 02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`（見各支的「做完時留下的」）；01 等 HTC |
+| 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | **做完**（11/6）：02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`、app.css 換回 LF `HEAD~1`、01（ADR-0181）見分支最新；CI 全量（到 10）6/6 綠 |
 | 三 | `/matt-code-review` 審網頁那一半（01–05） | xhigh | |
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | |
 | 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：SDK 授權條款、Firebase 主控台登記**） | xhigh | |
@@ -94,9 +94,18 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
    段二改成照 `pick()` 的名單手挑摸得到記一筆那一排的那幾支跑、**全量交給 CI**（`e2e-full.yml`，推完跑一次）
 3. **`f0ea3b51`（03）把 `public/css/app.css` 整份寫成 CRLF**（主控抓到；Python 改檔沒帶 `newline='\n'`、接縫兩個單獨的 CR → git 當成 -text 不轉）。
    段二另一個 commit 修回純 LF（內容只差 03 那三段 CSS）、`lessons.md` 十一那一條補了這一次
-4. 2 個 worker 下 `01` 的 J-E10、`91` 的 N4 各紅過一次（`signIn` 的 `waitForFunction` 20 秒逾時），單獨重跑都綠 —— 跟這一輪無關，記著
+4. **接 HTC 的路（段五照用）**：USB 偵錯接上之後 Windows 把 ADB 介面配了通用的 `winusb.inf`、沒有 ADB 的介面 GUID → `adb devices` 是空的。
+   她 11/6 自己裝了 **Google USB Driver**（`Android Composite ADB Interface`），之後 `adb devices` 認得（`CN3813D02586`）。
+   無線偵錯走不通：筆電用 HTC 的熱點上網時 HTC 沒有連 Wi-Fi，無線偵錯開不了（三星不在身邊）。
+   adb 在 `%LOCALAPPDATA%\Android\platform-tools`（Claude 的沙盒裡實際路徑在 `…\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\Android\platform-tools`，PowerShell 用 `$env:LOCALAPPDATA` 找得到）。
+   接模擬器：`adb reverse tcp:<port> tcp:<port>`（5000、8080、9099、5001、9199、9150、4400）＋`adb forward tcp:9222 localabstract:chrome_devtools_remote` 用 Playwright `connectOverCDP` 操作手機上的頁面。
+   **模擬器的 Google 登入在手機上走轉頁回來會是沒登入**（handler 在 127.0.0.1:9099、app 在 localhost:5000）→ 在頁面裡 `signInWithCredential(GoogleAuthProvider.credential('{"sub":…}'))` 再 `allowUser(uid)`；
+   **跑種子／`allowUser` 要帶 `E2E_WORKERS=1`**（settings 的 `E2E_WORKERS=2` 會寫到別組模擬器）
+5. 2 個 worker 下 `01` 的 J-E10、`91` 的 N4 各紅過一次（`signIn` 的 `waitForFunction` 20 秒逾時），單獨重跑都綠 —— 跟這一輪無關，記著
 
 ## 要她決定的
+
+- **段二沒有要問的**（中途發現 1–5 都不用她決定）
 
 1. ~~長按選單~~ → 她 11/6 回了（她已經決定的）
 3. ~~段一的兩件~~ → 她 11/6 回「照建議」（她已經決定的）
@@ -126,6 +135,33 @@ ADR 用 0178（0177 被平行的試算表那一輪拿走了）。`linkId` 這個
 
 做完要交：兩支各一個 commit 並推上去（`git push -u origin claude/notes-widget`；推之前看一眼 commit 訊息沒有真名、`node --test tests/no-secrets.test.js` skipped 0）、
 `Status: done`、「做完時留下的」、HANDOFF 更新（分段表狀態、中途發現、要她決定的）、段二的開場與 effort（high）寫進 HANDOFF「每一段的開場」；最後回覆簡短說做了什麼、卡在哪。
+```
+
+### 段三（effort：xhigh）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具（後面幾段）。
+你是段三：用 `/matt-code-review` 審網頁那一半（issue 01、02、03、04、05、10），審的範圍是這條分支從 develop 分出來之後的全部（`git merge-base origin/develop HEAD` 到 HEAD）。只審、記下來，不修（修是段四）。
+
+在 worktree `.claude/worktrees/notes-widget`（分支 `claude/notes-widget`，已推）。段一：04 `ebc08555`、05 `c86ed1e8`；段二：02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`、app.css 換回 LF、01（ADR-0181）。
+先讀：`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」「過目抓到的」「中途發現」段一與段二）；`.scratch/notes-widget/spec.md`；
+issue 01–05、10 各自的「做完時留下的」；ADR-0179、ADR-0181；`CLAUDE.md`；`docs/agents/lessons.md`（一、二、五、十一、十三特別相關）。
+
+要特別看的（段二自己知道比較弱的地方）：
+- 02 的 `.notemeta` 用 `display: contents`＋`order` 排一排：四個入口（首頁那張卡、泡泡、日曆待辦編輯器、客戶詳情）在 360 寬、選了日期與人、深色主題下的樣子
+- 03 的 `wireSuggest()`：注音組字（`compositionend` 在某些鍵盤之後不再發 `input`）、點丸子不失焦（`pointerdown`／`mousedown` 擋預設）、`maxlength` 被換成全名之後超過時怎麼樣
+- 03：打字就讀一次客戶名單（以前只有點開「掛給誰」才讀）
+- 10：`renderNotesLink()` 的 `history.replaceState` 與 `ui/nav.js` 記的那幾筆紀錄、返回鍵
+- 01：`interactive-widget=resizes-content` 是全站的；`html[data-keyboard]` 收起導覽列時 toast 的位置（`--toast-lift`、66px 那一條）、iPad
+- 整輪的判準（HANDOFF「每一段共同的規矩」最後一條）
+
+規矩：同時最多兩個 subagent（skill 寫全部同時開也一樣，兩個一批）；找到的先自己讀前後文、能重現就重現，確定是錯而且重要才記；
+記進 `.scratch/notes-widget/REVIEW.md`（每一條：哪裡、什麼情境會錯、建議怎麼修、嚴重程度），要她決定的收成一題附建議寫進 HANDOFF「要她決定的」。
+不用起模擬器、不接 HTC（HTC 上的是本機模擬器版，段二收尾已經移掉）。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：REVIEW.md commit 並推上去、HANDOFF 更新（分段表、要她決定的）、段四（照審查修＋手動驗收清單＋PR，effort high）的開場；最後回覆簡短說找到幾條、哪幾條要她決定。
 ```
 
 ### 段二（effort：high）
