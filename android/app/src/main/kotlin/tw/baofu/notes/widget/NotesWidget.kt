@@ -53,6 +53,8 @@ import kotlinx.coroutines.launch
 import tw.baofu.notes.BuildConfig
 import tw.baofu.notes.MainActivity
 import tw.baofu.notes.R
+import tw.baofu.notes.capture.CaptureActivity
+import tw.baofu.notes.capture.MenuActivity
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Js
 import tw.baofu.notes.core.Notes
@@ -70,6 +72,7 @@ import java.util.Locale
  * - 標題「隨手記」＋數字（一組算 1：`Notes.openCount()`，跟網頁首頁同一支）、右上角灰的麥克風（這一輪不會動）與 ＋
  * - 清單：core 的 [WidgetList.sections]（今天 → 過了 → 沒日期 → 以後的；連在一起的一組一列）；段跟段之間一條很淡的線、不寫標題
  * - 點勾選框＝勾掉（劃線 3 秒後才離開，[WidgetSync.tick]）；**營養品的提醒點勾＝打開網頁問「給了哪幾款」**（`WebLinks.note`）
+ * - ＋＝浮在桌面上的輸入卡、點字＝那一筆的選單（08，`capture/`）
  * - 點標題＝打開網頁 app 的隨手記那一頁（裝到主畫面的那一顆會接走它的網址）
  *
  * 規則一條都不在這裡：排序、分組、數字、徽章都問 core。
@@ -196,7 +199,7 @@ private fun Header(context: Context, count: Int?, palette: Palette) {
         }
         Spacer(GlanceModifier.width(8.dp))
         Box(
-            GlanceModifier.size(42.dp).background(c(palette.accent)).cornerRadius(21.dp).clickable(actionStartActivity<MainActivity>()),
+            GlanceModifier.size(42.dp).background(c(palette.accent)).cornerRadius(21.dp).clickable(actionStartActivity<CaptureActivity>()),
             contentAlignment = Alignment.Center,
         ) {
             Image(ImageProvider(R.drawable.ic_plus), contentDescription = "記一筆", colorFilter = ColorFilter.tint(c(palette.onAccent)), modifier = GlanceModifier.size(22.dp))
@@ -248,8 +251,8 @@ private fun NoteRow(context: Context, row: Notes.Row, today: String, struck: Boo
     }
 }
 
-/** 點字：07 先打開網頁那一筆（08 換成浮在桌面上的選單）。 */
-private fun rowTap(context: Context, id: String) = openUrl(WebLinks.note(BuildConfig.WEB_ORIGIN, id))
+/** 點字：浮在桌面上的那一筆的選單（08；小工具上沒有長按 —— 長按是手機拿來搬小工具的）。 */
+private fun rowTap(context: Context, id: String) = actionStartIntent(MenuActivity.intent(context, id))
 
 /** 一列右邊那幾顆：連在一起的「共 N 天」、掛給誰、日期（過了是逾期的字色、不是紅底 —— 跟網頁 `row()` 同一套意思）。 */
 @Composable

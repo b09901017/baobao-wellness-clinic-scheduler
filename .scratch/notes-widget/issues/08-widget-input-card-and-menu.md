@@ -1,6 +1,6 @@
 # 08：浮在桌面上的輸入卡（2）與點一筆跳出的選單
 
-Status: todo
+Status: done
 Blocked by: 06、07；樣子定稿她點頭了
 
 ## 動工前先讀
@@ -42,4 +42,28 @@ Blocked by: 06、07；樣子定稿她點頭了
 
 ## 做完時留下的
 
-（做完補）
+段六（2026-11-06）。HTC U23 Pro 接本機模擬器那一支走過（Gboard 注音）。
+
+**程式在哪**（`android/app/.../capture/`）
+
+| 檔案 | 是什麼 |
+|---|---|
+| `Floating.kt` | 共用的那一層：`FloatingActivity`（`FLAG_DIM_BEHIND` 0.38＋Android 12+ 開著跨視窗模糊就 `blurBehindRadius` 28；edge-to-edge）、`FloatingLayer`（整片是「點外面」、卡貼底部＋`imePadding()`）、`Chip`／`ChipRow`（FlowRow）、`BigField`（2～4 行、19sp）、`CustomerChips`（搜尋＋丸子、一次性標「一次性」）、`DiscardDialog`、`pickDate()`（系統的 DatePickerDialog）、`say()`（**在主執行緒跳 toast**） |
+| `CaptureActivity.kt` | ＋ 的輸入卡。打開時 `WidgetSync.pull()`（按 ＋ 時抓一次）、聚焦＋叫鍵盤。打名字跳出客戶：`Names.nameSuggestions()`，`TextFieldValue.composition` 還在就不找；點一位換字、游標接在後面、掛給他。今天／挑日期／掛給誰（＋「✕ 不掛了」）／給營養品（`WebLinks.newGive`，框裡有字先問）。「記下來」→ `Notes.validateNote()` → `AppScope` 裡 `WidgetSync.localWrite { Backend.notes.create() }`、卡先收掉 |
+| `MenuActivity.kt` | 點字的選單：打開時 `getOne()`＋`listLinked()`（沒有 `linkId` 照它的 id，小月曆圈得到上一次複製出去的）；那幾顆只問 `Notes.noteActions()`、改日期問 `dateChoices()`、小月曆圈的問 `copyPlan(…).taken`。子畫面：改日期、掛給誰（`Customers.live()` 濾停用的，跟網頁 `askCustomer()` 一樣）、改文字、複製到別天（週一起算、今天以前點不了、連在一起預設開、最上面「拆開這一天」）。營養品的提醒：勾掉開 `WebLinks.note`、「看那一包」開 `WebLinks.customer`（新的一條，`#/customers/<id>`，網頁 `home.js` 的 `onBag` 同一條；`WebLinksTest`） |
+| `Customers.kt` | 客戶名單（`customers` 還活著的、zh-TW 排）、`collator`（zh-Hant 給 `nameSuggestions`）、`matches()`（`nameHas`／`chartNoHas`）、`isOneTime()` |
+| `res/values/themes.xml` | `Theme.Notes.Floating`（透明、沒有標題）；兩個 activity 都 `taskAffinity=""`、不進最近使用（收掉就回桌面） |
+
+跳出來的字照網頁 `runAction()`：「勾掉了（共 N 天）」「改成今天（11/6(五)）」「從日曆拿掉了，隨手記裡還在」「掛給X了」「不掛人了」「改好了」「拆開了：…以後自己勾」、複製是 `Notes.copiedSay()`。
+
+**驗過的**（HTC，模擬器裡讀回來比過）
+- ＋：後面調暗＋模糊（HTC 支援跨視窗模糊）、鍵盤自己跳出來、游標在框裡、卡貼在鍵盤上面；跳出客戶那一排長出來時卡往上長、鍵盤不動
+- 注音：打 ㄨㄤˊ 的時候一個都不跳（Gboard 把組字放在自己的泡泡裡、框裡還沒有字）→ 選了「王」才跳出王大同／王小明／王小美 → 點王小明：框裡換成「王小明」、游標在後面、「掛給誰」那顆變成王小明、鍵盤沒收 → 今天 → 記下來：模擬器裡那一筆 `date` 今天、`customerId`／`customerName`、`createdBy`、伺服器時間；小工具 6 → 7、新的在今天最上面
+- 打了字點外面 → 「剛剛打的字要丟掉嗎？」；點那一句外面＝繼續寫（字還在、鍵盤回來）；✕ → 丟掉 → 什麼都沒寫
+- 選單：連在一起的一組（3 天）抬頭底下 11/6(五)（標著）11/8 11/10、五顆＋先不要、底下小字「3 天一起」「只改這一天」「3 天一起改」；營養品的提醒是「勾掉（會先問給了哪幾款）／改日期／看那一包營養品」，沒有複製
+- 複製到別天：點 12、13 → 「複製到 2 天」→ 模擬器裡多兩筆、同一個 `linkId`、小工具「共 5 天」；拆開這一天 → `linkId` null、今天那一筆自己一列、另外 4 天一列
+- 改日期 → 改成今天（過期的 11/4 那一筆）→ 模擬器 `date` 今天、小工具搬到今天那一段；改掛給誰 → 王小美 → 小工具那一列換人
+
+**中途修的**：寫完在背景跳 toast 讓整支程式當掉（不在主執行緒）—— 程式死了小工具就停在舊的（第一次以為是 Glance 掉了更新）。`say()` 改成丟回主執行緒、`AppScope` 加一層 `CoroutineExceptionHandler`（背景那一段出錯不帶走整支程式）。
+
+**沒驗到的**：改文字（要在 HTC 上打中文，`adb input` 打不出來；跟改掛給誰同一條 `write()`）；挑日期的系統日期框（沒點）；給營養品／看那一包（會打開手機瀏覽器裡登入著真的 staging）；三星鍵盤的組字（三星段九）。

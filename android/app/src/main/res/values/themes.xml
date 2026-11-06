@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      浮在桌面上的那一層（08：輸入卡、點一筆的選單）：透明、全螢幕、沒有標題。
+      後面調暗與模糊在程式裡開（FloatingActivity：FLAG_DIM_BEHIND、Android 12+ blurBehindRadius）。
+    -->
+    <style name="Theme.Notes.Floating" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

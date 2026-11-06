@@ -126,4 +126,10 @@ object WebLinks {
 
     /** 打開隨手記那一頁、「記一筆」打開、給營養品已經展開。 */
     fun newGive(origin: String): String = "$origin/#/todo/notes/new/give"
+
+    /**
+     * 選單的「看那一包營養品」：那一位客戶的詳情頁（網頁 `home.js` 的 `onBag` 走的同一條 `#/customers/<id>`）。
+     * 網頁沒有一支回這條網址的函式（各頁 `go('/customers/…')`），所以不在情境檔的 `links` 裡 —— `WebLinksTest` 釘著。
+     */
+    fun customer(origin: String, id: String): String = "$origin/#/customers/$id"
 }
