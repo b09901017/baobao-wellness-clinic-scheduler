@@ -429,6 +429,19 @@ describe('資料健檢', async () => {
     assert.match(f.findings[0].detail, /11\/8.*勾了.*11\/6.*還沒勾/);
   });
 
+  // 段三審查 R4：以前先換成「11/10(二)」再排字，十號排在九號前面、沒有日期的排在哪裡看字碼；也沒有連結
+  test('日子照日期排（沒有日期的放最後）、連到隨手記那一頁', () => {
+    const rows = [
+      note({ id: 'a', linkId: 'a', date: '2026-11-08', done: true }),
+      note({ id: 'b', linkId: 'a', date: '2026-11-10' }),
+      note({ id: 'c', linkId: 'a', date: null }),
+      note({ id: 'd', linkId: 'a', date: '2026-11-09' }),
+    ];
+    const f = check(run(rows), 'linkedNotes').findings[0];
+    assert.equal(f.detail, '11/8(日) 勾了；11/9(一)、11/10(二)、沒有日期 還沒勾');
+    assert.equal(f.link, '#/todo/notes');
+  });
+
   test('勾得一樣、只剩一筆、刪掉的那一筆勾法不一樣 → 都不列', () => {
     const [a, b, c] = trio();
     assert.equal(check(run(trio()), 'linkedNotes').findings.length, 0);

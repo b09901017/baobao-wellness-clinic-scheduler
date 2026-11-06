@@ -2451,13 +2451,18 @@ function checkLinkedNotes(ctx) {
     const ticked = members.filter((n) => n.done);
     if (!ticked.length || ticked.length === members.length) continue;
     const head = members[0];
-    const days = (rows) => rows.map((n) => (n.date ? shortDate(n.date) : '沒有日期')).sort().join('、');
+    // 先照日期排再換成「11/8(日)」（換了再排是排字：十號跑到九號前面），沒有日期的放最後（段三審查 R4）
+    const days = (rows) => [...rows]
+      .sort((a, b) => String(a.date ?? '￿').localeCompare(String(b.date ?? '￿')))
+      .map((n) => (n.date ? shortDate(n.date) : '沒有日期'))
+      .join('、');
     out.push({
       severity: 'attention',
       ...(head.customerId ? { who: head.customerName ?? nameOf(ctx, head.customerId), whoId: head.customerId } : {}),
       title: `隨手記「${String(head.text ?? '').slice(0, 20)}」`,
       detail: `${days(ticked)} 勾了；${days(members.filter((n) => !n.done))} 還沒勾`,
-      link: null,
+      // 提示叫她到隨手記那一頁再勾一次 —— 給連結（同 `checkOrphans()` 沒掛客戶時那一條）
+      link: '#/todo/notes',
       fix: null,
     });
   }
