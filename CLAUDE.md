@@ -19,7 +19,7 @@
 | `docs/MacroDroid設定.md` | **她手機上**那個打開 LINE 對話的 MacroDroid 巨集怎麼設（觸發條件、兩個變數、每一步）。app 那一側的規則不寫這裡（在 ADR-0157 與「客戶的 LINE 那一格」那一列）；**截圖不放**（畫面上有好友的名字） |
 | `.scratch/<feature-slug>/issues/` | 待辦的 issue，不使用 GitHub Issues。動工前先看有沒有相關的，格式見 `docs/agents/issue-tracker.md` |
 | `docs/agents/lessons.md` | 之前的 session 一再犯、測試又沒抓到的坑（形狀＋一句自問）。**動工前先掃一遍**；踩到新的就照格式補一條 |
-| `docs/agents/worktree.md` | **在 worktree 裡做事，第一件事照它接好** `.local`、CodeGraph、graphify、`node_modules` —— 少了的時候真名掃描會跳過、CodeGraph 會安靜地查到別條分支的程式碼 |
+| `docs/agents/worktree.md` | **在 worktree 裡做事，第一件事照它接好** CodeGraph、graphify、`node_modules` —— 少了的時候 CodeGraph 會安靜地查到別條分支的程式碼。**`.local` 不建連結一直放著**（刪 worktree 時可能順著刪進真資料），過濾網寫主資料夾的路徑 |
 
 寫新文件前先確認這件事還沒被寫過。
 
