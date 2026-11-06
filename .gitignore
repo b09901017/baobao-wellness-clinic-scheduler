@@ -33,6 +33,20 @@ keys/
 .secret.local
 functions/.runtimeconfig.json
 
+# === Android（隨手記小工具，android/，ADR-0180）===
+# local.properties 寫著這台電腦的 SDK 路徑（Windows 使用者名稱）。簽章鑰匙與它的密碼**絕不進版控**：
+# 本機在 ~/.android 與 ~/.gradle/gradle.properties，CI 從 GitHub Secrets 拿。前面沒有斜線＝哪一層都擋。
+# google-services.json 刻意**不**擋：它跟 firebase-config.js 同一類，是公開的設定。
+local.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+android/.gradle/
+android/.kotlin/
+android/build/
+android/*/build/
+
 # === Firebase 工具產物 ===
 .firebase/
 firebase-debug.log*

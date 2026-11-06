@@ -12,6 +12,7 @@ Blocked by: 07、08
 ## 要做的
 
 - **Firebase App Distribution**：兩個專案各開（先問她 —— 主控台的設定）、她的 email 加進測試者、GitHub Actions 建好上傳（或手動上傳的步驟寫清楚）；**不公開下載**
+- **簽章（段五留下的）**：release 鑰匙**只有她筆電上一份**（`~/.android/baofu-notes-release.jks`，密碼在 `~/.gradle/gradle.properties` 的 `baofuNotes*`，SHA-1 已登記在兩個 Firebase 專案）。放進 GitHub Secrets（`app/build.gradle.kts` 的 `secret()` 認 `BAOFU_NOTES_STORE_FILE`／`_STORE_PASSWORD`／`_KEY_ALIAS`／`_KEY_PASSWORD`；鑰匙檔用 base64 的 secret 在 workflow 裡解成檔案）、**備份放哪先問她**（建議私人 repo `.local`）—— 弄丟了，裝好的那一支要移除重裝、Firebase 換登記一把 SHA-1。HTC 上現在裝的是筆電 debug 鑰匙簽的那一支（登入著 staging）：換成派送的 release 那一支**之前要先移除**（簽章不一樣裝不上去），手動驗收清單寫進去
 - HTC 裝「隨手記（測試）」、三星裝「隨手記」（**三星裝正式版之前她在 HTC 上點過、說可以**）；第一次「允許安裝不明來源」的步驟一步一步寫給她
 - 文件：
   - `docs/STAGING.md` 加一節「桌面小工具」：裝、更新、換手機、簽章鑰匙在哪（GitHub Secrets 的名字，不寫值）、怎麼建一版

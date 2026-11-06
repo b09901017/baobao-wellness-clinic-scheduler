@@ -15,7 +15,11 @@
 #
 #     git rm --cached -r . && git reset --hard
 #
-# 這個 repo 沒有任何必須是 CRLF 的檔案（沒有 .bat / .cmd / .ps1）。
+# **唯一的例外是 Android 的 `gradlew.bat`**（隨手記小工具，ADR-0180）：cmd 讀 LF 的批次檔會錯行，
+# 所以 `.bat` 要 CRLF。Gradle wrapper 的 jar 與圖示是二進位，明寫出來不讓 text=auto 去猜。
 * text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.png binary
 
 graphify-out/graph.json merge=graphify

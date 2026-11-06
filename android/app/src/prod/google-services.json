@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "4875686059",
+    "project_id": "wellness-clinic-scheduler",
+    "storage_bucket": "wellness-clinic-scheduler.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:4875686059:android:80eb09363f4d1a8007a7ee",
+        "android_client_info": {
+          "package_name": "tw.baofu.notes"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "4875686059-6l12mj1clgd8pgeecg31jc2b00vrj1cc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tw.baofu.notes",
+            "certificate_hash": "69689f3c5810d611777560effee24beb32a88b3b"
+          }
+        },
+        {
+          "client_id": "4875686059-742ja51sv4avdnk9jqackv1mvt9tqmas.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tw.baofu.notes",
+            "certificate_hash": "d4ccce44eacf01bbd24ac22ab2b0a9f72661af01"
+          }
+        },
+        {
+          "client_id": "4875686059-hmrr7c3gvun2sbm291epfkrr4jktu34v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWxNFI-fZ_qTaDiI9e50Zw-o5Ejj6oyGk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "4875686059-hmrr7c3gvun2sbm291epfkrr4jktu34v.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

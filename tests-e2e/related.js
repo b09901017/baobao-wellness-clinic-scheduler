@@ -65,6 +65,9 @@ export const IGNORED = [
   '.gitattributes', 'skills-lock.json',
   // 查牽連的工具（CodeGraph、graphify）要掃哪些檔，app 一個字都不讀
   'codegraph.json', '.graphifyignore', '.codegraph/',
+  // Android 的隨手記小工具（ADR-0180）：另一支 app，網頁一個字都不讀；它照抄的規則由 tests/notes-parity.test.js
+  // 與 .github/workflows/android.yml 盯著，不靠 E2E
+  'android/',
 ];
 
 /**
