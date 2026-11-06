@@ -52,6 +52,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import tw.baofu.notes.BuildConfig
 import tw.baofu.notes.MainActivity
+import tw.baofu.notes.NoteTaps
 import tw.baofu.notes.R
 import tw.baofu.notes.capture.CaptureActivity
 import tw.baofu.notes.capture.MenuActivity
@@ -71,7 +72,7 @@ import java.util.Locale
  *   —— 三星 One UI 7+ 替它模糊桌布的條件（spec「查過的事實」；三星沒寫在文件裡，三星段九實機試）
  * - 標題「隨手記」＋數字（一組算 1：`Notes.openCount()`，跟網頁首頁同一支）、右上角灰的麥克風（這一輪不會動）與 ＋
  * - 清單：core 的 [WidgetList.sections]（今天 → 過了 → 沒日期 → 以後的；連在一起的一組一列）；段跟段之間一條很淡的線、不寫標題
- * - 點勾選框＝勾掉（劃線 3 秒後才離開，[WidgetSync.tick]）；**營養品的提醒點勾＝打開網頁問「給了哪幾款」**（`WebLinks.note`）
+ * - 點勾選框＝勾掉（劃線 3 秒後才離開，[WidgetSync.tick]）；**營養品的提醒點勾＝打開網頁問「給了哪幾款」**（`NoteTaps`，三個入口共用）
  * - ＋＝浮在桌面上的輸入卡、點字＝那一筆的選單（08，`capture/`）
  * - 點標題＝打開網頁 app 的隨手記那一頁（裝到主畫面的那一顆會接走它的網址）
  *
@@ -224,8 +225,7 @@ private fun Divider(palette: Palette) {
 private fun NoteRow(context: Context, row: Notes.Row, today: String, struck: Boolean, palette: Palette) {
     val note = row.note
     val id = note["id"] as String
-    val product = Js.truthy(note["entitlementId"])
-    val tick = if (product) openUrl(WebLinks.note(BuildConfig.WEB_ORIGIN, id))
+    val tick = if (NoteTaps.asksWhatWasGiven(note)) openUrl(NoteTaps.givePage(id))
     else actionRunCallback<TickAction>(actionParametersOf(TickAction.NOTE_ID to id))
 
     Row(GlanceModifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {

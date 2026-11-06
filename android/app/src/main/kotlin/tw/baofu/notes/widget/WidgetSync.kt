@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import tw.baofu.notes.AppScope
 import tw.baofu.notes.Backend
+import tw.baofu.notes.NoteTaps
 import tw.baofu.notes.SignIn
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Doc
@@ -119,8 +120,8 @@ object WidgetSync {
             return
         }
         val row = Notes.groupLinked(view.notes, Dates.todayIso()).firstOrNull { it.note["id"] == id } ?: return
-        // 營養品的提醒不在這裡勾（畫面上那一格打開網頁問「給了哪幾款」）—— 萬一走到這裡也不寫
-        if (row.note["entitlementId"] != null) return
+        // 營養品的提醒不在這裡勾（畫面上那一格打開網頁問「給了哪幾款」，`NoteTaps`）—— 萬一走到這裡也不寫
+        if (NoteTaps.asksWhatWasGiven(row.note)) return
         val until = System.currentTimeMillis() + WidgetStore.LINGER_MS
         change(context, uid) { it.copy(ticking = it.ticking + (id to WidgetStore.Ticking(until, row.members))) }
         AppScope.launch {

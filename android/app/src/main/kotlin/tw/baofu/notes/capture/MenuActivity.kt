@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import tw.baofu.notes.AppScope
 import tw.baofu.notes.Backend
 import tw.baofu.notes.BuildConfig
+import tw.baofu.notes.NoteTaps
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Doc
 import tw.baofu.notes.core.Js
@@ -142,11 +143,10 @@ class MenuActivity : FloatingActivity() {
 
     private fun onAction(action: String, n: Doc, reach: Notes.Reach?, go: (Screen) -> Unit) {
         val id = Js.str(n["id"])
-        val product = Js.truthy(n["entitlementId"])
         when (action) {
-            // 營養品的提醒：打開網頁問「給了哪幾款」（規則只在網頁 `domain/products.js`）
-            "tick" -> if (product) {
-                openWeb(this, WebLinks.note(BuildConfig.WEB_ORIGIN, id))
+            // 營養品的提醒：打開網頁問「給了哪幾款」（規則只在網頁 `domain/products.js`；三個入口共用 `NoteTaps`）
+            "tick" -> if (NoteTaps.asksWhatWasGiven(n)) {
+                openWeb(this, NoteTaps.givePage(id))
                 finish()
             } else {
                 write({ "勾掉了${Notes.linkedWords(reach).toast}" }) { Backend.notes.setDone(id, true) }

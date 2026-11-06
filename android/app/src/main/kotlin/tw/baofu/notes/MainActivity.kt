@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
+import tw.baofu.notes.capture.openWeb
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Notes
 import tw.baofu.notes.widget.NotesWidgetReceiver
@@ -176,6 +177,11 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
         items(rows, key = { it.note["id"] as String }) { row ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = false, onCheckedChange = {
+                    // 營養品的提醒：打開網頁問「給了哪幾款」，不在這裡勾（REVIEW-android R1；三個入口共用 `NoteTaps`）
+                    if (NoteTaps.asksWhatWasGiven(row.note)) {
+                        openWeb(context, NoteTaps.givePage(row.note["id"] as String))
+                        return@Checkbox
+                    }
                     scope.launch {
                         try {
                             Backend.notes.setDone(row.note["id"] as String, true)
