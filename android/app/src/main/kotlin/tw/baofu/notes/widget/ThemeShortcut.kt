@@ -8,10 +8,7 @@ import android.widget.Toast
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import tw.baofu.notes.AppScope
 import tw.baofu.notes.R
 
 /**
@@ -50,7 +47,7 @@ class ThemeActivity : Activity() {
         ThemeShortcut.refresh(this)
         Toast.makeText(this, if (dark) "小工具換成深色了" else "小工具換成淺色了", Toast.LENGTH_SHORT).show()
         val app = applicationContext
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { WidgetSync.push(app) }
+        AppScope.launch { WidgetSync.push(app) }
         finish()
     }
 }

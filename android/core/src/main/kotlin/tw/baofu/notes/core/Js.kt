@@ -48,9 +48,6 @@ object Js {
         is Double -> v != 0.0 && !v.isNaN()
         else -> true
     }
-
-    /** `a ?? b`：只有 null 才換。 */
-    fun <T> nullish(a: T?, b: T?): T? = a ?: b
 }
 
 /** Firestore 的時間（伺服器寫的 `createdAt`、`updatedAt`、`deletedAt`）。app 那一層跟 `com.google.firebase.Timestamp` 互換。 */

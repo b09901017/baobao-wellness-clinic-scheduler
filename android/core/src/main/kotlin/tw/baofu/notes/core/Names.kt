@@ -124,6 +124,9 @@ object WebLinks {
     /** 打開隨手記那一頁、跳出這一筆的選單（營養品的提醒直接問「給了哪幾款」）。 */
     fun note(origin: String, id: String): String = "$origin/#/todo/notes/note/$id"
 
+    /** 小工具點標題「隨手記」：網頁的隨手記那一頁（`#/todo/notes`）。跟 [customer] 一樣不在情境檔，`WebLinksTest` 釘著。 */
+    fun notesPage(origin: String): String = "$origin/#/todo/notes"
+
     /** 打開隨手記那一頁、「記一筆」打開、給營養品已經展開。 */
     fun newGive(origin: String): String = "$origin/#/todo/notes/new/give"
 

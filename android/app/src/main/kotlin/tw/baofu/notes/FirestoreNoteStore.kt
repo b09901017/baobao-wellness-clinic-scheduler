@@ -42,23 +42,23 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
      * 預設來源（`Source.DEFAULT`）：連不上伺服器時回這台手機的快取、**不丟錯** —— 所以把 `isFromCache` 交出去，
      * 同步只認伺服器的答案（core 的 `NotesSync`，REVIEW-android R2）。
      */
-    override suspend fun listOpen(path: String): Listing =
+    override suspend fun listOpen(path: String): Listing = openQuery(path).get().await().let(::listing)
+
+    /**
+     * 還沒勾、還活著的那一個查詢（網頁 `listOpen()`：同一個複合索引）—— [listOpen]、[listOpenCached]、主畫面的即時清單共用，不各寫一份。
+     */
+    fun openQuery(path: String): Query =
         db.collection(path)
             .whereEqualTo("deletedAt", null)
             .whereEqualTo("done", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .get().await().let(::listing)
 
     /**
      * 同 [listOpen]，**只讀這台手機的快取**（不等網路）：小工具上自己寫完要馬上換掉清單時用 ——
      * 自己剛寫的那幾筆已經在快取裡（還沒送到伺服器也在），等伺服器的話網路慢就要等好幾秒。
      */
     suspend fun listOpenCached(path: String): List<Doc> =
-        db.collection(path)
-            .whereEqualTo("deletedAt", null)
-            .whereEqualTo("done", false)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .get(Source.CACHE).await().documents.map(::withId)
+        openQuery(path).get(Source.CACHE).await().documents.map(::withId)
 
     /** 單欄位的範圍查詢（自動索引）；**不濾 `deletedAt`、不加 limit**（理由在 core 的 `NotesSync`）。 */
     override suspend fun listUpdatedSince(path: String, since: Ts): Listing =
@@ -69,7 +69,7 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
 
     private fun listing(snap: QuerySnapshot): Listing = Listing(snap.documents.map(::withId), fromCache = snap.metadata.isFromCache)
 
-    private fun withId(d: DocumentSnapshot): Doc =
+    fun withId(d: DocumentSnapshot): Doc =
         linkedMapOf<String, Any?>("id" to d.id) + toCore(d.data ?: emptyMap<String, Any?>())
 
     override fun newId(path: String): String = db.collection(path).document().id

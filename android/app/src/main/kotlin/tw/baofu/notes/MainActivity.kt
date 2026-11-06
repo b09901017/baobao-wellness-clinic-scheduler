@@ -36,11 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import tw.baofu.notes.capture.openWeb
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Notes
+import tw.baofu.notes.core.NotesWriter
 import tw.baofu.notes.widget.NotesWidgetReceiver
 import tw.baofu.notes.widget.WidgetSync
 
@@ -141,16 +141,13 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
 
     // 還沒勾的（網頁 `listOpen()` 同一個查詢、同一個索引）；本機還沒送出的那幾筆也在裡面（離線照記）
     DisposableEffect(Unit) {
-        val reg: ListenerRegistration = Backend.db.collection("notes")
-            .whereEqualTo("deletedAt", null)
-            .whereEqualTo("done", false)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
+        val reg: ListenerRegistration = Backend.store.openQuery(NotesWriter.PATH)
             .addSnapshotListener { snap, err ->
                 if (err != null) {
                     say(Say.failed("讀不到隨手記", err))
                     return@addSnapshotListener
                 }
-                val docs = snap?.documents?.map { linkedMapOf<String, Any?>("id" to it.id) + FirestoreNoteStore.toCore(it.data ?: emptyMap<String, Any?>()) }
+                val docs = snap?.documents?.map(Backend.store::withId)
                 rows = Notes.groupLinked(docs ?: emptyList(), Dates.todayIso())
             }
         onDispose { reg.remove() }

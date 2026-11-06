@@ -22,8 +22,11 @@ class NotesApp : Application() {
  * 卡片收掉之後還要做完的事（存檔、換小工具的清單）：不跟著畫面一起取消。
  */
 object AppScope {
-    /** 背景那一段出錯不可以把整支程式帶走（小工具會停在舊的、輸入卡下一次打不開）：記一行，其餘照常。 */
-    private val guard = CoroutineExceptionHandler { _, e -> Log.e("AppScope", "背景的一段失敗了", e) }
+    /**
+     * 背景那一段出錯不可以把整支程式帶走（小工具會停在舊的、輸入卡下一次打不開）：記一行，其餘照常。
+     * 自己開 scope 的地方（receiver 要配 `goAsync()`）也掛這一個。
+     */
+    val guard = CoroutineExceptionHandler { _, e -> Log.e("AppScope", "背景的一段失敗了", e) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + guard)
 
     fun launch(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)

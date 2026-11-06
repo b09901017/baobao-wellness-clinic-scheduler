@@ -50,6 +50,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import tw.baofu.notes.AppScope
 import tw.baofu.notes.BuildConfig
 import tw.baofu.notes.MainActivity
 import tw.baofu.notes.NoteTaps
@@ -97,7 +98,8 @@ class NotesWidget : GlanceAppWidget() {
 class NotesWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = NotesWidget()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // 配 `goAsync()` 的 `finish()`，自己一個 scope；出錯不帶走整支程式（跟 `AppScope` 同一個 handler）
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + AppScope.guard)
 
     override fun onUpdate(context: Context, appWidgetManager: android.appwidget.AppWidgetManager, appWidgetIds: IntArray) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
@@ -186,7 +188,7 @@ private fun Content(context: Context, view: WidgetStore.View?, signedIn: Boolean
 private fun Header(context: Context, count: Int?, signedIn: Boolean, palette: Palette) {
     Row(GlanceModifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            GlanceModifier.defaultWeight().clickable(openUrl("${BuildConfig.WEB_ORIGIN}/#/todo/notes")),
+            GlanceModifier.defaultWeight().clickable(openUrl(WebLinks.notesPage(BuildConfig.WEB_ORIGIN))),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("隨手記", style = TextStyle(color = c(palette.text), fontSize = 19.sp, fontWeight = FontWeight.Bold))
