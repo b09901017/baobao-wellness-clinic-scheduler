@@ -235,6 +235,23 @@ describe('一句話講完一則稽核', () => {
     );
   });
 
+  // ADR-0179：複製時原本那一筆只改了 `linkId`、拆開這一天把它清掉 —— 兩句都講得出是哪一筆待辦
+  test('連到別天、拆開這一天講得出是哪一筆待辦（不是「修改隨手記」）', () => {
+    const base = { customerName: '客戶A', text: '帶健保卡', date: '2026-09-03' };
+    assert.equal(
+      describeEvent(ev('notes.update', base, { linkId: 'n1' }, 'notes/n1')),
+      '客戶A・待辦「帶健保卡」・連到別天',
+    );
+    assert.equal(
+      describeEvent(ev('notes.update', { ...base, linkId: 'n1' }, { linkId: null }, 'notes/n2')),
+      '客戶A・待辦「帶健保卡」・9/3(四) 拆開',
+    );
+    assert.equal(
+      describeEvent(ev('notes.update', { text: '帶健保卡', linkId: 'n1' }, { linkId: null }, 'notes/n2')),
+      '待辦「帶健保卡」・拆開',
+    );
+  });
+
   test('次數只講數字怎麼變，不講欄位叫什麼', () => {
     const line = describeEvent(ev('customers/c1/entitlements.update',
       { label: '復能', doneCount: 7 },

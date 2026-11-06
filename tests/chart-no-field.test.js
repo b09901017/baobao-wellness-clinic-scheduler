@@ -172,8 +172,8 @@ describe('資料健檢：病歷號還寫成一則短備註', () => {
   const run = (customers) => runHealthCheck({ customers, master: {} }, '2026-10-19');
   const check = (r, id) => r.checks.find((c) => c.id === id);
 
-  test('接在 CHECKS 最後面', () => {
-    assert.equal(CHECKS.at(-1).id, 'chartNoField');
+  test('接在 CHECKS 後面（它後面只有 11/6 的「連在一起的隨手記勾得不一樣」）', () => {
+    assert.deepEqual(CHECKS.slice(-2).map((c) => c.id), ['chartNoField', 'linkedNotes']);
   });
 
   test('一位一顆、改完的樣子就是 chartNoMove()', () => {

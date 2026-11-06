@@ -23,7 +23,7 @@ import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
-import { sortNotes, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
+import { groupLinked, linkedBadge, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
@@ -226,7 +226,8 @@ function paint(ctx) {
   };
   const flags = rules.splitFlags(customer, clinicalFlags);
   const partners = rules.partnersOf(customer);
-  const openNotes = sortNotes(notes).filter((n) => !n.done);
+  // 連在一起的一組算 1（ADR-0179）：清單上它就是一列
+  const openNotes = groupLinked(notes, today).filter((r) => !r.note.done);
   // 營養品跟課程額度分開畫（ADR-0057）：那一排卡的主體是三段式進度條，
   // 而營養品永遠是滿的 —— 沒有任何一筆來訪扣得掉它。
   const pools = entitlements.filter((e) => !isProduct(e));
@@ -1027,8 +1028,9 @@ async function deleteCustomer(ctx) {
         const l = taskLine(t, own.visits.find((v) => v.id === t.visitId), master);
         return `待辦「${l.kind}」・${l.date ? shortDate(l.date) : ''}`;
       };
-      const noteOf = (n) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
-        n.date ? `・${shortDate(n.date)}` : ''}`;
+      // 連在一起的一組講一行（ADR-0179）：三天是同一件事
+      const noteOf = ({ note: n, ...row }) => `隨手記「${n.text.length > 12 ? `${n.text.slice(0, 12)}…` : n.text}」${
+        n.date ? `・${shortDate(n.date)}` : ''}${linkedBadge(row) ? `・${linkedBadge(row)}` : ''}`;
       // 「去批次取消」打開**今天以後最早**那一天的月份（issues/17）。已經過了、還沒結案的
       // 那幾筆該去簽療程單 —— 擋著的全部都是那種時，這一顆本身就是錯的路
       const ahead = block.visits.map((v) => v.date).filter((d) => d >= todayISO()).sort()[0];
@@ -1037,7 +1039,7 @@ async function deleteCustomer(ctx) {
         consequences: [
           ...block.visits.map((v) => `${shortDate(v.date)}　${visitCourseLabel(v, master)}（${describeStatus(v.status)}）`),
           ...block.tasks.map(lineOf),
-          ...block.notes.map(noteOf),
+          ...groupLinked(block.notes, todayISO()).map(noteOf),
           ...(block.visits.length
             ? ['那幾段在 Abovee 上還壓著：還沒到的到壓表的「批次取消」取消，已經過了的到待辦「簽療程單」結案']
             : []),
@@ -1444,10 +1446,11 @@ function taskBlock(tasks, visits = [], master = null) {
  * 混在一起的話「這件事到底會不會有人提醒我」就說不清楚了。
  */
 function notesBlock(notes) {
-  const rows = sortNotes(notes);
+  // 清單類一組一列（ADR-0179）：連在一起的那幾天是一列，日期那一顆寫代表的那一天
+  const rows = groupLinked(notes, todayISO());
   return `
     <div class="groups" data-notes>
-      ${rows.map((n) => note.row(n, { customer: false, iconSize: 12 })).join('')
+      ${rows.map((r) => note.row(r.note, { customer: false, iconSize: 12 })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
     ${/* 日期那一排包在 `.notemeta` 裡 —— 那是四個入口共用的外框

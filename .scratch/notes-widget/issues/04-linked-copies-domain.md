@@ -1,6 +1,6 @@
 # 04：複製到別天、連在一起（domain ＋ data ＋ Rules）
 
-Status: todo
+Status: done
 Blocked by: —（長按選單怎麼重排：HANDOFF「她已經決定的」—— 主控 11/6 問她）
 
 ## 動工前先讀
@@ -87,4 +87,39 @@ Blocked by: —（長按選單怎麼重排：HANDOFF「她已經決定的」—�
 
 ## 做完時留下的
 
-（做完補）
+段一（2026-11-06）。**ADR 是 0179，不是 0178**：0178 被平行的試算表那一輪先拿走了（`claude/sheet-no-freeze` 的 `0178-sheet-nothing-frozen.md`，已推上去）。
+所以這一輪往後挪一號：**0179 連在一起的隨手記、0180 原生小工具、0181 鍵盤**（要寫的話）。
+
+**名字定了（Kotlin 06 照抄）**：欄位 **`linkId`**（字串，選填；一般的隨手記是 `null`）。Rules 收：沒有、null、1～64 字的字串；跟 `entitlementId` 不能同時有。
+
+`domain/notes.js` 新的（都是純函式，`tests/notes-linked.test.js`）：
+
+| 函式 | 回什麼 |
+|---|---|
+| `linkedPeers(note, notes)` | 同一組其他**還活著**的那幾筆（不含自己）。判斷「連在一起」只有這一支；`isLinked()` ＝ 它不是空的 |
+| `linkedChanges(before, patch, peers)` | `[{ id, changes }]`：這一筆在第一個、只寫真的變了的；字、掛給誰（兩格一起）同一組一起；日期、`linkId` 只這一筆；**`done` 是她明說的值** —— 這一筆其實已經勾了時另外那幾天照樣對齊 |
+| `copyPlan(note, dates, { linked, group, newLinkId })` | `{ blocked, linkId, link, creates, skipped }`。`group` 是照 `linkId`（沒有就照它的 id）重讀的、**含已刪除的**。營養品的提醒 `blocked`；同一組那一天已經有活著的一筆進 `skipped`；拆開過的（id 被舊組當 `linkId`）與已勾掉的用 `newLinkId`（已勾掉的那一筆自己不拉進來） |
+| `groupLinked(notes, today)` | `[{ note, members, days }]`。鑰匙是 `linkId`＋勾了沒（勾得不一樣分兩列）。`note` 是代表的那一筆（今天或之後最早的；全部過了最後一天；沒日期的不當代表）；`members` 照日期；`days` 不同的日子 |
+| `linkedBadge(row)` | 「共 N 天」（兩天以上）／「共 N 筆」（兩筆以上但只有一天）／null |
+| `dateChoices(note, { today, onCalendar })` | 「改日期」那張卡：`today`（已經是今天、已勾掉的不給）、`pick`、`undate`（有日期才給、營養品不給；日曆上 label「從日曆拿掉」） |
+| `noteActions(note)` | 一般：`tick`/`untick`、`date`（「改日期」）、`who`、`edit`、`copy`（「複製到別天」，icon `copy` —— **icons.js 還沒有，05 補**）。營養品：`tick`、`date`、`bag`。第二個參數照傳、用不到了 |
+
+`openCount()` 改成數列（一組算 1）。`normalize()` 每一筆都寫 `linkId: null`；`normalizePatch()` 只在有帶到時碰它。
+
+`data/notes.js`：
+- `listLinked(linkId)`：`listWithDeleted` ＋ `where('linkId','==',…)`，不加排序（不用新索引）
+- `update(id, changes)`、`setDone(id, done)`：先 `getOne` 重讀這一筆；有 `linkId` 再 `listLinked` 重讀那一組；**沒有連在一起的跟以前一模一樣**（整份 patch 寫下去）；連在一起的走 `linkedChanges()`、一個 commit。`setDone` 回的形狀沒變（`{ done, doneAt }`）
+- `removeRow(note, reason)`：清單上的一列 —— 同一組跟它勾法一樣的整組一起軟刪除（一個 commit）。`remove()` 照舊只刪一筆（日曆編輯器用它）
+- `copyTo(note, dates, { linked = true })` → `{ created, skipped, linkId }`：重讀之後 `copyPlan()`、一個 commit（補 `linkId` ＋ 新的那幾筆）；這一筆被刪了、營養品的提醒會丟錯（訊息就是要講給她的那一句）
+- `unlink(id)`：`{ linkId: null }`
+
+畫面這一支先做了的（05 接著做樣子）：首頁那張卡**先分組再取四列**、`#/todo/notes` 兩個數字與「清掉這 N 筆」數列、垃圾桶與清掉走 `removeRow()`、客戶詳情「N 未處理」與那一塊一組一列、刪客戶那一句一組一行（帶「共 N 天」）。
+**還沒做（05）**：`runAction()` 還不認得 `copy`（按了沒反應）、`date` 還是直接開舊的挑日期卡（沒有「改成今天／拿掉日期」）—— 這兩個 commit 之間長按少了改成今天與拿掉日期，05 補回來。
+
+資料健檢：最後一項 `linkedNotes`「連在一起的隨手記勾得不一樣」（`notice: true`、不修，總數 37 → 38，`chart-no-field`／`eecp-one-course` 釘位置的兩條跟著改）；孤兒資料一組只列一行。
+稽核：`FIELD_LABELS.linkId = '連在一起'`；「待辦「x」・連到別天」「待辦「x」・11/8(日) 拆開」。「今天做了什麼」勾一組連續一樣的照舊收成 ×N（沒另寫）。
+
+確認過不用改的：`deliveryNoteFor`／`data/customers.js` 買營養品長的提醒、`legacyImport`／`mergeImport`、`home.js` 的 `saveFollowupNote` 都不經過 `normalize()`、不帶 `linkId`（文件上沒有那一格＝沒有連在一起，讀的那一側都用 `trimmed()` 認）；
+`renameTargets()` 換的是這位客戶全部還沒勾的隨手記 → 同一組還沒勾的一起換；`restore-backup.mjs` 照欄位原樣寫回，`linkId` 是一般欄位不用改；`trash.js` 還原一筆就自動連回去（`linkId` 沒清）。
+
+**已勾掉那幾筆的長按「刪掉」放不下了**（她的五顆裡沒有它）—— 段末問她（HANDOFF「中途發現 → 段一」）。

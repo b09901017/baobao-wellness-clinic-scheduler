@@ -28,7 +28,7 @@ import {
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions, groupLinked,
   MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import {
@@ -1552,7 +1552,8 @@ async function refreshChain(ctx, d) {
  * 就會變成「算了我等一下再記」，然後就忘了。掛客戶在點進去那一頁做。
  */
 function notesCard(notes) {
-  const rows = sortNotes(notes).slice(0, 4);
+  // **先分組再取四列**（ADR-0179）：連在一起的三天是一列，取完四列再分組的話一組會吃掉三列
+  const rows = groupLinked(notes, todayISO()).slice(0, 4);
   return `
     <section class="card" style="margin-top: var(--space-5)">
       <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
@@ -1564,7 +1565,7 @@ function notesCard(notes) {
       </div>
 
       <div class="groups" data-notes>
-        ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
+        ${rows.map((r) => note.row(r.note)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
       <form data-newnote style="margin-top: var(--space-3)">
@@ -4277,9 +4278,10 @@ async function renderNotes(el) {
 
 function paintNotes(ctx) {
   const { el, notes } = ctx;
-  const live = sortNotes(notes);
-  const open = live.filter((n) => !n.done);
-  const done = live.filter((n) => n.done);
+  // 清單類一組一列（ADR-0179）：兩個數字、「清掉這 N 筆」都數列，連在一起的一組算 1
+  const live = groupLinked(notes, todayISO());
+  const open = live.filter((r) => !r.note.done);
+  const done = live.filter((r) => r.note.done);
   const rows = notesTab === 'done' ? done : open;
 
   el.innerHTML = `
@@ -4296,7 +4298,7 @@ function paintNotes(ctx) {
     </div>
 
     <div class="notelist" data-notes>
-      ${rows.map((n) => note.row(n, { trash: true })).join('')
+      ${rows.map((r) => note.row(r.note, { trash: true })).join('')
         || `<p class="muted" style="padding: var(--space-3) 0">${
           notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
     </div>
@@ -4356,8 +4358,10 @@ async function tickNote(el, notes, id) {
 }
 
 /**
- * 刪掉一筆。**只有勾掉的那幾筆才有這顆** —— 還沒做的要刪就先勾掉再刪，
+ * 刪掉一列。**只有勾掉的那幾筆才有這顆** —— 還沒做的要刪就先勾掉再刪，
  * 兩步比誤刪好。
+ *
+ * **一列代表一組時整組一起刪**（ADR-0179；她看到一樣東西、按下去就作用在那一樣東西）。
  *
  * 走軟刪除（SPEC 第 6.1 節）：設定頁的「已刪除項目」還原得回來，
  * 而且 `withSaveState` 讓她當場復原得掉（第 6.3 節）。
@@ -4366,7 +4370,7 @@ async function removeNote(el, notes, id) {
   const n = notes.find((x) => x.id === id);
   if (!n) return;
   try {
-    await toast.withSaveState(() => notesData.remove(id, '在隨手記裡刪掉'), { success: '刪掉了' });
+    await toast.withSaveState(() => notesData.removeRow(n, '在隨手記裡刪掉'), { success: '刪掉了' });
     await renderNotes(el);
   } catch {
     /* 已處理 */
@@ -4376,8 +4380,10 @@ async function removeNote(el, notes, id) {
 /**
  * 一次清掉全部已完成。破壞性操作，走二次確認並講出筆數（SPEC 第 6.5 節）。
  *
- * 一筆一個 commit，中間失敗就停下來講清楚刪了幾筆 —— 已經刪掉的不退回去
- * （第 6.1 節，跟批次建客戶同一個作法）。
+ * 一列一個 commit（連在一起的一組是一列、整組一起刪，ADR-0179），中間失敗就停下來講清楚刪了幾筆 ——
+ * 已經刪掉的不退回去（第 6.1 節，跟批次建客戶同一個作法）。
+ *
+ * @param {{note: object}[]} done `groupLinked()` 的那幾列
  */
 async function clearDone(el, done) {
   const ok = await confirmAction({
@@ -4397,7 +4403,7 @@ async function clearDone(el, done) {
       // 一筆一個 commit：中間失敗時前面那幾筆已經刪掉了，那是可以接受的，
       // 但要講清楚刪到哪裡。
       // eslint-disable-next-line no-await-in-loop
-      await notesData.remove(row.id, '清掉已完成的隨手記');
+      await notesData.removeRow(row.note, '清掉已完成的隨手記');
       n += 1;
     }
     toast.saved(`清掉了 ${n} 筆`);
