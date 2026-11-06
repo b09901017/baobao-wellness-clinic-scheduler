@@ -7749,11 +7749,13 @@ summary {
   margin-top: var(--space-3);
 }
 
-/* 子孫不是子代：首頁那一格與泡泡的「掛給誰」包在 `[data-quickwho]` 那一層裡（選了一包營養品時整塊收起來） */
+/* 子孫不是子代：首頁那一格與泡泡的「掛給誰」包在 `[data-quickwho]` 那一層裡、日曆待辦編輯器的包在 `[data-calwho]`
+   那一層裡（選了一包營養品時整塊收起來） */
 .notemeta .notedate,
 .notemeta .notewho,
 .notemeta .notegive,
-.notemeta [data-quickwho] {
+.notemeta [data-quickwho],
+.notemeta [data-calwho] {
   display: contents;
 }
 

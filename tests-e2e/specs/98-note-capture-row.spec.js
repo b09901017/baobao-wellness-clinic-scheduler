@@ -225,3 +225,25 @@ test('S7 日曆的待辦編輯器也有；客戶詳情那一格沒有', async ({
   await app.go('/customers/wxm');
   await expect(page.locator('[data-nsuggest]')).toHaveCount(0);
 });
+
+// 段三審查 R7（她 11/6 在 HTC 上）：日曆「＋ → 待辦」也跟首頁那張卡一樣四顆排一排、沒有「哪一天」「掛給誰」兩個標籤
+test('S8 日曆 ＋ → 待辦：今天／挑日期／掛給誰／給營養品四顆排一排、沒有那兩個標籤', async ({ app, page }) => {
+  await app.seed(scenarioProducts());
+  await app.signIn('/calendar');
+  await page.locator('[data-fab]').click();
+  await page.locator('[data-new-note]').click();
+  await app.layer('[data-noteform]');
+  const form = page.locator('[data-noteform]');
+  await form.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))));
+  const t = await tops(form);
+  expect(new Set(t).size, `四顆的上緣：${t}`).toBe(1);
+  await expect(form.locator('.field__label', { hasText: /^哪一天$/ })).toHaveCount(0);
+  await expect(form.locator('.field__label', { hasText: /^掛給誰$/ })).toHaveCount(0);
+  await expect(form.locator('.field__label', { hasText: '記什麼' })).toHaveCount(1);
+
+  // 選一包營養品：掛給誰那一顆收起來（同首頁那張卡）
+  await form.locator('[data-ng-toggle]').click();
+  await form.locator('[data-ng-cust="cust-c"]').click();
+  await form.locator('[data-ng-bag="ent-c-prod"]').click();
+  await expect(form.locator('[data-nw-toggle]')).toBeHidden();
+});

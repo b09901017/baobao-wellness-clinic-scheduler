@@ -1417,23 +1417,19 @@ function mountNoteEditor(el, data, sheet, spec) {
                placeholder="例：幫王小明問週六有沒有位子" />
       </label>
       ${note.suggestRow()}
-      ${/* 三排各自是一個欄位，節奏跟上面那個「記什麼」一樣 ——
-             以前它們裸放而且中間一點間距都沒有，「營養品」和「掛給誰」
-             會擠在一起（她的原話）。`.notemeta` 是那四個入口共用的外框。 */''}
-      <div class="field">
-        <span class="field__label">哪一天</span>
-        <div class="notemeta">${note.field({ value: existing?.date ?? spec.date })}</div>
-      </div>
-      <div class="field" data-calwho>
-        <span class="field__label">掛給誰</span>
-        <div class="notemeta">
+      ${/* 今天／挑日期／掛給誰／給營養品排一排，跟首頁那張卡、泡泡一樣（段三審查 R7，她 11/6：「有沒有四個丸子同一排 ?
+             而且其實不需要"哪一天""掛給誰"的文字吧 ?」—— 推翻 02 留著兩個有標籤欄位的做法）。
+             四顆的字自己講得出是什麼；整排給一個 aria-label。包住掛給誰的那一層選了一包營養品時收起來 */''}
+      <div class="notemeta" role="group" aria-label="哪一天、掛給誰">
+        ${note.field({ value: existing?.date ?? spec.date })}
+        <span data-calwho>
           ${note.who({
             customerId: existing?.customerId ?? null,
             customerName: existing?.customerName ?? null,
           })}
-        </div>
+        </span>
+        ${isNew ? note.give() : ''}
       </div>
-      ${isNew ? `<div class="field">${note.give()}</div>` : ''}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>
