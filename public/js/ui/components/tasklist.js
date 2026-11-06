@@ -111,7 +111,7 @@ export function wayRow({ label, note = '', href, count = null }) {
  *
  * 待辦中心的已完成那一格、待辦中心「依客戶」的抽屜、客戶詳情各接一次的話，
  * 就是這個 repo 已經付過兩次帳的形狀（`buy.js` 的「其他…」漏了兩次、
- * `note.js` 的 `.notemeta` 有兩個入口裸放）。
+ * `note.js` 那一排的外框有兩個入口裸放）。
  *
  * ## 只有兩種會問
  *

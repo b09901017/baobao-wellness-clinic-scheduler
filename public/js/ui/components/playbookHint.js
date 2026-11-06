@@ -26,7 +26,7 @@
 // ## 為什麼共用一支而不是各寫一份
 //
 // 這個專案已經為了「兩份寫法」付過兩次帳：`buy.js` 的「其他…」那一格漏了
-// 兩次、`note.js` 的 `.notemeta` 有兩個入口裸放。第三個入口以後接上去只要一行。
+// 兩次、`note.js` 那一排的外框有兩個入口裸放。第三個入口以後接上去只要一行。
 
 import { esc } from './form.js';
 import { playbooksFor, previewOf } from '../../domain/playbook.js';

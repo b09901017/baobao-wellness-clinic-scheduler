@@ -37,6 +37,12 @@ import { openCard, closeCard } from './card.js';
 import { openActions } from './actions.js';
 import { confirmAction } from './dialog.js';
 
+/**
+ * 隨手記清單標題旁邊那一顆 `?`（首頁那張卡、`#/todo/notes`）。她 11/6：「這邊也許可以加一個小tooltip說長按可以修改」。
+ * 長按有哪幾顆照 `domain/notes.js` 的 `noteActions()` —— 那邊改了這一句要跟著改。
+ */
+export const LONGPRESS_TIP = '點一下勾掉；長按可以改日期、改字、掛給誰、複製到別天';
+
 /** 隨手記「掛給誰」那兩排：一次性客人名字後面一小格「一次性」（ADR-0172 第 5 題：找人的框也標）。 */
 const guestTag = (c) => (isOneTime(c) ? ' <span class="guestmark">一次性</span>' : '');
 
@@ -180,7 +186,8 @@ function wireOne(box) {
 //
 // 首頁那一格以前沒有這個欄位（只有日期），所以變成一個「掛得了日期、
 // 掛不了人」的奇怪組合，而掛人比掛日期常用（2026-08-24）。
-// 抽出來之後首頁那一格與右下角的泡泡長一模一樣。
+// 首頁那一格、右下角的泡泡、日曆的待辦編輯器三個入口接線都走底下的 `wireCapture()`
+//（2026-11-06 notes-widget 02：首頁那一格也有了「給營養品」，四顆排一排）。
 
 /**
  * @param {{customerId?: string|null, customerName?: string|null}} [options]
@@ -278,6 +285,63 @@ export function wireWho(root, { load }) {
 
   paint();
   return { set };
+}
+
+// ---------- 記一筆那一排：三個有「掛給誰」的入口共用的接線 ----------
+//
+// 首頁那張卡、右下角泡泡、日曆的待辦編輯器（2026-11-06 notes-widget 02）。以前三處各接一次
+// `wire()`／`wireWho()`／`wireGive()`，「選了一包就把掛給誰收起來、字自動填」各寫一份 ——
+// 首頁那一格當初就是少接了給營養品。客戶詳情那一格只有日期（固定掛那一位），不走這一支。
+
+/**
+ * 那一排現在選了什麼：日期、掛給誰；**選了一包營養品時掛的人與 `entitlementId` 由那一包決定**
+ *（「掛給誰」那一排那時候是收起來的）。`customerId`／`customerName` 一律兩個一起回
+ *（`domain/notes.js` 的 `normalizePatch()`：只帶一個，另一個會被算成空的）。
+ */
+export function readCapture(root) {
+  const bag = readGive(root);
+  return {
+    date: read(root),
+    ...(bag
+      ? { customerId: bag.customerId, customerName: bag.customerName, entitlementId: bag.entitlementId }
+      : readWho(root)),
+  };
+}
+
+/**
+ * 掛上那一排的互動。
+ *
+ * @param {HTMLElement} root 包住那一排（與輸入框）的那一塊。**每次重畫都要再叫一次**：
+ *   監聽掛在那幾塊自己身上（`[data-notedate]`、`[data-notewho]`、`[data-notegive]`），重畫就是新的節點
+ * @param {object} o
+ * @param {() => HTMLInputElement|null} o.input 打字的那一格（選了一包營養品時把字填進去）
+ * @param {() => HTMLElement|null} o.whoBox 選了一包時要收起來的那一塊（包住「掛給誰」）
+ * @param {() => Promise<object[]>} o.loadCustomers 點開才讀、只讀一次
+ * @param {(() => Promise<object[]>)|null} [o.loadBags] `givableBags()`；沒有「給營養品」那一顆就不用給
+ * @returns {{read: () => object, reset: () => void}} reset：存完之後清回沒有日期、沒掛人、沒選一包
+ */
+export function wireCapture(root, {
+  input = () => null, whoBox = () => null, loadCustomers, loadBags = null,
+} = {}) {
+  const when = wire(root);
+  const whom = wireWho(root, { load: loadCustomers });
+  const bag = wireGive(root, {
+    load: loadBags ?? (async () => []),
+    onPick: (picked) => {
+      const box = whoBox();
+      if (box) box.hidden = Boolean(picked);
+      const el = input();
+      if (picked && el) el.value = picked.text;
+    },
+  });
+  return {
+    read: () => readCapture(root),
+    reset: () => {
+      when.set(null);
+      whom.set(null);
+      bag.set(null);
+    },
+  };
 }
 
 // ---------- 營養品的交付 ----------

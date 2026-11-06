@@ -722,6 +722,11 @@ export const COVERAGE = {
     'public/js/ui/components/actions.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
     'public/js/ui/views/customerDetail.js', 'public/js/domain/calendar.js', 'firestore.rules',
   ],
+  // 記一筆那一排（notes-widget 02、03）：四顆排一排、首頁那張卡給營養品、長按提示；打名字跳出客戶、掛給誰搜尋
+  '98-note-capture-row': [
+    'public/js/ui/components/note.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/customers.js', 'public/css/app.css',
+  ],
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
     'public/js/data/customers.js',
@@ -788,6 +793,14 @@ export const CSS_SCOPES = {
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
   // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
   notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 記一筆那一排（notes-widget 02）：今天／挑日期／掛給誰／給營養品排一排的那一層與兩塊選填的丸子
+  notemeta: {
+    classes: ['notemeta', 'notewho', 'notegive'],
+    owners: [
+      'public/js/ui/components/note.js', 'public/js/ui/views/home.js',
+      'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',
+    ],
+  },
   // 連在一起的隨手記（ADR-0179）：清單上那一顆「共 N 天」、「改日期」那張卡、「複製到別天」那張小月曆
   notecount: { classes: ['notecount'], owners: ['public/js/ui/components/note.js'] },
   datechoice: { classes: ['datechoice'], owners: ['public/js/ui/components/note.js'] },

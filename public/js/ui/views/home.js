@@ -1558,7 +1558,7 @@ function notesCard(notes) {
     <section class="card" style="margin-top: var(--space-5)">
       <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
         <h2 class="card__title row__main" style="margin: 0">隨手記
-          <span class="muted"> ${openCount(notes)}</span></h2>
+          <span class="muted"> ${openCount(notes)}</span>${tip(note.LONGPRESS_TIP)}</h2>
         <a class="muted" href="#/todo/notes"
            style="display: inline-flex; align-items: center; gap: 2px; white-space: nowrap">
           全部${icon('right', { size: 14 })}</a>
@@ -1574,9 +1574,12 @@ function notesCard(notes) {
                  placeholder="記一筆…" aria-label="新的隨手記" />
           <button class="btn btn--primary" type="submit">記</button>
         </div>
+        ${/* 今天／挑日期／掛給誰／給營養品排一排（notes-widget 02：她 11/6 要首頁這一格也有給營養品，
+               一排放得下就不撐長 —— 當初不放是怕多一排）。包住掛給誰的那一層選了一包時收起來 */''}
         <div class="notemeta">
           ${note.field()}
-          ${note.who()}
+          <span data-quickwho>${note.who()}</span>
+          ${note.give()}
         </div>
       </form>
     </section>`;
@@ -1660,26 +1663,19 @@ function quickBody() {
 }
 
 function wireQuick(drawer, ctx, added) {
-  // 日期與「掛給誰」都走 `ui/components/note.js` —— 首頁那一格、這顆泡泡、
-  // 客戶詳情用的是同一份欄位。長得不一樣會讓她以為是兩種東西
-  // （`CLAUDE.md` 的連動表）。
-  const when = note.wire(drawer);
-  const whom = note.wireWho(drawer, { load: () => customersData.list() });
-
   const input = () => drawer.querySelector('[data-quicktext]');
 
-  // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。選了之後：
+  // 日期、「掛給誰」、「給營養品」那一排走 `note.wireCapture()` —— 首頁那一格、這顆泡泡、
+  // 日曆的待辦編輯器同一支（`CLAUDE.md` 的連動表）。選了一包營養品：
   //   - 文字自動填好（`noteTextFor()`）—— 她自己打的那一行沒有 entitlementId，
   //     勾掉時就不會問「給了哪些」，那筆交付紀錄會靜靜沒了
   //   - 「掛給誰」那一排收起來 —— 客戶已經由那一包決定了，兩個地方各講一次
   //     會出現「掛給客戶B、內容是給客戶A營養品」這種東西
-  const give = note.wireGive(drawer, {
-    load: () => loadGivableBags(),
-    onPick: (picked) => {
-      const box = drawer.querySelector('[data-quickwho]');
-      if (box) box.hidden = Boolean(picked);
-      if (picked && input()) input().value = picked.text;
-    },
+  const capture = note.wireCapture(drawer, {
+    input,
+    whoBox: () => drawer.querySelector('[data-quickwho]'),
+    loadCustomers: () => customersData.list(),
+    loadBags: () => loadGivableBags(),
   });
 
   const save = async () => {
@@ -1688,23 +1684,13 @@ function wireQuick(drawer, ctx, added) {
       input()?.focus();
       return;
     }
-    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定（`readCapture()`）——
     // 「掛給誰」那一排這時候是收起來的。
-    const bag = note.readGive(drawer);
+    const picked = capture.read();
 
     try {
       await toast.withSaveState(
-        () => notesData.create({
-          text,
-          date: note.read(drawer),
-          ...(bag
-            ? {
-              customerId: bag.customerId,
-              customerName: bag.customerName,
-              entitlementId: bag.entitlementId,
-            }
-            : note.readWho(drawer)),
-        }),
+        () => notesData.create({ text, ...picked }),
         // **`key` 不可以少。** `#/todo/notes` 那一頁的 `addNote()` 一直都有，
         // 這顆泡泡沒有 —— 而這顆是最順手的那一個入口，而且它刻意不重畫面板、
         // 焦點留在輸入框，所以按下去畫面幾乎沒有變化，最容易多按一下。
@@ -1728,9 +1714,7 @@ function wireQuick(drawer, ctx, added) {
     // 日期與掛的人一起清掉：三件事記在一起不代表都是同一天、同一位，
     // 而「忘了取消上一筆的日期」的後果是日曆上多一條她沒打算放的東西。
     input().value = '';
-    when.set(null);
-    whom.set(null);
-    give.set(null);
+    capture.reset();
     input().focus();
   };
 
@@ -1779,8 +1763,15 @@ function wireOverview(ctx) {
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
 
-  note.wire(el);
-  note.wireWho(el, { load: () => customersData.list() });
+  const newNote = el.querySelector('[data-newnote]');
+  if (newNote) {
+    note.wireCapture(newNote, {
+      input: () => newNote.elements.text,
+      whoBox: () => newNote.querySelector('[data-quickwho]'),
+      loadCustomers: () => customersData.list(),
+      loadBags: () => loadGivableBags(),
+    });
+  }
   wireNoteLongPress(el, ctx.notes, () => render(ctx.el));
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
@@ -1895,7 +1886,8 @@ async function addNote(ctx, form) {
   if (!text) return;
   try {
     await toast.withSaveState(
-      () => notesData.create({ text, date: note.read(form), ...note.readWho(form) }),
+      // 日期、掛給誰；選了一包營養品時連 `entitlementId` 一起（`note.readCapture()`，泡泡同一支）
+      () => notesData.create({ text, ...note.readCapture(form) }),
       { success: '記下來了', key: `note:create:${text}` },
     );
     await render(ctx.el);
@@ -4285,7 +4277,7 @@ function paintNotes(ctx) {
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">隨手記</h1>
+      <h1 class="page__title">隨手記${tip(note.LONGPRESS_TIP)}</h1>
     </div>
 
     <div class="seg" role="group" style="margin-bottom: var(--space-4)">

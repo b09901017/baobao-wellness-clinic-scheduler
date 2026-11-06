@@ -7723,19 +7723,33 @@ summary {
 
 /* ---------- 隨手記的捕捉面板 ---------- */
 
-/* 日期、掛給誰、給營養品那幾排。**四個入口共用**（首頁那一格、右下角泡泡、
-   日曆的待辦編輯器、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。
-   共用的不只是 `components/note.js` 那幾支，**包住它們的這一層也是**：
-   2026-09-01 之前只有兩個入口包了它，另外兩個裸放，於是那兩邊的丸子貼著
-   輸入框（她的原話：「跟輸入框以及下方的任務貼得太近了」）。
+/* 今天、挑日期、掛給誰、給營養品**排一排**（notes-widget 02，她 11/6：「能不能今天挑日期掛給誰，給營養品是同一排?」），
+   放不下（選了日期、選了人之後字變長）才換行。**四個入口共用這一層**（首頁那一格、右下角泡泡、
+   日曆的待辦編輯器、客戶詳情）—— 長得不一樣會讓她以為是兩種東西；2026-09-01 之前只有兩個入口包了它，
+   另外兩個裸放，丸子貼著輸入框。
 
-   **gap 是「排與排之間」，不是「丸子與丸子之間」**：一排裡面是 --space-2，
-   兩排之間要更大，否則三排丸子看起來像一團。 */
+   **裡面那幾塊（`.notedate`、`.notewho`、`.notegive` 與泡泡包住掛給誰的那一層）`display: contents`**：
+   它們的丸子直接是這一層的 flex 項目，才排得成一排；點開才長出來的名單（`.notewho__list`，給營養品的兩層也是它）
+   `order: 1` ＋ 整行寬，**落在那一排底下自己一行**，不擠在丸子中間。JS 照舊在那幾塊自己身上接監聽、讀值。 */
 .notemeta {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* 子孫不是子代：首頁那一格與泡泡的「掛給誰」包在 `[data-quickwho]` 那一層裡（選了一包營養品時整塊收起來） */
+.notemeta .notedate,
+.notemeta .notewho,
+.notemeta .notegive,
+.notemeta [data-quickwho] {
+  display: contents;
+}
+
+.notemeta .notewho__list {
+  order: 1;
+  margin-top: var(--space-1);
 }
 
 /* 包在一個有標籤的欄位裡時（日曆的待辦編輯器），上邊界由 `.field` 給 ——

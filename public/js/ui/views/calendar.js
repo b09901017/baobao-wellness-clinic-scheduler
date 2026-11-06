@@ -1443,33 +1443,20 @@ function mountNoteEditor(el, data, sheet, spec) {
     </form>`);
   sheet.expand();
 
-  note.wire(sheet.el);
-  // 「掛給誰」跟另外四個入口是同一塊（`ui/components/note.js`）。它以前不在
-  // 這一頁，理由寫的是「那是客戶詳情頁的事」—— 而那句話指向一個不存在的地方：
-  // 隨手記除了勾掉之外沒有別的編輯入口，這一張就是唯一的那一個
-  // （ADR-0044 的 Consequences 自己寫著）。
+  // 日期、「掛給誰」、「給營養品」走 `note.wireCapture()`（首頁那一格、右下角泡泡同一支）。
+  // 「掛給誰」以前不在這一頁，理由寫的是「那是客戶詳情頁的事」—— 而隨手記除了勾掉之外沒有別的編輯入口，
+  // 這一張就是唯一的那一個（ADR-0044 的 Consequences 自己寫著）。「給營養品」**只在新增時有** ——
+  // 改一件既有的待辦時，它是哪一包早就決定了（沒有那一塊 `wireGive()` 什麼都不接）。
   //
-  // **旗標是必要的。** `note.wire()` 每次都重抓 `[data-notedate]` 所以它自己
-  // 防得了重複，`wireWho()` 是把監聽委派在 `sheet.el` 上的 —— 而
-  // `sheet.update()` 換的是內容那一塊，`sheet.el` 本身留著。同一張抽屜上
-  // mount 兩次就會掛兩組（同 `views/home.js` 的 `openQuick()`）。
-  if (!sheet.el.dataset.noteWhoWired) {
-    sheet.el.dataset.noteWhoWired = '1';
-    // 點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
-    note.wireWho(sheet.el, { load: () => customersData.list() });
-
-    // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。**只在新增時有** ——
-    // 改一件既有的待辦時，它是哪一包早就決定了。
-    note.wireGive(sheet.el, {
-      load: () => loadGivableBags(),
-      onPick: (picked) => {
-        const box = sheet.el.querySelector('[data-calwho]');
-        if (box) box.hidden = Boolean(picked);
-        const text = sheet.el.querySelector('[data-noteform] [name="text"]');
-        if (picked && text) text.value = picked.text;
-      },
-    });
-  }
+  // **每次 mount 都接，不靠旗標**（notes-widget 02）：監聽掛在那幾塊自己身上，而 `sheet.update()`
+  // 換掉的正是那幾塊 —— 以前的 `noteWhoWired` 旗標留在 `sheet.el` 上，同一張抽屜第二次 mount 時
+  // 新的「掛給誰」一個監聽都沒有。點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
+  note.wireCapture(sheet.el, {
+    input: () => sheet.el.querySelector('[data-noteform] [name="text"]'),
+    whoBox: () => sheet.el.querySelector('[data-calwho]'),
+    loadCustomers: () => customersData.list(),
+    loadBags: () => loadGivableBags(),
+  });
 
   // 連在一起的（ADR-0179）：字與掛給誰同一組一起改，講出來（lessons 五）—— 換掉抬頭底下那一行，不多長一段常駐說明。
   // 重讀那一組才知道還有幾天（日曆手上只有這一個月）；讀不到就不講，寫的那一刻照樣重讀
@@ -1507,26 +1494,10 @@ function mountNoteEditor(el, data, sheet, spec) {
     e.preventDefault();
     const text = String(e.target.elements.text.value ?? '').trim();
     if (!text) return;
-    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
-    // 「掛給誰」那一排這時候是收起來的。
-    const bag = isNew ? note.readGive(sheet.el) : null;
-
-    write(
-      {
-        text,
-        date: note.read(sheet.el),
-        // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
-        // 只帶其中一個過來，另一個會被算成空的。`readWho()` 一律兩個一起回。
-        ...(bag
-          ? {
-            customerId: bag.customerId,
-            customerName: bag.customerName,
-            entitlementId: bag.entitlementId,
-          }
-          : note.readWho(sheet.el)),
-      },
-      isNew ? '記下來了' : '改好了',
-    );
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定（`readCapture()`）——
+    // 「掛給誰」那一排這時候是收起來的；改一件既有的沒有那一顆，讀的就是「掛給誰」。
+    // 客戶的兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`），`readCapture()` 一律兩個一起回。
+    write({ text, ...note.readCapture(sheet.el) }, isNew ? '記下來了' : '改好了');
   });
 
   sheet.el.querySelector('[data-undate]')?.addEventListener('click', () =>
