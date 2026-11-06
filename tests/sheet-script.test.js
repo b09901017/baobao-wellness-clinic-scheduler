@@ -50,12 +50,16 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     return app.ss.getSheetByName('客戶A');
   };
   const column = (sheet) => Array.from({ length: 90 }, (_, i) => sheet.at(`A${i + 1}`));
-  // 值＋每一格的備註（第三輪 11 起，有額度的段的記一句寫在那一格的附註裡）
-  const everything = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
-    (_, c) => {
-      const a1 = `${String.fromCharCode(65 + c)}${r + 1}`;
-      return `${sheet.at(a1)}${sheet.noteAt(a1)}`;
-    }).join('|')).join('\n');
+  // 值＋每一格的備註（第三輪 11 起，有額度的段的記一句寫在那一格的附註裡）。
+  // **矩陣底下、日期那一欄疊的那一份不算**（.scratch/sheet-push-gaps/issues/15：每一句記一句刻意多疊一份、塗 `NOTE_FILLS`）——
+  // 這裡數的是「它自己那一個地方」（額度那一格的附註、或來訪紀錄那一行），疊的那一份另外數（`stacked()`）
+  const FILLS = new Set(loadAppsScript().context.NOTE_FILLS);
+  const cellsOf = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
+    (_, c) => `${String.fromCharCode(65 + c)}${r + 1}`)).flat();
+  const everything = (sheet) => cellsOf(sheet)
+    .filter((a1) => !FILLS.has(sheet.backgrounds.get(a1)))
+    .map((a1) => `${sheet.at(a1)}${sheet.noteAt(a1)}`).join('|');
+  const stacked = (sheet) => cellsOf(sheet).filter((a1) => FILLS.has(sheet.backgrounds.get(a1))).map((a1) => [a1, sheet.at(a1)]);
 
   test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
     const { post } = loadAppsScript();
@@ -79,9 +83,14 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     const [first, second] = b.sheets[0].log[0].items;
     assert.equal(first.note, null, '有額度的那一段在來訪紀錄不帶記一句');
     assert.equal(second.note, 'HRV 報告');
-    const text = everything(render(b));
+    const sheet = render(b);
+    const text = everything(sheet);
     assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度那一格的附註）');
     assert.equal(text.split('HRV 報告').length - 1, 1);
+    // 再加日期底下疊的那一份（issues/15）：那一天（G 欄）由上往下 —— 有額度的那一句、再來功醫門診那一句（app 產生的整包從頭畫一次）
+    assert.deepEqual(stacked(sheet).map(([a1, v]) => [a1.replace(/\d+$/, ''), v]), [['G', '她說下午比較好'], ['G', 'HRV 報告']]);
+    const [[top], [next]] = stacked(sheet);
+    assert.equal(Number(next.slice(1)), Number(top.slice(1)) + 1, '同一欄上下挨著');
   });
 
   test('沒記的不多印東西', () => {

@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 5;
+var LAYOUT_VERSION = 6;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -140,6 +140,19 @@ var MARK_TINT = {
   blue: '#E4ECF0',    // --mark-blue #4d7f9c
   violet: '#EBE7EF',  // --mark-violet #7a6096
 };
+
+/**
+ * 記一句疊在日期底下那幾格的底色（issues/15）：她 11/6「附註的那一個可以用舒服的顏色填滿，你就隨機填顏色就好」。
+ * **照畫的順序輪流**（一欄一欄、由上往下），不是真的隨機：上下挨著的不同色，同一份資料每次畫出來都一樣（指紋才有意義）。
+ * Google 試算表「淺色 2」那一排裡挑的；**避開狀態色**（綠、黃、淡藍、灰、紅，`COLOR`）—— 疊在日期那一欄底下，同色會被看成那一天的狀態。
+ */
+var NOTE_FILLS = [
+  '#D9D2E9',  // 淡紫
+  '#FCE5CD',  // 淡橘
+  '#D0E0E3',  // 灰青
+  '#EAD1DC',  // 淡玫瑰
+  '#E6E0C8',  // 淡沙
+];
 
 // ---------- 收件口 ----------
 
@@ -663,9 +676,12 @@ function renderCustomer(ss, data, bundle, book) {
   // FINISHED 在 K 欄，日期少的時候矩陣還沒那麼寬，但表還是要留到那裡
   var width = Math.max(matrixWidth, FINISH_COL + 2);
 
+  // 矩陣底下、每一個日期那一欄往下疊的（二返註記＋記一句，issues/15）
+  var below = belowByDate(data, rowOrder(data.rows));
+
   ensureSize(
     entry,
-    MATRIX_HEADER_ROW + data.rows.length + logLineCount(data)
+    MATRIX_HEADER_ROW + data.rows.length + logLineCount(data) + depthOf(below)
       + ((data.purchases || []).length + 3)
       + ((data.products || []).length + 2)
       + ((data.noteLines || []).length || String(data.notes || '').split(String.fromCharCode(10)).length) + 1
@@ -744,7 +760,7 @@ function renderCustomer(ss, data, bundle, book) {
   sheet.getRange(MATRIX_HEADER_ROW, COL.SPACER, rows.length + 1, 1).setBackground(COLOR.spacer);
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
-  after = renderFollowupNotes(sheet, data, after, matrixWidth);
+  after = renderBelowDates(sheet, below, after);
   after = renderPurchases(sheet, data, after, width);
   after = renderProducts(sheet, data, after, width);
   after = renderNotes(sheet, data, after + 1, width);
@@ -847,23 +863,73 @@ function markWithEquipment(mark, equipment) {
 }
 
 /**
- * 二返註記。緊接在矩陣底下那一列，寫在**那次健檢被勾起來的那一欄**。
+ * 矩陣底下：**每一個日期那一欄各自往下疊**（issues/15）。
  *
- * 位置與寫法都照她原本的（docs/legacy/README.md 第 6 節）——
- * 她看那一格的習慣已經養成了十幾張分頁，不要搬家。
+ * - **二返註記**在最上面，位置與寫法照她原本的（docs/legacy/README.md 第 6 節）：寫在那次健檢被勾起來的那一欄、小字、不塗底 ——
+ *   她看那一格的習慣已經養成了十幾張分頁，不要搬家。
+ * - **記一句**接在底下（她 11/6：附註「也可以像是現在重複的「二返」記一句那樣記在這表格他那一個日期的最下方……如果有多個那就在往下」）：
+ *   有額度的段（`slotNotes`）照矩陣上面那幾列的先後（`order`，`rowOrder()`），再來沒有額度的段（`log[].items[].note`，格式 7，
+ *   用 `log[].date` 對 `dates` 找第幾個日期）照時間。附註（小黑三角）照留、來訪紀錄那一行也照留 —— 這裡是多一個一眼看得到的地方。
+ * - **器材不疊**（她：「in sis 那種做了什麼的就不用」）：照舊在那一格的字裡（「✓ IN」）。
+ *
+ * 落在表外的（`dateIndex` 超過日期欄）丟掉，同以前。回 `[[{ text, followup }], …]`：第幾個日期 → 那一欄由上往下的格子。
  */
-function renderFollowupNotes(sheet, data, top, matrixWidth) {
-  var notes = data.followupNotes || [];
-  if (!notes.length) return top;
-
-  for (var i = 0; i < notes.length; i++) {
-    var col = COL.FIRST_DATE + notes[i].dateIndex;
-    if (col > matrixWidth) continue;   // 日期欄不見了就不要寫到表外面去
-    sheet.getRange(top, col).setValue(notes[i].text)
-      .setFontSize(9).setFontColor(COLOR.noticeText)
-      .setVerticalAlignment('middle').setWrap(true);
+function belowByDate(data, order) {
+  var count = (data.dateLabels || []).length;
+  var cols = [];
+  for (var i = 0; i < count; i++) cols.push([]);
+  var follow = data.followupNotes || [];
+  for (var f = 0; f < follow.length; f++) {
+    var at = follow[f].dateIndex;
+    if (typeof at === 'number' && at >= 0 && at < count && follow[f].text) cols[at].push({ text: follow[f].text, followup: true });
   }
-  return top + 1;
+  for (var o = 0; o < order.length; o++) {
+    var cells = cellsByDate(noteRowAt(data.slotNotes, order[o]), count);
+    for (var d = 0; d < count; d++) {
+      if (cells[d]) cols[d].push({ text: cells[d], followup: false });
+    }
+  }
+  var log = data.log || [];
+  var dates = data.dates || [];
+  for (var l = 0; l < log.length; l++) {
+    var idx = dates.indexOf(log[l].date);
+    if (idx < 0 || idx >= count) continue;
+    var items = log[l].items || [];
+    for (var j = 0; j < items.length; j++) {
+      if (items[j].note) cols[idx].push({ text: items[j].note, followup: false });
+    }
+  }
+  return cols;
+}
+
+/** 疊最深的那一欄有幾格。 */
+function depthOf(cols) {
+  var depth = 0;
+  for (var i = 0; i < cols.length; i++) depth = Math.max(depth, cols[i].length);
+  return depth;
+}
+
+/**
+ * 把 `belowByDate()` 疊好的畫上去，回下一塊從哪一列接。
+ * 每一格先下文字格式（`@`）：一句「10/15」不能被 Google 認成日期（同待辦的日期，issues/08）。
+ * 記一句塗 `NOTE_FILLS` 輪流的顏色、置中；二返註記照舊小字、字色、不塗底。
+ */
+function renderBelowDates(sheet, cols, top) {
+  var fill = 0;
+  for (var d = 0; d < cols.length; d++) {
+    for (var k = 0; k < cols[d].length; k++) {
+      var one = cols[d][k];
+      var cell = sheet.getRange(top + k, COL.FIRST_DATE + d).setNumberFormat('@').setValue(one.text)
+        .setVerticalAlignment('middle').setWrap(true);
+      if (one.followup) {
+        cell.setFontSize(9).setFontColor(COLOR.noticeText);
+      } else {
+        cell.setFontSize(10).setHorizontalAlignment('center').setBackground(NOTE_FILLS[fill % NOTE_FILLS.length]);
+        fill += 1;
+      }
+    }
+  }
+  return top + depthOf(cols);
 }
 
 /**
