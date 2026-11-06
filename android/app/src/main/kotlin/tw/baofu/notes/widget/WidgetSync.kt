@@ -150,6 +150,12 @@ object WidgetSync {
         }
     }
 
+    /** 選單上按了「拿回來」（REVIEW-android R4）：小工具上那一列還在劃線的話停掉（不然拿回來之後還劃著線到 3 秒）。 */
+    fun stopTicking(context: Context, id: String) {
+        val uid = allowedUid(context) ?: return
+        if (mine(context, uid)?.ticking?.containsKey(id) == true) change(context, uid) { it.copy(ticking = it.ticking - id) }
+    }
+
     /** 劃線時間到了的那幾列離開清單。 */
     suspend fun settle(context: Context) {
         val uid = allowedUid(context) ?: return

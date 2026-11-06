@@ -108,6 +108,8 @@ class MenuActivity : FloatingActivity() {
                     return@LaunchedEffect
                 }
                 note = fresh
+                // 小工具手上那一份舊了（這一筆已經勾掉了）：順手換一次清單
+                if (Js.truthy(fresh["done"]) && cached != null && !Js.truthy(cached["done"])) WidgetSync.afterLocalWrite(applicationContext)
                 // 同一組（含已刪除的；`linkedPeers()` 自己濾）。沒有 `linkId` 照它的 id 讀 —— 小月曆要圈出上一次複製出去的那幾天
                 group = Backend.notes.listLinked(Js.str(fresh["linkId"] ?: fresh["id"]))
             } catch (e: Exception) {
@@ -143,6 +145,7 @@ class MenuActivity : FloatingActivity() {
 
     private fun onAction(action: String, n: Doc, reach: Notes.Reach?, go: (Screen) -> Unit) {
         val id = Js.str(n["id"])
+        val app = applicationContext
         when (action) {
             // 營養品的提醒：打開網頁問「給了哪幾款」（規則只在網頁 `domain/products.js`；三個入口共用 `NoteTaps`）
             "tick" -> if (NoteTaps.asksWhatWasGiven(n)) {
@@ -150,6 +153,12 @@ class MenuActivity : FloatingActivity() {
                 finish()
             } else {
                 write({ "勾掉了${Notes.linkedWords(reach).toast}" }) { Backend.notes.setDone(id, true) }
+            }
+            // 已經勾掉的那一筆（劃線那 3 秒裡點了字、或別台勾掉了小工具還沒同步）：拿回來永遠只是拿回來，營養品的提醒也是
+            // （網頁 `prepareToggle()` 同一條；REVIEW-android R4）。小工具上還在劃線的話一起停掉
+            "untick" -> write({ "拿回來了${Notes.linkedWords(reach).toast}" }) {
+                WidgetSync.stopTicking(app, id)
+                Backend.notes.setDone(id, false)
             }
             "date" -> go(Screen.DATE)
             "who" -> go(Screen.WHO)
@@ -360,7 +369,12 @@ class MenuActivity : FloatingActivity() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = linked, onCheckedChange = { linked = it }, colors = CheckboxDefaults.colors(checkedColor = p.accent, checkmarkColor = p.onAccent))
-            Text("連在一起：勾一天，其他天一起勾", color = p.text, fontSize = 15.sp)
+            // 已經勾掉的那一筆不拉進來（網頁 `copyDaysHtml()` 同一句，ADR-0179）—— 連在一起的是新的那幾天
+            Text(
+                if (Js.truthy(n["done"])) "新的那幾天連在一起：勾一天，其他天一起勾（這一筆已經勾了，不算在裡面）" else "連在一起：勾一天，其他天一起勾",
+                color = p.text,
+                fontSize = 15.sp,
+            )
         }
         PrimaryButton("複製到 ${picked.size} 天", enabled = picked.isNotEmpty()) {
             val dates = picked.sorted()
