@@ -184,8 +184,7 @@ issue 09，以及 06、07、08 的「做完時留下的」（工具鏈怎麼叫�
 
 規矩（HANDOFF 有全文）：改既有的函式與畫面上的字之前照 `ripple-check` 查牽連；中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段七」，段末一次問她；同時最多兩個 subagent。
 建置：`cd android && JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.12.101-hotspot" ./gradlew …`（限 4 個 worker；不要放著連跑；做完 `./gradlew --stop`）。
-模擬器同一時間只能一組（起之前看 port；收掉時連那兩個 PID 一起停）。用 python 改檔一律 `newline='
-'`，commit 後 `git ls-files --eol` 看是 `i/lf`。
+模擬器同一時間只能一組（起之前看 port；收掉時連那兩個 PID 一起停）。用 python 改檔一律 `newline='\n'`，commit 後 `git ls-files --eol` 看是 `i/lf`。
 **鑰匙與密碼絕不進 repo、不印進 log**（GitHub Secrets 用 `gh secret set` 從檔案讀，不經過指令列參數）。
 
 主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
