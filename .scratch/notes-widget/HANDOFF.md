@@ -64,6 +64,8 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - **Firebase 主控台登記 Android app**（她 11/6 段五回「兩個都由你用指令登記」）：staging 與正式站各一支、兩把 SHA-1，app id 在 06 的「做完時留下的」
 - **段一那兩件照建議**（她 11/6 段一做完時回「照建議」）：已勾掉的隨手記長按不再有「刪掉」，客戶詳情上要刪去隨手記那一頁按垃圾桶（客戶詳情不加垃圾桶）；「複製到別天」的小月曆今天以前的日子點不了
 - **App Distribution 與鑰匙備份**（她 11/6 段六做完時回「照建議」，主控問的）：staging 與正式站兩個 Firebase 專案都開 App Distribution、**只加她一位測試者**（不公開；會寄邀請信給她）；release 簽章鑰匙檔與密碼**備份一份到私人 repo `.local`**（只 commit，push 照 `.local` 的規矩由她那邊的自動同步）
+- **安裝檔與三星的測試者**（她 11/6 段八做完時回「兩件都照建議」，主控問的）：① 安裝檔**這一輪照現在從筆電建、從筆電派送**，`docs/STAGING.md` 補「從合進去的那一個 commit、乾淨的 checkout 建」（REVIEW-android R8）；改成 GitHub Actions 自動派送記進她的 backlog（第 27 條），這一輪不做。
+  ② 三星手機登入的是**另一個 Google 帳號** → **正式站那個專案**（`wellness-clinic-scheduler`）App Distribution 的群組多加那一個帳號當測試者（三星就不用多加帳號；staging 照舊只有原本那一位）。**email 段九先問她**，不寫進 repo（文件、commit、PR 都不寫）。另外提醒她：小工具 app 本身登入的帳號要在排課系統的白名單上（她在三星上登入排課系統的那一個）
 
 ## 過目抓到的（設計段，11/6；一個唯讀 subagent 對著程式碼，1、2 主控自己對過）
 
@@ -163,7 +165,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 
 ## 要她決定的
 
-4. **派送的安裝檔要不要改成 GitHub Actions 建？**（段八審查找到的，主控問她）
+4. ~~**派送的安裝檔要不要改成 GitHub Actions 建？**~~ → 她 11/6 回「兩件都照建議」（她已經決定的 → 安裝檔與三星的測試者）。以下是當時問的
    spec「一」談定的是「安裝檔由 GitHub Actions 建，簽章鑰匙放 GitHub Secrets」；段七做成**筆電建、從筆電上傳到 App Distribution**，GitHub Actions 只在合進 develop／main 時建一次、確認鑰匙還能用，**不派送**（段七中途發現 3，沒問過她）。
    - **建議：這一輪照現在（筆電建）**。只有她一位在用、一個月派不了幾版、每一版都要她先在 HTC 點過；改成 GitHub Actions 派送，要多放一把「能派送」的金鑰進 GitHub Secrets（公開 repo 的 CI 多一把有權限的鑰匙；放 Secrets 那一步 auto mode 會擋、要她自己跑一次腳本）。
      筆電建的缺點（筆電上還沒 commit 的改動會跟著派出去）用文件補：派送前從合進去的那一個 commit、乾淨的 checkout 建（REVIEW-android R8）。改成 GitHub Actions 派送記進 backlog
@@ -196,7 +198,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 先讀：`.scratch/notes-widget/REVIEW-android.md` 全部（每一條：在哪裡、什麼情境會錯、建議、嚴重程度；R2 的紅燈測試寫在裡面）；`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」「中途發現」段五～段八、「要她決定的」4）；
 issue 06、07、08、09 的「做完時留下的」；ADR-0180、ADR-0179；`CLAUDE.md`「隨手記的 `linkId`」「隨手記的形狀或規則（Android 小工具那一份）」「寫入的等待與失敗文案」三列；`docs/agents/lessons.md`。
 
-「要她決定的」4（派送的安裝檔要不要改成 GitHub Actions 建）：主控問過她就照她的；**還沒回答就照建議**（筆電建、R8 補那一行文件、改成 GitHub Actions 派送記進記憶的 backlog）。
+「要她決定的」4 她回了「兩件都照建議」（「她已經決定的」→ 安裝檔與三星的測試者）：**筆電建**、R8 補那一行文件（GitHub Actions 派送主控已記進 backlog 第 27 條）；**三星那個 Google 帳號加成正式站專案的測試者** —— 派正式版之前先問她是哪個 email（不寫進 repo、commit、PR），用 `firebase appdistribution:testers:add … --project wellness-clinic-scheduler` 加進同一個群組。
 
 建議的順序：R1（三個入口共用一支「營養品的提醒點勾＝開網頁」）→ R2（core 先加那一題紅燈 → 同步那兩支只認伺服器的答案）→ R3（core 的 `NotesSync` 給一支套在現在那一份上＋單元測試）→ R4 → R5 → R6 → R7、R8（文件；ADR-0180 是這一支 PR 新增的，直接改）→ R9。
 每一條修完在 REVIEW-android 那一條標題底下寫「**段九：修了** —— <commit>（一句怎麼修的）」；不修的寫理由。core 的改動一律紅燈 → 綠；動到網頁也有的規則照 `CLAUDE.md` 那一列（情境檔先加一題、`node scripts/notes-parity.mjs --write`、兩邊都綠）—— 這一輪的修法預計都只在 Android 那一側。
