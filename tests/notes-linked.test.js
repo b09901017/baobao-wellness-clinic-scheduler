@@ -360,7 +360,7 @@ describe('長按選單（她 11/6 定的：勾掉／改日期／掛給誰／改�
     assert.equal(open.edit, '3 天一起改');
     assert.equal(notes(trio({ done: true })[0]).untick, '3 天一起');
     // 只有自己一天（沒連在一起）照舊
-    assert.equal(noteActions(note({ date: '2026-11-09' }), { reach: null }).find((a) => a.id === 'date').note, '2026-11-09');
+    assert.equal(noteActions(note({ date: '2026-11-09' }), { reach: null }).find((a) => a.id === 'date').note, '11/9(一)');
   });
 
   test('連在一起的也是五顆（拆開這一天收在「複製到別天」那張卡裡）', () => {
@@ -512,7 +512,7 @@ describe('會作用在幾天（linkedReach，R2）', () => {
     const w = linkedWords(null);
     assert.equal(w.card, '');
     assert.equal(w.toast, '');
-    assert.equal(noteActions(n, { reach: null }).find((a) => a.id === 'date').note, '2026-11-09');
+    assert.equal(noteActions(n, { reach: null }).find((a) => a.id === 'date').note, '11/9(一)');
   });
 });
 

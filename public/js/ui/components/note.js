@@ -192,8 +192,8 @@ function wireOne(box) {
 
 // ---------- 掛給誰 ----------
 //
-// 也是選填的，而且跟日期一樣：**點開才讀客戶名單**。她十次有九次不掛人，
-// 沒必要為了那一次讓每次開面板都多一趟往返。
+// 也是選填的。客戶名單**用到才讀、只讀一次**：點開「掛給誰」或打字跳出客戶（`wireSuggest()`）時讀，
+// 兩邊共用同一份（`wireCapture()` 的 `customers()`）。她十次有九次不掛人，沒必要每次開面板都多一趟往返。
 //
 // 首頁那一格以前沒有這個欄位（只有日期），所以變成一個「掛得了日期、
 // 掛不了人」的奇怪組合，而掛人比掛日期常用（2026-08-24）。
@@ -354,7 +354,7 @@ export function readCapture(root) {
  * @param {object} o
  * @param {() => HTMLInputElement|null} o.input 打字的那一格（選了一包營養品時把字填進去）
  * @param {() => HTMLElement|null} o.whoBox 選了一包時要收起來的那一塊（包住「掛給誰」）
- * @param {() => Promise<object[]>} o.loadCustomers 點開才讀、只讀一次
+ * @param {() => Promise<object[]>} o.loadCustomers 用到才讀（點開掛給誰、或打字跳出客戶）、只讀一次
  * @param {(() => Promise<object[]>)|null} [o.loadBags] `givableBags()`；沒有「給營養品」那一顆就不用給
  * @returns {{read: () => object, reset: () => void}} reset：存完之後清回沒有日期、沒掛人、沒選一包
  */

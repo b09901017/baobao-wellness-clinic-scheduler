@@ -70,7 +70,7 @@ import * as slotNote from '../components/slotNote.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
-import { openActions, wireLongPress } from '../components/actions.js';
+import { wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { pushLayer, takeFor, leaveFor, whenSettled } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
@@ -4306,7 +4306,6 @@ export async function renderNotesLink(el, { noteId = null, give = false } = {}) 
     notes,
     complete: true,
     deps: noteDeps(),
-    onBag: () => {},
     after: () => renderNotes(el),
   });
 }

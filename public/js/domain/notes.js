@@ -17,7 +17,7 @@
 // 日期**不是死線**。任務要有死線且由來訪產生（CONTEXT.md），
 // 隨手記的日期是「我想在這一天處理」——過了也不會變紅字。
 
-import { isValidDate } from './dates.js';
+import { isValidDate, shortDate } from './dates.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -529,7 +529,8 @@ export function noteActions(note, { reach = null } = {}) {
   out.push({
     id: 'date',
     label: '改日期',
-    note: words.date ?? (note?.date ?? undefined),
+    // 沒連在一起的印現在是哪一天（「11/9(一)」—— 以前印 ISO 的 2026-11-09，段四順手）
+    note: words.date ?? (note?.date ? shortDate(note.date) : undefined),
     icon: 'calendar',
   });
 

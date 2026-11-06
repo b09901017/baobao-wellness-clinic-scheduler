@@ -1453,7 +1453,7 @@ function mountNoteEditor(el, data, sheet, spec) {
   //
   // **每次 mount 都接，不靠旗標**（notes-widget 02）：監聽掛在那幾塊自己身上，而 `sheet.update()`
   // 換掉的正是那幾塊 —— 以前的 `noteWhoWired` 旗標留在 `sheet.el` 上，同一張抽屜第二次 mount 時
-  // 新的「掛給誰」一個監聽都沒有。點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
+  // 新的「掛給誰」一個監聽都沒有。客戶名單用到才讀（點開掛給誰、或打字跳出客戶，`wireCapture()`）—— 日曆是每天開十幾次的一頁。
   note.wireCapture(sheet.el, {
     input: () => sheet.el.querySelector('[data-noteform] [name="text"]'),
     whoBox: () => sheet.el.querySelector('[data-calwho]'),

@@ -714,7 +714,6 @@ export const COVERAGE = {
     'public/js/domain/followups.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/customers.js',
     'tests-e2e/fixtures/ai/aboveeList-one-time.json',
   ],
-  // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   // 複製到別天、連在一起的隨手記（notes-widget 04、05，ADR-0179）：長按 → 小月曆 → 一組三天；清單一列「共 N 天」、
   // 日曆每一天一筆；在日曆勾一天整組一起勾（連不在這個月的）；拆開這一天；日曆編輯器只改日期不寫另外那幾天
   '97-notes-linked-copy': [
@@ -735,6 +734,7 @@ export const COVERAGE = {
   '100-keyboard-layout': [
     'public/js/ui/keyboard.js', 'public/index.html', 'public/js/app.js', 'public/css/app.css',
   ],
+  // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
     'public/js/data/customers.js',
