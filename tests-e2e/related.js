@@ -727,6 +727,10 @@ export const COVERAGE = {
     'public/js/ui/components/note.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
     'public/js/domain/customers.js', 'public/css/app.css',
   ],
+  // 給 Android 小工具的兩條網址（notes-widget 10）：開某一筆（營養品的提醒先問給了哪幾款）、開記一筆並展開給營養品；冷開機與 app 開著時
+  '99-notes-widget-links': [
+    'public/js/ui/views.js', 'public/js/ui/views/home.js', 'public/js/ui/components/note.js', 'public/js/ui/router.js',
+  ],
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
     'public/js/data/customers.js',

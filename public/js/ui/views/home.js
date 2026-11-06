@@ -1623,7 +1623,7 @@ function openQuick(ctx) {
   // 什麼都沒記就不要重畫，那會白閃一下。
   const added = [];
 
-  openSheet({
+  const sheet = openSheet({
     title: '記一筆',
     note: '客人臨時說的小要求。沒有死線，所以它不是任務。',
     body: quickBody(),
@@ -1646,6 +1646,7 @@ function openQuick(ctx) {
       if (added.length) (ctx.render ?? render)(ctx.el);
     },
   });
+  return sheet?.el ?? null;
 }
 
 function quickBody() {
@@ -4266,6 +4267,48 @@ let notesTab = 'open';
 async function renderNotes(el) {
   const notes = await notesData.listAll();
   paintNotes({ el, notes });
+}
+
+/**
+ * 小工具打開的兩條網址（notes-widget 10，`views.js` 那兩條登記）：先畫隨手記那一頁，再接著做那一件。
+ *
+ * - `{ noteId }`：**營養品的提醒**直接問「給了哪幾款」（`prepareToggle()`，跟在清單上點它同一條路 ——
+ *   小工具上點勾不可以不問就勾掉）；一般的隨手記跳出它的長按選單（`openMenu()`）。
+ *   找不到、已經勾掉了 → 講一句
+ * - `{ give: true }`：打開右下角那一顆「記一筆」、給營養品已經展開（存的跟泡泡選了一包一模一樣）
+ *
+ * 網址處理完換回 `#/todo/notes`（`replaceState`，不叫 hashchange）：重新整理、從別頁按返回回來都不會再跳一次。
+ */
+export async function renderNotesLink(el, { noteId = null, give = false } = {}) {
+  const at = location.hash;
+  const notes = await notesData.listAll();
+  // 讀的那一下她可能已經換頁了
+  if (location.hash !== at) return;
+  history.replaceState(history.state, '', '#/todo/notes');
+  paintNotes({ el, notes });
+
+  if (give) {
+    const drawer = openQuick({ el, render: renderNotes });
+    drawer?.querySelector('[data-ng-toggle]')?.click();
+    return;
+  }
+
+  const n = notes.find((x) => x.id === noteId && !x.deletedAt);
+  if (!n || n.done) {
+    toast.info(n ? '這一筆已經勾掉了' : '找不到這一筆隨手記，可能已經刪掉了');
+    return;
+  }
+  if (n.entitlementId) {
+    await tickNote(el, notes, n.id);
+    return;
+  }
+  note.openMenu(n, {
+    notes,
+    complete: true,
+    deps: noteDeps(),
+    onBag: () => {},
+    after: () => renderNotes(el),
+  });
 }
 
 function paintNotes(ctx) {

@@ -1,6 +1,6 @@
 # 10：網頁 app 給小工具用的兩條網址（開某一筆、開記一筆並展開給營養品）
 
-Status: todo
+Status: done
 Blocked by: 02、03（記一筆那一排的接線定了）
 
 ## 動工前先讀
@@ -36,4 +36,18 @@ Blocked by: 02、03（記一筆那一排的接線定了）
 
 ## 做完時留下的
 
-（做完補）
+段二（2026-11-06）。E2E `99-notes-widget-links`（W1–W5，登記進 `related.js`）。sw.js v305。
+
+**兩條網址（Kotlin 照抄，網址前面接站的網址：staging／正式各一個）**：
+
+| 網址 | 做什麼 |
+|---|---|
+| `#/todo/notes/note/<隨手記的 id>` | 打開隨手記那一頁；**營養品的提醒**（有 `entitlementId`）直接問「給了哪幾款」（走 `tickNote()` → `prepareToggle()`，跟在清單上點它同一條路；按「先不要」什麼都不勾）；一般的跳出它的長按選單（`note.openMenu()`，`complete: true`）。找不到／已刪掉 →「找不到這一筆隨手記，可能已經刪掉了」；已經勾掉 →「這一筆已經勾掉了」 |
+| `#/todo/notes/new/give` | 打開隨手記那一頁、右下角那一顆「記一筆」打開、給營養品已經展開（點那一顆 `[data-ng-toggle]`）；存的跟泡泡選了一包一模一樣 |
+
+- 登記在 `ui/views.js`（`/todo/notes/note/:id`、`/todo/notes/new/give`）；比 `/todo/:group` 多兩格，`match()` 照格數比，不會撞
+- 畫的是 `home.js` 的 `renderNotesLink(el, { noteId, give })`：讀全部隨手記 → **`history.replaceState` 換回 `#/todo/notes`**（不叫 hashchange；重新整理、按返回回來都不會再跳一次）→ 畫那一頁 → 接著做那一件。讀的那一下換了頁就不做
+- `openQuick()` 回那一張抽屜（`sheet.el`）—— 唯一的舊呼叫端不讀回傳值
+- 冷開機（`signIn(網址)`，記得上一次登入的那一條：殼先畫、路由晚一點才接上，ADR-0167）與 app 開著時換過去（W3）都量了
+
+**還沒驗的（實機）**：裝到主畫面的那一顆（WebAPK）會不會接走小工具送出的網址、從桌面冷開機時網址的 hash 有沒有帶進來 —— 06 裝小工具時在 HTC 上試（段二接 HTC 時只看鍵盤）。

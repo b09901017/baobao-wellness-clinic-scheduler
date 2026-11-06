@@ -47,6 +47,18 @@ register('/todo/:group', {
   titleFor: (group) => home.groupTitle(group),
 });
 
+// 給 Android 小工具開的兩條（notes-widget 10）：打開隨手記那一頁、接著開某一筆／開「記一筆」並展開給營養品。
+// **網址只活一次**：處理完換回 `#/todo/notes`（`home.renderNotesLink()`），重新整理不會再跳一次。
+// 比 `/todo/:group` 多兩格，`match()` 照格數比，不會撞到它。名字小工具照抄（issue 10 的「做完時留下的」）
+register('/todo/notes/note/:id', {
+  title: '隨手記', nav: false,
+  render: (el, id) => home.renderNotesLink(el, { noteId: id }),
+});
+register('/todo/notes/new/give', {
+  title: '隨手記', nav: false,
+  render: (el) => home.renderNotesLink(el, { give: true }),
+});
+
 register('/customers/new', { title: '新增客戶', nav: false, render: customers.renderNew });
 register('/customers/bulk', {
   title: '快速建立一群', nav: false, render: customersBulk.render,
