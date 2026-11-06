@@ -51,7 +51,7 @@ object SignIn {
         } catch (e: NoCredentialException) {
             return Outcome.Failed("這支手機上沒有可以用的 Google 帳號")
         } catch (e: Exception) {
-            return Outcome.Failed("登入沒有成功：${e.message ?: e::class.simpleName}")
+            return Outcome.Failed(Say.failed("登入沒有成功", e))
         }
         if (credential !is CustomCredential || credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             return Outcome.Failed("登入沒有成功：拿到的不是 Google 帳號")
@@ -74,7 +74,7 @@ object SignIn {
         try {
             signIn()
         } catch (e: Exception) {
-            return Outcome.Failed("登入沒有成功：${e.message ?: e::class.simpleName}")
+            return Outcome.Failed(Say.failed("登入沒有成功", e))
         }
         return checkAllowed(context)
     }
@@ -85,7 +85,7 @@ object SignIn {
         val allowed = try {
             Backend.db.collection("allowedUsers").document(user.uid).get().await().exists()
         } catch (e: Exception) {
-            return Outcome.Failed("問不到白名單（網路？）：${e.message ?: e::class.simpleName}")
+            return Outcome.Failed(Say.failed("問不到白名單", e))
         }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!allowed) {

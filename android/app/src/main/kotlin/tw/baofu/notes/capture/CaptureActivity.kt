@@ -33,6 +33,7 @@ import tw.baofu.notes.core.Notes
 import tw.baofu.notes.core.WebLinks
 import tw.baofu.notes.widget.WidgetSync
 import tw.baofu.notes.Backend
+import tw.baofu.notes.Say
 
 /**
  * 小工具的 ＋：**浮在桌面上的輸入卡**（08，定稿圖 2 的 4、5）。
@@ -117,8 +118,10 @@ class CaptureActivity : FloatingActivity() {
             AppScope.launch {
                 try {
                     WidgetSync.localWrite(app) { Backend.notes.create(data) }
+                    // 小工具上馬上看得到，有網路就不講；沒網路講一句「存在這台手機上了」（不說失敗）
+                    Say.saved(null)?.let { say(app, it) }
                 } catch (e: Exception) {
-                    say(app, "存不進去：${e.message ?: e::class.simpleName}")
+                    say(app, Say.failed("存不進去", e))
                 }
             }
             finish()

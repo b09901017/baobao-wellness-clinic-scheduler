@@ -147,7 +147,7 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snap, err ->
                 if (err != null) {
-                    say("讀不到隨手記：${err.message}")
+                    say(Say.failed("讀不到隨手記", err))
                     return@addSnapshotListener
                 }
                 val docs = snap?.documents?.map { linkedMapOf<String, Any?>("id" to it.id) + FirestoreNoteStore.toCore(it.data ?: emptyMap<String, Any?>()) }
@@ -171,9 +171,9 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
                     Backend.notes.create(data)
                     text = ""
                     WidgetSync.afterLocalWrite(context.applicationContext)
-                    say(if (Backend.store.pending) "存在這台手機上了，連上網路會補傳" else "記好了")
+                    say(Say.saved("記好了") ?: "記好了")
                 } catch (e: Exception) {
-                    say("存不進去：${e.message}")
+                    say(Say.failed("存不進去", e))
                 }
             }
         }) { Text("記") }
@@ -193,7 +193,7 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
                             Backend.notes.setDone(row.note["id"] as String, true)
                             WidgetSync.afterLocalWrite(context.applicationContext)
                         } catch (e: Exception) {
-                            say("勾不掉：${e.message}")
+                            say(Say.failed("勾不掉", e))
                         }
                     }
                 })

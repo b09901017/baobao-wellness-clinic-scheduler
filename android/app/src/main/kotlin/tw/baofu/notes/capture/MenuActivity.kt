@@ -44,6 +44,7 @@ import tw.baofu.notes.AppScope
 import tw.baofu.notes.Backend
 import tw.baofu.notes.BuildConfig
 import tw.baofu.notes.NoteTaps
+import tw.baofu.notes.Say
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Doc
 import tw.baofu.notes.core.Js
@@ -84,9 +85,9 @@ class MenuActivity : FloatingActivity() {
         AppScope.launch {
             try {
                 WidgetSync.localWrite(app) { block() }
-                say(app, success())
+                Say.saved(success())?.let { say(app, it) }
             } catch (e: Exception) {
-                say(app, "存不進去：${e.message ?: e::class.simpleName}")
+                say(app, Say.failed("存不進去", e))
             }
         }
         finish()
