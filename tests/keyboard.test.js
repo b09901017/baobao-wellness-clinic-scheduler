@@ -44,9 +44,9 @@ test('keyboardOpen：焦點在打字的格子裡、而且版面矮了一截才�
   assert.equal(keyboardOpen({ tallest: 800, height: 404, focused: null }), false);
 });
 
-test('接線：app.js 一開機就盯（只掛一次）；手機上 html[data-keyboard] 收起底部導覽列', () => {
+test('接線：app.js 一開機就盯（只掛一次）；手機上 html[data-keyboard] 收起底部導覽列與右下角那一顆（R1）', () => {
   assert.match(read('public/js/app.js'), /watchKeyboard\(\)/);
   const css = read('public/css/app.css');
-  const rule = css.match(/@media \(max-width: 899px\) \{\s*html\[data-keyboard\] \.app__nav \{\s*display: none;/);
-  assert.ok(rule, 'html[data-keyboard] .app__nav 收起來，只在手機寬度');
+  const rule = css.match(/@media \(max-width: 899px\) \{\s*html\[data-keyboard\] \.app__nav,\s*html\[data-keyboard\] \.fab \{\s*display: none;/);
+  assert.ok(rule, 'html[data-keyboard] .app__nav 與 .fab 收起來，只在手機寬度');
 });
