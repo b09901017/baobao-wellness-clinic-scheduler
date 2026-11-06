@@ -7,7 +7,8 @@ name: Android（隨手記小工具）
 #
 # 跑的：core 的單元測試（讀 tests/fixtures/notes-parity.json，跟網頁那一側對同一份答案）＋兩個版本的 debug 建置。
 # 網頁那一側的 tests/notes-parity.test.js 在 deploy.yml 的 `npm test` 裡照跑（每一支 PR 都跑）。
-# release 簽章、派送（Firebase App Distribution）是 issue 09 的事。
+# 推到 develop／main 時另外建兩個版本的 release（用 GitHub Secrets 的簽章鑰匙），確認鑰匙還建得出來。
+# **建出來的 APK 不上傳成 artifact**（repo 是 public，artifact 誰都下載得到）；派送照 docs/STAGING.md「桌面小工具」從筆電上傳到 App Distribution。
 on:
   pull_request:
     paths:
@@ -47,3 +48,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: core 的單元測試（跟網頁對同一份情境檔）＋兩個版本的 debug 建置
         run: ./gradlew :core:test :app:assembleStagingDebug :app:assembleProdDebug --console=plain
+      - name: release 建置（簽章鑰匙在 GitHub Secrets；只在推到 develop／main 時）
+        if: github.event_name == 'push'
+        env:
+          STORE_BASE64: ${{ secrets.BAOFU_NOTES_STORE_BASE64 }}
+          BAOFU_NOTES_STORE_PASSWORD: ${{ secrets.BAOFU_NOTES_STORE_PASSWORD }}
+          BAOFU_NOTES_KEY_ALIAS: ${{ secrets.BAOFU_NOTES_KEY_ALIAS }}
+          BAOFU_NOTES_KEY_PASSWORD: ${{ secrets.BAOFU_NOTES_KEY_PASSWORD }}
+        run: |
+          if [ -z "$STORE_BASE64" ]; then echo "沒有 BAOFU_NOTES_STORE_BASE64，跳過 release 建置"; exit 0; fi
+          export BAOFU_NOTES_STORE_FILE="$RUNNER_TEMP/release.jks"
+          printf '%s' "$STORE_BASE64" | base64 -d > "$BAOFU_NOTES_STORE_FILE"
+          ./gradlew :app:assembleStagingRelease :app:assembleProdRelease --console=plain
+          rm -f "$BAOFU_NOTES_STORE_FILE"
+          for apk in app/build/outputs/apk/*/release/*.apk; do
+            case "$apk" in *unsigned*) echo "沒簽到：$apk"; exit 1;; esac
+          done

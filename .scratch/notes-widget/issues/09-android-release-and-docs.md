@@ -1,6 +1,6 @@
 # 09：派送（App Distribution）、裝好兩支、文件
 
-Status: todo
+Status: done
 Blocked by: 07、08
 
 ## 動工前先讀
@@ -28,4 +28,22 @@ Blocked by: 07、08
 
 ## 做完時留下的
 
-（做完補）
+段七（2026-11-06）。
+
+**App Distribution**（兩個專案她在主控台按了「開始使用」—— 沒按之前 CLI 回 404；其餘段七用 CLI）：兩個專案各一個群組「只有我」（alias `owner`），只有她一位。
+staging 第一版 **0.1.0（versionCode 1）已派送**（她會收到邀請信）；正式站還沒派送（段九，她在 HTC 點過說可以才派、才裝三星）。
+派送指令、第一次裝（允許不明來源）、更新、換手機都在 `docs/STAGING.md`「三之四、桌面小工具」。
+
+**簽章**：GitHub Secrets 四格 `BAOFU_NOTES_STORE_BASE64`（鑰匙檔 base64）／`_STORE_PASSWORD`／`_KEY_ALIAS`／`_KEY_PASSWORD`（她自己跑段七的腳本放的 —— auto mode 擋我寫 Secrets）；
+備份在私人 repo `android-signing/`（jks＋寫著四行的 README，段七 commit `5db2155`，沒 push）。讀過密碼的腳本用完刪了。
+`android.yml` 推到 develop／main 時多一步：Secrets 解成檔案、建 `assembleStagingRelease`／`assembleProdRelease`、檢查沒有 unsigned、刪鑰匙檔；**APK 不上傳成 artifact**（repo public）。沒有 Secrets 就跳過（fork 的 PR）。`versionCode` 每派送一版加一（`build.gradle.kts` 有註解）。
+
+**小工具挑選畫面的預覽**（段六中途發現 6）：`res/layout/widget_preview.xml`（`android:previewLayout`，假的三列字、Palette.Light 的顏色）。
+HTC 上剛重裝完第一次看是「無法載入小工具」（`Resources$NotFoundException`：桌面程式拿著重裝前那一支的資源）；重開桌面程式之後正常。清單寫了。
+
+**HTC**：段七把接模擬器的開發版移除（只有模擬器的假資料），改裝 release 簽的 0.1.0（跟派送的是同一個 APK）；她登入 staging、放了小工具。
+唯讀走過的見 `android-checklist.md` 最後「誰走過」。過程中段七用 `svc power stayon usb` 開了「充電時不關螢幕」、**馬上關回去了**（`stay_on_while_plugged_in` 是 0）—— 不改她手機的設定。
+
+**文件**：`docs/STAGING.md`「三之四」、`docs/操作手冊.md`「桌面小工具」、`docs/常見問題.md` 三條（小工具上還沒出現／三星有毛玻璃 HTC 沒有／沒有權限）、`SPEC.md` 隨手記那一節一段、`README.md` 開發狀態 41k（☐，段九合進去之後打勾）。沒有鑰匙、密碼、email、真名。
+
+**手動驗收清單草稿**：`.scratch/notes-widget/android-checklist.md`（A HTC 測試版、B 三星正式版）。寫入的那幾步段六在模擬器那一支走過，段九陪她在 staging 走。

@@ -2,4 +2,9 @@
 <resources>
     <string name="app_name">隨手記</string>
     <string name="widget_description">還沒做的隨手記；點 ＋ 直接在桌面記一筆</string>
+    <!-- 小工具挑選畫面的預覽（09）：假的三列，不是任何一筆真的 -->
+    <string name="widget_preview_title">隨手記  3</string>
+    <string name="widget_preview_row1">確認下週的課表</string>
+    <string name="widget_preview_row2">寄報告給醫師</string>
+    <string name="widget_preview_row3">點滴品項補貨</string>
 </resources>

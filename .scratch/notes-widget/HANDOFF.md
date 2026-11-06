@@ -19,7 +19,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | **做完**（11/6）：R2＋R3 `89dd186d`、R1 `9114407e`＋`793de84b`、R4 `58a8ec6d`、R5 `66cc8170`、R6 `8c9bca6a`、R7 `97ecf4e6`、R8 `0408b8fa`（查過是舊行為、加護欄）、related.js 三位數 `d626a699`；sw.js v313；**PR #221**（合併 commit 見 PR）；清單在 PR 內文，A 段模擬器走過、B 段等 staging |
 | 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：Firebase 主控台登記**；SDK 條款她同意了） | xhigh | **做完**（11/6）：06 `861fab82`（ADR-0180）；兩支 Android app 登記好了（她答「兩個都由你用指令登記」）；HTC 上模擬器那一支記一筆／勾掉、真的 staging 的 Google 登入都驗過；已推，還沒開 PR |
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | **做完**（11/6）：07 `9a54b1cb`、08 `1a698c08`；HTC 接本機模擬器那一支走過（小工具、勾掉＋3 秒拿回來、輸入卡＋注音跳出客戶、選單、複製到別天、拆開、改日期、改掛給誰）；已推，還沒開 PR |
-| 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | |
+| 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | **做完**（11/6）：09（commit 見 issue 09）；App Distribution 兩個專案開好、群組 `owner` 只有她、staging 第一版（0.1.0／1）已派送；鑰匙在 GitHub Secrets 四格＋私人 repo `android-signing/`；HTC 換成 release 版、登入著 staging、小工具重放了；清單草稿 `android-checklist.md`；三星沒裝（段九） |
 | 八 | `/matt-code-review` 審 Android 那一半 | xhigh | |
 | 九 | 照審查修、HTC 上走驗收、PR、合併；HTC 點過她說可以 → 三星裝正式版 | high | |
 
@@ -146,8 +146,19 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 7. `uiautomator`、`adb input text` 打不出中文：改文字那一條沒在 HTC 上走（跟改掛給誰同一條寫入路）；段九她點的時候注意一下
 8. 這個 worktree 的 `public/js/ui/views.js` 與 issue 02 一直顯示「已修改」但 `git diff` 是空的（只是檔案時間）—— 沒動、沒 commit
 
+### 段七
+
+1. **把鑰匙放進 GitHub Secrets／`.local` 那一步被 auto mode 擋下（Secret-Store Writes）**：照規矩沒繞，她自己在終端機跑了那支腳本（PowerShell 不認 `&&`，第一次沒跑成、重跑好了）。主控看過 Secrets 四格都在；`.local` 的 `android-signing/` 段七 commit 了（`5db2155`，只 commit 不 push）。腳本讀檔時讀到密碼 → 用完刪了
+2. **App Distribution 沒開時 CLI 回 404**（不是權限問題）：第一次一定要在主控台按「開始使用」，寫進 `docs/STAGING.md` 了
+3. **CI 的 release 建置只在推到 develop／main 時跑**（PR 拿不到 Secrets 的情況照樣綠）；建出來的 APK **不上傳成 artifact**（repo public）。派送照文件從筆電上傳 —— 要改成 CI 直接派送得多一把有 App Distribution 權限的服務帳號，這一輪不做
+4. **HTC 上的「隨手記（測試）」是筆電用 release 鑰匙直接裝的 0.1.0（1）**，跟派送的那一版是同一個 APK：App Tester 會顯示已安裝，不用重裝。以後派送記得 `versionCode` 加一
+5. 段六中途發現 6（小工具預覽空白）段七補了 `previewLayout`（`layout/widget_preview.xml`，假的三列字）；剛重裝完桌面程式會拿著舊資源講「無法載入小工具」，重開桌面程式就好（不是程式的錯）
+6. **段七在 HTC 上不小心開了「充電時不關螢幕」**（`svc power stayon usb`），馬上關回去了（`stay_on_while_plugged_in` = 0）。之後接 HTC 一律請她解鎖，不改設定
+7. HTC 的長按圖示捷徑段七看到了（「小工具改成深色」在），補上段六沒驗到的那一條（沒按）
+
 ## 要她決定的
 
+- **段七沒有要問的**（中途發現 1–7 都不用她決定）。**要她做的**：收邀請信、裝 App Tester（清單 A0）；照 `android-checklist.md` 的 A 段在 HTC 點（段九陪她走）
 - **段二沒有要問的**（中途發現 1–5 都不用她決定）
 - **段三沒有要問的**：`REVIEW.md` 六條都照建議修（R1 收起泡泡是 ADR-0181 收導覽列同一個理由；R3 的冪等是寫法、不是她的選擇）
 - **段六沒有要問的**（中途發現 1–8 都不用她決定；麥克風點了不反應、捷徑只有一顆「改成深色／淺色」、今天的日期不畫是段六自己定的，寫在 07 的「做完時留下的」）。**要她知道的**：HTC 桌面上那個小工具是接本機模擬器的測試版（假資料），段七會換成接 staging 的
@@ -162,6 +173,33 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - ~~**段五開頭**：接受 Android SDK 授權條款；在 Firebase 主控台替 staging／正式站登記 Android app~~ → 都回了（她已經決定的）
 
 ## 每一段的開場
+
+### 段八（effort：xhigh）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具。
+網頁那一半是 PR #221（已合進 develop）。Android 那一半在分支 `claude/notes-widget-android`（已推、還沒開 PR）：段五 06（工具鏈、登入、讀寫、情境檔，ADR-0180）、段六 07（小工具）、08（輸入卡與選單）、段七 09（App Distribution、簽章、CI 的 release 建置、文件、驗收清單草稿）。
+你是段八：用 `/matt-code-review` 審 Android 那一半，範圍是 `git merge-base origin/develop HEAD` 到 HEAD（`android/`、`.github/workflows/android.yml`、`tests/fixtures/notes-parity.json`、`scripts/notes-parity.mjs`、`tests/notes-parity.test.js`、`tests/helpers/fakeFirestore.js`、文件）。只審、記下來，不修（修是段九）。
+
+在 worktree `.claude/worktrees/notes-widget`（同一個資料夾），分支 `claude/notes-widget-android`。先 `git fetch`，落後 `origin/develop` 就 `git merge origin/develop`（不要 rebase）。
+先讀：`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」「中途發現」段五～段七）；`.scratch/notes-widget/spec.md`「一」；issue 06、07、08、09 的「做完時留下的」；ADR-0180、ADR-0179；`CLAUDE.md`「隨手記的 `linkId`」「隨手記的形狀或規則（Android 小工具那一份）」兩列；`docs/agents/lessons.md`。
+
+要特別看的：
+- 整輪的判準（HANDOFF「每一段共同的規矩」最後一條）：小工具與網頁存出不一樣的資料？一組連在一起的被列成好幾列、勾不完整？—— 對著 `data/notes.js`、`repo.commit()` 逐欄比 `NotesWriter`（`updatedAt`、`doneAt` 三位毫秒、稽核那一筆）
+- `NotesSync`：游標用伺服器時間、刪掉／勾掉的拿得掉嗎、離線寫入（`updatedAt` 還是 null）會不會被游標跳過
+- 勾掉的 3 秒（`AppScope`、`writes` Mutex、劃線 60 秒當成離開）、程式被收掉時的狀態；`MY_PACKAGE_REPLACED`
+- 登入：白名單不過時有沒有任何寫入、換帳號／登出清手上那一份
+- 簽章與 CI：鑰匙、密碼有沒有可能進 log 或 artifact；`android.yml` 那一步在 PR 上的行為；文件裡有沒有鑰匙、email、真名
+- 營養品的提醒在小工具上能不能不經過「給了哪幾款」被勾掉（不行）
+
+規矩：同時最多兩個 subagent（skill 寫全部同時開也一樣，兩個一批）；找到的先自己讀前後文、能重現就重現（core 有單元測試可以加一題紅燈），確定是錯而且重要才記；
+記進 `.scratch/notes-widget/REVIEW-android.md`（每一條：哪裡、什麼情境會錯、建議、嚴重程度），要她決定的收成一題附建議寫進 HANDOFF「要她決定的」。不接 HTC、不起模擬器。
+建置要跑的話：`cd android && JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.12.101-hotspot" ./gradlew :core:test`（限 4 個 worker；做完 `./gradlew --stop`）。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：REVIEW-android.md commit 並推上去、HANDOFF 更新（分段表、要她決定的）、段九（照審查修、HTC 上陪她走 `android-checklist.md` 的 A 段、開 PR 進 develop、CI 綠了合併；她說可以 → 三星裝正式版，high）的開場；最後回覆簡短說找到幾條、哪幾條要她決定。
+```
 
 ### 段七（effort：medium）
 

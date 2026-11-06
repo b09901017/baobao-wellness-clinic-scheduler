@@ -24,6 +24,7 @@ android {
         applicationId = "tw.baofu.notes"
         minSdk = 26
         targetSdk = 36
+        // **每派送一版（App Distribution）versionCode 加一**：手機照它判斷是不是新版，同一個號碼裝不上去（docs/STAGING.md「桌面小工具」）
         versionCode = 1
         versionName = "0.1.0"
     }

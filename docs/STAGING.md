@@ -394,6 +394,78 @@ curl -s -X POST -H "Content-Type: application/json" -d '{"data":{}}' \
 
 ---
 
+## 三之四、桌面小工具（Android「隨手記」）
+
+兩支 app、各接一個環境，可以裝在同一台手機上：
+
+| | 套件名 | 接哪裡 | 裝在 |
+|---|---|---|---|
+| 隨手記（測試） | `tw.baofu.notes.staging` | staging | HTC |
+| 隨手記 | `tw.baofu.notes` | 正式站 | 三星（測試版在 HTC 點過、說可以才裝） |
+
+程式在 `android/`，為什麼這樣做見 ADR-0180。不上 Play 商店：走 Firebase App Distribution，**測試者只有她一位**（不公開下載）。
+
+### 第一次設定（每個 Firebase 專案一次，主控台非點不可）
+
+App Distribution 第一次要在主控台按一次「開始使用」，指令列開不了（沒按之前 CLI 回 404）：
+
+1. 開 https://console.firebase.google.com → 選 **wellness-clinic-staging**
+2. 左邊「執行」（Run）底下 **App Distribution** → 按「**開始使用**」（Get started）→ 同意條款
+3. 換 **wellness-clinic-scheduler**（正式站）再做一次
+4. 加測試者（只有她），指令列做得到：
+
+```bash
+npx firebase appdistribution:group:create "只有我" owner --project wellness-clinic-staging
+npx firebase appdistribution:testers:add <她的 Gmail> --group-alias owner --project wellness-clinic-staging
+```
+
+正式站把 `--project` 換成 `wellness-clinic-scheduler` 再做一次。之後派送一律寫 `--groups owner`，指令與文件裡都不寫 email。
+
+### 簽章鑰匙在哪
+
+release 版用同一把鑰匙簽（兩個 Firebase 專案都登記了它的 SHA-1；換一把＝手機上裝好的要移除重裝、Firebase 重新登記）。**值一律不寫進 repo、不印進 log。**
+
+- 筆電：鑰匙檔 `~/.android/baofu-notes-release.jks`，密碼在 `~/.gradle/gradle.properties` 的 `baofuNotesStoreFile`／`baofuNotesStorePassword`／`baofuNotesKeyAlias`／`baofuNotesKeyPassword`
+- GitHub Secrets：`BAOFU_NOTES_STORE_BASE64`（鑰匙檔的 base64）、`BAOFU_NOTES_STORE_PASSWORD`、`BAOFU_NOTES_KEY_ALIAS`、`BAOFU_NOTES_KEY_PASSWORD` —— `android.yml` 推到 develop／main 時拿它們建一次 release，確認鑰匙還能用（**APK 不上傳成 artifact**：repo 是 public）
+- 備份：私人 repo 的 `android-signing/`（鑰匙檔＋一份寫著那四行的 README）。換一台電腦：鑰匙檔放回 `~/.android/`、四行貼進 `~/.gradle/gradle.properties`
+
+### 建一版、派送
+
+```bash
+cd android
+# 1. app/build.gradle.kts 的 versionCode 加一（同一個號碼手機裝不上去、App Distribution 也不會講有新版）
+# 2. 建（JAVA_HOME 指到 JDK 21）
+./gradlew :core:test :app:assembleStagingRelease :app:assembleProdRelease
+./gradlew --stop
+```
+
+```bash
+npx firebase appdistribution:distribute android/app/build/outputs/apk/staging/release/app-staging-release.apk --app 1:306220040308:android:dc49687824b0a172501121 --groups owner --release-notes "這一版改了什麼" --project wellness-clinic-staging
+```
+
+正式站：`apk/prod/release/app-prod-release.apk`、`--app 1:4875686059:android:80eb09363f4d1a8007a7ee`、`--project wellness-clinic-scheduler`。
+
+### 第一次裝到手機
+
+1. 手機上會收到 Firebase 寄來的邀請信 → 點「**開始使用**」（用手機的 Chrome 開，登入收信的那個 Google 帳號）
+2. 照畫面「**下載 App Tester**」（Firebase 的派送 app）→ 手機問「允許安裝不明來源的應用程式嗎？」→ 點「設定」→ 打開「**允許這個來源**」→ 返回 → 安裝
+3. 打開 App Tester → 看到「隨手記（測試）」（或「隨手記」）→ **下載** → 安裝（第一次一樣要對 App Tester 打開「允許這個來源」）
+4. **手機上已經有一支同名的、是筆電直接裝的開發版**（例如 HTC）→ 先長按圖示 → 解除安裝，再從 App Tester 裝；鑰匙不一樣，蓋不過去。
+   解除安裝會把桌面上的小工具一起拿掉，裝好要重放
+5. 打開 → 用 Google 登入 →「把小工具放到桌面」（之後怎麼用見 `docs/操作手冊.md`「桌面小工具」）
+
+### 更新
+
+派送了新的一版 → 手機收到通知（或打開 App Tester）→ 點「更新」。設定、登入、桌面上的小工具都留著（小工具更新完自己重畫一次）。
+
+### 換手機
+
+新手機照「第一次裝到手機」走一次（邀請信還在信箱裡；或在主控台 App Distribution → 測試者 → 重新寄邀請）。舊手機解除安裝就好，資料都在 Firestore 上。
+
+### 開發時接本機模擬器
+
+`./gradlew :app:assembleStagingDebug -Pemulator` 建出寫本機模擬器（`demo-scheduler`）的那一支，HTC 用 `adb reverse` 接過來；步驟在 `.scratch/notes-widget/issues/06-android-toolchain-and-data.md`「做完時留下的」。debug 版用筆電的 debug 鑰匙，跟 App Distribution 的 release 版不能互蓋。
+
 ## 四、日常怎麼跑
 
 ```
