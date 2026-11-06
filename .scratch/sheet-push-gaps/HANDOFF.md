@@ -403,6 +403,19 @@ subagent 過目 01（11/5），主控對過後改了：
 - 舊的那一份（下午、`532c1a4d` 的 `.gs`）用改過的工具重跑：照舊只有 9 格待辦日期（`value.date` 9＋格式 9），1 格殘留變成已知
 - 工具修正：分支 `claude/sheet-xlsx-verify-merge-edges`（從 develop `126206a1`），只動 `scripts/lib/sheetXlsxCompare.mjs` 與 `tests/sheet-xlsx-verify.test.js`（不動 `public/`）
 
+## 第五輪：記一句也疊在日期底下（issue 15，11/6）
+
+她 11/6 拿舊表的截圖：附註（小黑三角）照留，另外像二返註記那樣寫在那一個日期那一欄的表格底下、好幾句往下疊、塗舒服的顏色；器材不用。
+主控自己做（小，一支）：分支 `claude/sheet-slot-notes-below`（從 develop `a4315111`）。做法與數字在 issue 15 的「做完時留下的」，決定在 ADR-0177。
+`LAYOUT_VERSION` 6、只動 `.gs`（沒有動 `public/`，app 不用更新）。
+
+**她要照順序做的**（PR 合進 develop 之後）：
+1. 打開 **staging 那一份** Google 試算表 →「擴充功能」→「Apps Script」→「編輯器」→ 貼上 develop 的 `sheets/readonly-report.gs` → 儲存
+2. 「部署」→「管理部署作業」→ 鉛筆 →「新版本」→「部署」
+3. app 設定 → 試算表報表 →「立刻推一次」（版號變了，每一頁重畫，約兩分鐘）—— 順便補回第 13 個分頁的凍結
+4. 翻幾頁看：有記一句的那幾天，表格底下那一欄有沒有塗了色的那一句；一天好幾句有沒有往下疊；長的那一句有沒有被切掉
+5. 想逐格驗就匯出 .xlsx 放 `.local/references/xlsx/`
+
 ### 第四輪的開場
 
 這一輪：試算表版面第四輪微調（issue 14）。分支 `claude/sheet-layout-2`（已經在這條分支上），主控做到這個 commit。

@@ -306,8 +306,8 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
     const eecp = rowOf(sheet, 'EECP(60)');
     assert.equal(sheet.noteAt(`I${eecp}`), '他忘記了');
     assert.equal(sheet.notes.size, 2, '只有那兩格有備註');
-    const all = [...sheet.cells.values()].map(String);
-    assert.ok(!all.some((v) => v.includes('他忘記了')), '記一句不再寫成格子裡的字');
+    // 那一格的字照舊只有符號（記一句另外疊在矩陣底下那一欄，issues/15）
+    assert.equal(sheet.at(`I${eecp}`), '✗');
   });
 
   test('重畫時記一句搬了位置：舊的那一格不留備註（clear() 不清備註，要另外清）', () => {
@@ -326,6 +326,94 @@ describe('11 器材併進那一格、記一句改成那一格的附註', () => {
     const log = [{ label: '9/15(二)', items: [{ status: '已完成', time: '15:00–15:30', course: '三返', equipment: null, ivProduct: null, room: null, bed: null, therapist: null, doctor: '某華', note: '報告看完了' }] }];
     const { sheet } = draw([page({ log })]);
     assert.ok([...sheet.cells.values()].includes('　已完成　15:00–15:30　三返　某華醫師　記一句：報告看完了'));
+  });
+});
+
+describe('15 記一句也疊在那一個日期的最下面、塗淡色', () => {
+  // 她 11/6：「附註也可以像是現在重複的「二返」記一句那樣記在這表格他那一個日期的最下方……如果有多個那就在往下」
+  // 「in sis 那種做了什麼的就不用」「附註的那一個可以用舒服的顏色填滿，你就隨機填顏色就好」
+  // 夾具：矩陣第 6～11 列（復能、健檢、EECP、ILIB、三返、心臟科評估），所以底下從第 12 列起
+  const BELOW = 12;
+  const fills = () => loadAppsScript().context.NOTE_FILLS;
+
+  test('有附註的記一句也寫在那一個日期那一欄的矩陣底下，塗淡色；小黑三角照留', () => {
+    const { sheet } = draw();
+    const eecp = rowOf(sheet, 'EECP(60)');
+    assert.equal(sheet.noteAt(`I${eecp}`), '他忘記了', '附註照留');
+    assert.equal(sheet.at(`I${BELOW}`), '他忘記了');
+    assert.ok(fills().includes(sheet.backgrounds.get(`I${BELOW}`)), String(sheet.backgrounds.get(`I${BELOW}`)));
+    assert.equal(sheet.formats.hAlign.get(`I${BELOW}`), 'center');
+  });
+
+  test('同一欄：二返註記在最上面（照舊的字、不塗底），記一句接在底下；同一天好幾句照矩陣的先後往下疊', () => {
+    const slotNotes = [
+      { rowIndex: 3, label: 'EECP(60)', cells: [{ dateIndex: 1, text: 'EECP 那一句' }] },
+      { rowIndex: 1, label: '復能-三選一(60)', cells: [{ dateIndex: 1, text: '復能那一句\n第二行' }] },
+    ];
+    const { sheet } = draw([page({ slotNotes })]);
+    // 矩陣上面復能在 EECP 上面（做最多的在上面，issues/10）→ 疊的時候也是
+    assert.deepEqual([0, 1, 2].map((k) => sheet.at(`H${BELOW + k}`)), ['9/15 二返(某明)', '復能那一句\n第二行', 'EECP 那一句']);
+    assert.equal(sheet.backgrounds.get(`H${BELOW}`), undefined, '二返註記不塗底');
+    assert.equal(sheet.formats.fontSize.get(`H${BELOW}`), 9);
+    const [a, b] = [sheet.backgrounds.get(`H${BELOW + 1}`), sheet.backgrounds.get(`H${BELOW + 2}`)];
+    assert.ok(fills().includes(a) && fills().includes(b) && a !== b, `上下兩格 ${a}／${b}`);
+  });
+
+  test('一欄一欄各自從矩陣底下開始疊（不是接在別欄後面）', () => {
+    const { sheet } = draw();
+    assert.equal(sheet.at(`H${BELOW}`), '9/15 二返(某明)');
+    assert.equal(sheet.at(`H${BELOW + 1}`), '14:30 SIS、15:45 ILIB\n第二行');
+    assert.equal(sheet.at(`I${BELOW}`), '他忘記了', 'I 欄沒有二返註記：從第一格開始');
+  });
+
+  test('沒有額度的段（體驗、n返）記的那一句也疊在它那一天底下；來訪紀錄那一行照舊', () => {
+    const log = [
+      { date: '2026-09-15', label: '9/15(二)', items: [
+        { status: '已完成', time: '15:00–15:30', course: '三返', equipment: null, ivProduct: null, room: null, bed: null, therapist: null, doctor: '某華', note: '報告看完了' },
+        { status: '已完成', time: '16:00–17:00', course: '心臟科評估(體驗)', equipment: null, ivProduct: null, room: null, bed: null, therapist: null, doctor: null, note: null },
+      ] },
+    ];
+    const dates = ['2026-09-01', '2026-09-08', '2026-09-15', '2026-10-29'];
+    const { sheet } = draw([page({ log, dates })]);
+    // 9/15 是第 3 個日期（I 欄）：EECP 那一句（有額度、照矩陣）在上、三返那一句在下
+    assert.deepEqual([0, 1].map((k) => sheet.at(`I${BELOW + k}`)), ['他忘記了', '報告看完了']);
+    assert.equal(sheet.at(`I${BELOW + 2}`), '');
+    assert.ok([...sheet.cells.values()].includes('　已完成　15:00–15:30　三返　某華醫師　記一句：報告看完了'));
+  });
+
+  test('器材不疊下去（照舊只在那一格的字裡）', () => {
+    const { sheet } = draw();
+    for (let r = BELOW; r < rowOf(sheet, '買過什麼'); r += 1) {
+      for (const c of ['G', 'H', 'I', 'J']) assert.ok(!/^(IN|SIS)$/.test(String(sheet.at(`${c}${r}`))), `${c}${r}`);
+    }
+  });
+
+  test('疊下去的每一格都是文字格式（一句「10/15」不會被認成日期）', () => {
+    const slotNotes = [{ rowIndex: 3, label: 'EECP(60)', cells: [{ dateIndex: 2, text: '10/15' }] }];
+    const { sheet } = draw([page({ slotNotes })]);
+    assert.equal(sheet.at(`I${BELOW}`), '10/15');
+    assert.equal(sheet.formats.numberFormat.get(`I${BELOW}`), '@');
+    assert.equal(sheet.formats.numberFormat.get(`H${BELOW}`), '@', '二返註記那一格也是');
+  });
+
+  test('疊最深的那一欄有四格：「買過什麼」從它底下再空一列才開始，沒有蓋到', () => {
+    const slotNotes = [0, 1, 3].map((rowIndex) => ({ rowIndex, label: String(rowIndex), cells: [{ dateIndex: 1, text: `第 ${rowIndex} 句` }] }));
+    const { sheet } = draw([page({ slotNotes })]);
+    assert.equal(sheet.at(`H${BELOW + 3}`), '第 3 句', '二返＋三句');
+    assert.equal(rowOf(sheet, '買過什麼'), BELOW + 5);
+  });
+
+  test('只有二返註記、沒有記一句：位置跟以前一樣（底下一列、「買過什麼」再空一列）', () => {
+    const { sheet } = draw([page({ slotNotes: [] })]);
+    assert.equal(sheet.at(`H${BELOW}`), '9/15 二返(某明)');
+    assert.equal(rowOf(sheet, '買過什麼'), BELOW + 2);
+  });
+
+  test('NOTE_FILLS 避開狀態色（綠、黃、淡藍、灰、紅）與斑馬紋、白', () => {
+    const { context } = loadAppsScript();
+    const status = Object.values(context.COLOR).map((c) => String(c).toUpperCase());
+    assert.ok(context.NOTE_FILLS.length >= 4);
+    for (const c of context.NOTE_FILLS) assert.ok(!status.includes(c.toUpperCase()), c);
   });
 });
 
