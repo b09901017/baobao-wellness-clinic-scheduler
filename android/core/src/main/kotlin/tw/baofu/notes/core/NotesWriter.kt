@@ -14,15 +14,15 @@ interface NoteStore {
 
     /**
      * 還沒勾、還活著的（網頁 `listOpen()`：`deletedAt == null`、`done == false`、`createdAt` 新的在前，同一個複合索引）；每一筆帶 `id`。
-     * 小工具第一次同步用（[NotesSync.pull]）。
+     * 小工具第一次同步用（[NotesSync.pull]）。**要講是不是這台手機的快取**（[Listing.fromCache]）：SDK 連不上伺服器時回快取、不丟錯。
      */
-    suspend fun listOpen(path: String): List<Doc>
+    suspend fun listOpen(path: String): Listing
 
     /**
      * `updatedAt > since`，**含已刪除、已勾掉的**（小工具才知道要拿掉它們）、不加 limit；每一筆帶 `id`。
-     * 單欄位的範圍查詢：用 Firestore 自動建的索引，不用補 `firestore.indexes.json`（[NotesSync]）。
+     * 單欄位的範圍查詢：用 Firestore 自動建的索引，不用補 `firestore.indexes.json`（[NotesSync]）。同樣要講是不是快取。
      */
-    suspend fun listUpdatedSince(path: String, since: Ts): List<Doc>
+    suspend fun listUpdatedSince(path: String, since: Ts): Listing
 
     /** 先拿一個還沒用過的 id（網頁 `doc(collection(db, path)).id`）。 */
     fun newId(path: String): String
@@ -30,6 +30,12 @@ interface NoteStore {
     /** 一次原子寫入（網頁 `writeBatch()` → `commit()`）。 */
     suspend fun commit(writes: List<Write>)
 }
+
+/**
+ * 一次查詢讀回來的，與**是不是這台手機的快取**（Firestore 的 `metadata.isFromCache`）。
+ * 同步只認伺服器的答案（[NotesSync]）：快取裡比游標新的只是這台手機自己看過的那幾筆，拿來推游標會跳過別台改的（REVIEW-android R2）。
+ */
+data class Listing(val docs: List<Doc>, val fromCache: Boolean = false)
 
 /** 一筆要寫的：`SET` 整份蓋上（新增、稽核）、`UPDATE` 只改那幾欄。 */
 data class Write(val kind: Kind, val path: String, val data: Doc) {

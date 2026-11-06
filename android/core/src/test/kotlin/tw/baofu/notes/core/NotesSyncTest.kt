@@ -2,6 +2,7 @@ package tw.baofu.notes.core
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -24,15 +25,54 @@ class NotesSyncTest {
         override fun newId(path: String): String = error("用不到")
         override suspend fun commit(writes: List<Write>) = error("用不到")
 
-        override suspend fun listOpen(path: String): List<Doc> {
+        override suspend fun listOpen(path: String): Listing {
             asked += "open"
-            return docs.filter { Notes.isOpen(it) }
+            return Listing(openOf(docs))
         }
 
-        override suspend fun listUpdatedSince(path: String, since: Ts): List<Doc> {
+        override suspend fun listUpdatedSince(path: String, since: Ts): Listing {
             asked += "since ${since.seconds}"
-            return docs.filter { (it["updatedAt"] as? Ts)?.let { t -> NotesSync.later(t, since) == t && t != since } == true }
+            return Listing(changedSince(docs, since))
         }
+    }
+
+    /**
+     * 照 SDK 預設來源（`Source.DEFAULT`）的行為：連得上問伺服器、**連不上回這台手機的快取、不丟錯**（`fromCache` 是 true）。
+     * 快取只有這台手機看過的那幾筆（自己寫的、選單打開時讀的）—— REVIEW-android R2。
+     */
+    private class Sdk(var server: List<Doc>, var cache: List<Doc>, var online: Boolean) : NoteStore {
+        override suspend fun read(path: String, id: String): Doc? = error("用不到")
+        override suspend fun listWhere(path: String, field: String, value: String): List<Doc> = error("用不到")
+        override fun newId(path: String): String = error("用不到")
+        override suspend fun commit(writes: List<Write>) = error("用不到")
+
+        override suspend fun listOpen(path: String): Listing = Listing(openOf(if (online) server else cache), fromCache = !online)
+
+        override suspend fun listUpdatedSince(path: String, since: Ts): Listing =
+            Listing(changedSince(if (online) server else cache, since), fromCache = !online)
+    }
+
+    private companion object {
+        fun openOf(docs: List<Doc>) = docs.filter { Notes.isOpen(it) }
+        fun changedSince(docs: List<Doc>, since: Ts) =
+            docs.filter { (it["updatedAt"] as? Ts)?.let { t -> NotesSync.later(t, since) == t && t != since } == true }
+    }
+
+    private val done = mapOf("done" to true, "doneAt" to "2026-11-06T06:30:00.000Z")
+
+    @Test
+    fun anOfflinePullFromTheCacheMustNotSkipChangesMadeElsewhere() = runBlocking {
+        // 10:00 有網路同步過；iPad 勾掉 x（200）；小工具勾掉 y（300，這台手機的快取裡有）；
+        // 沒網路時按 ＋（讀到快取）；連上之後再同步 —— x 一定要離開（REVIEW-android R2 的五步）
+        val sdk = Sdk(listOf(note("a", 100), note("x", 100), note("y", 100)), listOf(note("a", 100), note("x", 100), note("y", 100)), online = true)
+        var s = NotesSync.pull(sdk, null)
+        sdk.server = listOf(note("a", 100), note("x", 200, done), note("y", 300, done))
+        sdk.cache = listOf(note("a", 100), note("x", 100), note("y", 300, done))
+        sdk.online = false
+        s = NotesSync.pull(sdk, s)
+        sdk.online = true
+        s = NotesSync.pull(sdk, s)
+        assertEquals(listOf("a"), s.notes.map { it["id"] })
     }
 
     @Test
@@ -90,5 +130,55 @@ class NotesSyncTest {
     fun laterComparesNanosWithinTheSameSecond() {
         assertEquals(Ts(100, 7), NotesSync.later(Ts(100, 7), Ts(100, 5)))
         assertEquals(Ts(101, 0), NotesSync.later(Ts(100, 999_999_999), Ts(101, 0)))
+    }
+
+    @Test
+    fun theFirstPullWithoutNetworkShowsTheCacheButReadsEverythingAgainLater() = runBlocking {
+        // 第一次就沒網路：先畫快取裡的（不畫「沒有還沒做的事」），但不算同步過 —— 游標留空、連上之後整份讀
+        val sdk = Sdk(listOf(note("a", 100), note("b", 200)), listOf(note("a", 100)), online = false)
+        val first = NotesSync.fetch(sdk, null)
+        assertFalse(first.fresh)
+        var s = NotesSync.apply(NotesSync.State(emptyList(), null), first)
+        assertEquals(listOf("a"), s.notes.map { it["id"] })
+        assertNull(s.cursor)
+        sdk.online = true
+        s = NotesSync.pull(sdk, s)
+        assertEquals(listOf("a", "b"), s.notes.map { it["id"] })
+        assertEquals(Ts(200, 0), s.cursor)
+    }
+
+    @Test
+    fun aNoteWrittenHereWhileThePullWasWaitingStaysOnTheList() = runBlocking {
+        // REVIEW-android R3：點 ＋ 開始同步 → 網路慢 → 她記下一筆（本機那一份 updatedAt 還是 null）→ 同步回來
+        val cloud = Cloud(listOf(note("a", 100)))
+        val before = NotesSync.pull(cloud, null)
+        cloud.docs = listOf(note("a", 100), note("n", 200)) // 別台新記的
+        val pulled = NotesSync.fetch(cloud, before)
+        val current = before.copy(notes = before.notes + note("mine", null)) // 等網路時換進來的
+        val after = NotesSync.apply(current, pulled)
+        assertEquals(listOf("a", "mine", "n"), after.notes.map { it["id"] })
+        assertEquals(Ts(200, 0), after.cursor)
+    }
+
+    @Test
+    fun aFullReadKeepsNotesThatHaveNotReachedTheServerYet() = runBlocking {
+        // 整份讀（登入那一次）回來時，本機剛記、還沒送到伺服器的那一筆不在讀回來的裡面 —— 留著
+        val cloud = Cloud(listOf(note("a", 100)))
+        val pulled = NotesSync.fetch(cloud, null)
+        val current = NotesSync.State(listOf(note("mine", null), note("old", 50)), null)
+        val after = NotesSync.apply(current, pulled)
+        assertEquals(listOf("a", "mine"), after.notes.map { it["id"] })
+    }
+
+    @Test
+    fun aPullFromTheCacheLeavesTheCurrentListAlone() = runBlocking {
+        val sdk = Sdk(listOf(note("a", 100)), listOf(note("a", 100)), online = true)
+        val s = NotesSync.pull(sdk, null)
+        sdk.online = false
+        sdk.cache = listOf(note("a", 300, done))
+        val pulled = NotesSync.fetch(sdk, s)
+        assertFalse(pulled.fresh)
+        val current = s.copy(notes = s.notes + note("mine", null))
+        assertEquals(current, NotesSync.apply(current, pulled))
     }
 }

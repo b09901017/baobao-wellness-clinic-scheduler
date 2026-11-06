@@ -165,9 +165,9 @@ class ParityTest {
                 p.startsWith("$path/") && !p.removePrefix("$path/").contains('/') && d.containsKey(field) && d[field] == value
             }.map { (p, d) -> linkedMapOf<String, Any?>("id" to p.removePrefix("$path/")) + d }
 
-        override suspend fun listOpen(path: String): List<Doc> = error("寫入的情境用不到")
+        override suspend fun listOpen(path: String): Listing = error("寫入的情境用不到")
 
-        override suspend fun listUpdatedSince(path: String, since: Ts): List<Doc> = error("寫入的情境用不到")
+        override suspend fun listUpdatedSince(path: String, since: Ts): Listing = error("寫入的情境用不到")
 
         override fun newId(path: String): String {
             seq += 1

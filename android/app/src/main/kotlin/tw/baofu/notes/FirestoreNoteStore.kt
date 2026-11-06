@@ -5,10 +5,12 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import tw.baofu.notes.core.Doc
+import tw.baofu.notes.core.Listing
 import tw.baofu.notes.core.NoteStore
 import tw.baofu.notes.core.ServerTimestamp
 import tw.baofu.notes.core.Ts
@@ -36,12 +38,16 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
             linkedMapOf<String, Any?>("id" to d.id) + toCore(d.data ?: emptyMap<String, Any?>())
         }
 
-    override suspend fun listOpen(path: String): List<Doc> =
+    /**
+     * 預設來源（`Source.DEFAULT`）：連不上伺服器時回這台手機的快取、**不丟錯** —— 所以把 `isFromCache` 交出去，
+     * 同步只認伺服器的答案（core 的 `NotesSync`，REVIEW-android R2）。
+     */
+    override suspend fun listOpen(path: String): Listing =
         db.collection(path)
             .whereEqualTo("deletedAt", null)
             .whereEqualTo("done", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .get().await().documents.map(::withId)
+            .get().await().let(::listing)
 
     /**
      * 同 [listOpen]，**只讀這台手機的快取**（不等網路）：小工具上自己寫完要馬上換掉清單時用 ——
@@ -55,11 +61,13 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
             .get(Source.CACHE).await().documents.map(::withId)
 
     /** 單欄位的範圍查詢（自動索引）；**不濾 `deletedAt`、不加 limit**（理由在 core 的 `NotesSync`）。 */
-    override suspend fun listUpdatedSince(path: String, since: Ts): List<Doc> =
+    override suspend fun listUpdatedSince(path: String, since: Ts): Listing =
         db.collection(path)
             .whereGreaterThan("updatedAt", Timestamp(since.seconds, since.nanos))
             .orderBy("updatedAt")
-            .get().await().documents.map(::withId)
+            .get().await().let(::listing)
+
+    private fun listing(snap: QuerySnapshot): Listing = Listing(snap.documents.map(::withId), fromCache = snap.metadata.isFromCache)
 
     private fun withId(d: DocumentSnapshot): Doc =
         linkedMapOf<String, Any?>("id" to d.id) + toCore(d.data ?: emptyMap<String, Any?>())

@@ -55,14 +55,26 @@ object WidgetSync {
         WidgetStore.update(context) { v -> transform(v?.takeIf { it.uid == uid } ?: WidgetStore.View(uid)) }
     }
 
-    /** 跟雲端對一次（沒有手上那一份就整份讀）。讀不到 → 清單照舊、講一句。 */
+    /**
+     * 跟雲端對一次（沒有手上那一份就整份讀）。讀不到、或讀到的是這台手機的快取 → 不算同步成功：清單照舊、講一句「讀不到最新的」（REVIEW-android R2）。
+     * **讀回來的套在現在那一份上**（在 [WidgetStore.update] 那把鎖裡，core 的 [NotesSync.apply]）：等網路的那段時間裡自己記的、勾掉的
+     * 已經換進清單了，拿讀之前那一份算的結果整份蓋上去，剛記的那一筆會從小工具上消失（REVIEW-android R3）。
+     */
     suspend fun pull(context: Context, full: Boolean = false) {
         val uid = allowedUid(context) ?: return signedOut(context)
         val before = mine(context, uid)
         try {
-            val next = NotesSync.pull(Backend.store, if (full) null else before?.sync)
-            change(context, uid) {
-                it.copy(notes = next.notes, cursor = next.cursor, syncedAt = System.currentTimeMillis(), stale = false, loaded = true)
+            val pulled = NotesSync.fetch(Backend.store, if (full) null else before?.sync)
+            change(context, uid) { cur ->
+                val next = NotesSync.apply(cur.sync, pulled)
+                cur.copy(
+                    notes = next.notes,
+                    cursor = next.cursor,
+                    syncedAt = if (pulled.fresh) System.currentTimeMillis() else cur.syncedAt,
+                    stale = !pulled.fresh,
+                    // 整份讀到快取也畫（第一次就沒網路時不畫「沒有還沒做的事」，底下那一行講讀不到最新的）
+                    loaded = cur.loaded || pulled.full || pulled.fresh,
+                )
             }
         } catch (e: Exception) {
             change(context, uid) { it.copy(stale = true) }
