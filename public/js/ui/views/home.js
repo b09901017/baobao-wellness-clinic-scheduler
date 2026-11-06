@@ -28,7 +28,7 @@ import {
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, groupLinked, linkedBadge,
   MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import {
@@ -70,7 +70,7 @@ import * as slotNote from '../components/slotNote.js';
 import * as message from '../components/message.js';
 import * as note from '../components/note.js';
 import { taskRow as sharedTaskRow, wayRow, confirmUntick } from '../components/tasklist.js';
-import { openActions, wireLongPress } from '../components/actions.js';
+import { wireLongPress } from '../components/actions.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import { pushLayer, takeFor, leaveFor, whenSettled } from '../nav.js';
 import { givableBags } from '../../domain/products.js';
@@ -1552,19 +1552,20 @@ async function refreshChain(ctx, d) {
  * 就會變成「算了我等一下再記」，然後就忘了。掛客戶在點進去那一頁做。
  */
 function notesCard(notes) {
-  const rows = sortNotes(notes).slice(0, 4);
+  // **先分組再取四列**（ADR-0179）：連在一起的三天是一列，取完四列再分組的話一組會吃掉三列
+  const rows = groupLinked(notes, todayISO()).slice(0, 4);
   return `
     <section class="card" style="margin-top: var(--space-5)">
       <div class="row" style="align-items: baseline; margin-bottom: var(--space-2)">
         <h2 class="card__title row__main" style="margin: 0">隨手記
-          <span class="muted"> ${openCount(notes)}</span></h2>
+          <span class="muted"> ${openCount(notes)}</span>${tip(note.LONGPRESS_TIP)}</h2>
         <a class="muted" href="#/todo/notes"
            style="display: inline-flex; align-items: center; gap: 2px; white-space: nowrap">
           全部${icon('right', { size: 14 })}</a>
       </div>
 
       <div class="groups" data-notes>
-        ${rows.map((n) => note.row(n)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
+        ${rows.map((r) => note.row(r.note, { badge: linkedBadge(r) })).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
       <form data-newnote style="margin-top: var(--space-3)">
@@ -1573,9 +1574,13 @@ function notesCard(notes) {
                  placeholder="記一筆…" aria-label="新的隨手記" />
           <button class="btn btn--primary" type="submit">記</button>
         </div>
+        ${note.suggestRow()}
+        ${/* 今天／挑日期／掛給誰／給營養品排一排（notes-widget 02：她 11/6 要首頁這一格也有給營養品，
+               一排放得下就不撐長 —— 當初不放是怕多一排）。包住掛給誰的那一層選了一包時收起來 */''}
         <div class="notemeta">
           ${note.field()}
-          ${note.who()}
+          <span data-quickwho>${note.who()}</span>
+          ${note.give()}
         </div>
       </form>
     </section>`;
@@ -1618,7 +1623,7 @@ function openQuick(ctx) {
   // 什麼都沒記就不要重畫，那會白閃一下。
   const added = [];
 
-  openSheet({
+  const sheet = openSheet({
     title: '記一筆',
     note: '客人臨時說的小要求。沒有死線，所以它不是任務。',
     body: quickBody(),
@@ -1641,6 +1646,7 @@ function openQuick(ctx) {
       if (added.length) (ctx.render ?? render)(ctx.el);
     },
   });
+  return sheet?.el ?? null;
 }
 
 function quickBody() {
@@ -1648,6 +1654,7 @@ function quickBody() {
     <input type="text" data-quicktext maxlength="${NOTE_TEXT_MAX}"
            placeholder="例：指定 LuLu，不要排騰崴" aria-label="記什麼"
            enterkeyhint="done" autocomplete="off" style="width: 100%" />
+    ${note.suggestRow()}
 
     <div class="notemeta">
       ${note.field()}
@@ -1659,26 +1666,19 @@ function quickBody() {
 }
 
 function wireQuick(drawer, ctx, added) {
-  // 日期與「掛給誰」都走 `ui/components/note.js` —— 首頁那一格、這顆泡泡、
-  // 客戶詳情用的是同一份欄位。長得不一樣會讓她以為是兩種東西
-  // （`CLAUDE.md` 的連動表）。
-  const when = note.wire(drawer);
-  const whom = note.wireWho(drawer, { load: () => customersData.list() });
-
   const input = () => drawer.querySelector('[data-quicktext]');
 
-  // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。選了之後：
+  // 日期、「掛給誰」、「給營養品」那一排走 `note.wireCapture()` —— 首頁那一格、這顆泡泡、
+  // 日曆的待辦編輯器同一支（`CLAUDE.md` 的連動表）。選了一包營養品：
   //   - 文字自動填好（`noteTextFor()`）—— 她自己打的那一行沒有 entitlementId，
   //     勾掉時就不會問「給了哪些」，那筆交付紀錄會靜靜沒了
   //   - 「掛給誰」那一排收起來 —— 客戶已經由那一包決定了，兩個地方各講一次
   //     會出現「掛給客戶B、內容是給客戶A營養品」這種東西
-  const give = note.wireGive(drawer, {
-    load: () => loadGivableBags(),
-    onPick: (picked) => {
-      const box = drawer.querySelector('[data-quickwho]');
-      if (box) box.hidden = Boolean(picked);
-      if (picked && input()) input().value = picked.text;
-    },
+  const capture = note.wireCapture(drawer, {
+    input,
+    whoBox: () => drawer.querySelector('[data-quickwho]'),
+    loadCustomers: () => customersData.list(),
+    loadBags: () => loadGivableBags(),
   });
 
   const save = async () => {
@@ -1687,23 +1687,13 @@ function wireQuick(drawer, ctx, added) {
       input()?.focus();
       return;
     }
-    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定（`readCapture()`）——
     // 「掛給誰」那一排這時候是收起來的。
-    const bag = note.readGive(drawer);
+    const picked = capture.read();
 
     try {
       await toast.withSaveState(
-        () => notesData.create({
-          text,
-          date: note.read(drawer),
-          ...(bag
-            ? {
-              customerId: bag.customerId,
-              customerName: bag.customerName,
-              entitlementId: bag.entitlementId,
-            }
-            : note.readWho(drawer)),
-        }),
+        () => notesData.create({ text, ...picked }),
         // **`key` 不可以少。** `#/todo/notes` 那一頁的 `addNote()` 一直都有，
         // 這顆泡泡沒有 —— 而這顆是最順手的那一個入口，而且它刻意不重畫面板、
         // 焦點留在輸入框，所以按下去畫面幾乎沒有變化，最容易多按一下。
@@ -1727,9 +1717,7 @@ function wireQuick(drawer, ctx, added) {
     // 日期與掛的人一起清掉：三件事記在一起不代表都是同一天、同一位，
     // 而「忘了取消上一筆的日期」的後果是日曆上多一條她沒打算放的東西。
     input().value = '';
-    when.set(null);
-    whom.set(null);
-    give.set(null);
+    capture.reset();
     input().focus();
   };
 
@@ -1778,8 +1766,15 @@ function wireOverview(ctx) {
     btn.addEventListener('click', () => toggleNote(ctx, btn.dataset.note)),
   );
 
-  note.wire(el);
-  note.wireWho(el, { load: () => customersData.list() });
+  const newNote = el.querySelector('[data-newnote]');
+  if (newNote) {
+    note.wireCapture(newNote, {
+      input: () => newNote.elements.text,
+      whoBox: () => newNote.querySelector('[data-quickwho]'),
+      loadCustomers: () => customersData.list(),
+      loadBags: () => loadGivableBags(),
+    });
+  }
   wireNoteLongPress(el, ctx.notes, () => render(ctx.el));
 
   el.querySelector('[data-newnote]')?.addEventListener('submit', (e) => {
@@ -1837,6 +1832,10 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 連在一起的那一組（ADR-0179）：重讀、複製到別天、拆開這一天
+    listLinked: (linkId) => notesData.listLinked(linkId),
+    copyTo: (n, dates, o) => notesData.copyTo(n, dates, o),
+    unlink: (id) => notesData.unlink(id),
     // 舊資料的 `items[].name` 是空字串，靠主檔認回名字 ——
     // 沒有的話「給了什麼？」那張面板每一列都是空白（`issues/10`）。
     loadProducts: () => config.listAll('products'),
@@ -1849,6 +1848,7 @@ function noteDeps() {
 
 /**
  * 長按一列隨手記＝直接做（ADR-0060）。點一下勾掉的行為一個字都沒有變。
+ * 選單與選了之後做什麼走 `note.openMenu()`（三個入口共用：這裡、客戶詳情、日曆）。
  *
  * **委派掛在那一塊清單上，不是掛在 `el` 上。** `paint()` / `paintNotes()`
  * 換的是 `el.innerHTML`，`el` 本身留著 —— 掛在它上面的話每重畫一次就多一組，
@@ -1860,34 +1860,26 @@ function noteDeps() {
  * @param {HTMLElement} el 那一頁的容器
  * @param {object[]} notes 現在畫出來的那幾筆
  * @param {Function} after 寫完之後重畫哪一頁
+ * @param {{complete?: boolean}} [o] 手上那一份是不是連在一起的整組都在（`note.openMenu()`）：
+ *   首頁那張卡、隨手記那一頁是；逾期／今天／明天（那一天）不是 —— 打開選單之前照 `linkId` 重讀
  */
-function wireNoteLongPress(el, notes, after) {
+function wireNoteLongPress(el, notes, after, { complete = true } = {}) {
   wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
     const n = (notes ?? []).find((x) => x.id === btn.dataset.note);
     if (!n) return;
 
-    openActions({
-      title: n.text,
-      subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
-        .filter(Boolean).join('・'),
-      items: noteActions(n, { today: todayISO() }),
-      onPick: async (action) => {
-        try {
-          // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
-          // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
-          // 那是在解釋一個限制而不是在做事。
-          const changed = await note.runAction(action, n, {
-            ...noteDeps(),
-            onBag: () => {
-              if (n.customerId) go(`/customers/${n.customerId}`);
-              else toast.info('這一筆沒有掛客戶，找不到是哪一包');
-            },
-          });
-          if (changed) await after();
-        } catch {
-          /* 已處理 */
-        }
+    // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
+    // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
+    // 那是在解釋一個限制而不是在做事。
+    note.openMenu(n, {
+      notes,
+      complete,
+      deps: noteDeps(),
+      onBag: () => {
+        if (n.customerId) go(`/customers/${n.customerId}`);
+        else toast.info('這一筆沒有掛客戶，找不到是哪一包');
       },
+      after,
     });
   });
 }
@@ -1897,7 +1889,8 @@ async function addNote(ctx, form) {
   if (!text) return;
   try {
     await toast.withSaveState(
-      () => notesData.create({ text, date: note.read(form), ...note.readWho(form) }),
+      // 日期、掛給誰；選了一包營養品時連 `entitlementId` 一起（`note.readCapture()`，泡泡同一支）
+      () => notesData.create({ text, ...note.readCapture(form) }),
       { success: '記下來了', key: `note:create:${text}` },
     );
     await render(ctx.el);
@@ -2308,7 +2301,8 @@ function wireBucketBlocks(ctx) {
   el.querySelector('[data-done-retry]')?.addEventListener('click', again);
   wireNoteToggles(el.querySelectorAll('[data-notes] [data-note]'), ctx.notes, again);
   wireNoteToggles(el.querySelectorAll('[data-done-notes] [data-note]'), ctx.finished?.notes ?? [], again);
-  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again);
+  // 這幾頁照日子看（一天一列）：連在一起的另外那幾天不在手上 → 打開選單之前重讀
+  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again, { complete: false });
 }
 
 /** 點一列隨手記＝勾掉或拿回來。逾期／今天／明天那一頁的未完成與已完成兩塊共用。 */
@@ -4275,17 +4269,59 @@ async function renderNotes(el) {
   paintNotes({ el, notes });
 }
 
+/**
+ * 小工具打開的兩條網址（notes-widget 10，`views.js` 那兩條登記）：先畫隨手記那一頁，再接著做那一件。
+ *
+ * - `{ noteId }`：**營養品的提醒**直接問「給了哪幾款」（`prepareToggle()`，跟在清單上點它同一條路 ——
+ *   小工具上點勾不可以不問就勾掉）；一般的隨手記跳出它的長按選單（`openMenu()`）。
+ *   找不到、已經勾掉了 → 講一句
+ * - `{ give: true }`：打開右下角那一顆「記一筆」、給營養品已經展開（存的跟泡泡選了一包一模一樣）
+ *
+ * 網址處理完換回 `#/todo/notes`（`replaceState`，不叫 hashchange）：重新整理、從別頁按返回回來都不會再跳一次。
+ */
+export async function renderNotesLink(el, { noteId = null, give = false } = {}) {
+  const at = location.hash;
+  const notes = await notesData.listAll();
+  // 讀的那一下她可能已經換頁了
+  if (location.hash !== at) return;
+  history.replaceState(history.state, '', '#/todo/notes');
+  paintNotes({ el, notes });
+
+  if (give) {
+    const drawer = openQuick({ el, render: renderNotes });
+    drawer?.querySelector('[data-ng-toggle]')?.click();
+    return;
+  }
+
+  const n = notes.find((x) => x.id === noteId && !x.deletedAt);
+  if (!n || n.done) {
+    toast.info(n ? '這一筆已經勾掉了' : '找不到這一筆隨手記，可能已經刪掉了');
+    return;
+  }
+  if (n.entitlementId) {
+    await tickNote(el, notes, n.id);
+    return;
+  }
+  note.openMenu(n, {
+    notes,
+    complete: true,
+    deps: noteDeps(),
+    after: () => renderNotes(el),
+  });
+}
+
 function paintNotes(ctx) {
   const { el, notes } = ctx;
-  const live = sortNotes(notes);
-  const open = live.filter((n) => !n.done);
-  const done = live.filter((n) => n.done);
+  // 清單類一組一列（ADR-0179）：兩個數字、「清掉這 N 筆」都數列，連在一起的一組算 1
+  const live = groupLinked(notes, todayISO());
+  const open = live.filter((r) => !r.note.done);
+  const done = live.filter((r) => r.note.done);
   const rows = notesTab === 'done' ? done : open;
 
   el.innerHTML = `
     ${backLink()}
     <div class="page">
-      <h1 class="page__title">隨手記</h1>
+      <h1 class="page__title">隨手記${tip(note.LONGPRESS_TIP)}</h1>
     </div>
 
     <div class="seg" role="group" style="margin-bottom: var(--space-4)">
@@ -4296,7 +4332,7 @@ function paintNotes(ctx) {
     </div>
 
     <div class="notelist" data-notes>
-      ${rows.map((n) => note.row(n, { trash: true })).join('')
+      ${rows.map((r) => note.row(r.note, { trash: true, badge: linkedBadge(r) })).join('')
         || `<p class="muted" style="padding: var(--space-3) 0">${
           notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
     </div>
@@ -4356,8 +4392,10 @@ async function tickNote(el, notes, id) {
 }
 
 /**
- * 刪掉一筆。**只有勾掉的那幾筆才有這顆** —— 還沒做的要刪就先勾掉再刪，
+ * 刪掉一列。**只有勾掉的那幾筆才有這顆** —— 還沒做的要刪就先勾掉再刪，
  * 兩步比誤刪好。
+ *
+ * **一列代表一組時整組一起刪**（ADR-0179；她看到一樣東西、按下去就作用在那一樣東西）。
  *
  * 走軟刪除（SPEC 第 6.1 節）：設定頁的「已刪除項目」還原得回來，
  * 而且 `withSaveState` 讓她當場復原得掉（第 6.3 節）。
@@ -4366,7 +4404,7 @@ async function removeNote(el, notes, id) {
   const n = notes.find((x) => x.id === id);
   if (!n) return;
   try {
-    await toast.withSaveState(() => notesData.remove(id, '在隨手記裡刪掉'), { success: '刪掉了' });
+    await toast.withSaveState(() => notesData.removeRow(n, '在隨手記裡刪掉'), { success: '刪掉了' });
     await renderNotes(el);
   } catch {
     /* 已處理 */
@@ -4376,8 +4414,10 @@ async function removeNote(el, notes, id) {
 /**
  * 一次清掉全部已完成。破壞性操作，走二次確認並講出筆數（SPEC 第 6.5 節）。
  *
- * 一筆一個 commit，中間失敗就停下來講清楚刪了幾筆 —— 已經刪掉的不退回去
- * （第 6.1 節，跟批次建客戶同一個作法）。
+ * 一列一個 commit（連在一起的一組是一列、整組一起刪，ADR-0179），中間失敗就停下來講清楚刪了幾筆 ——
+ * 已經刪掉的不退回去（第 6.1 節，跟批次建客戶同一個作法）。
+ *
+ * @param {{note: object}[]} done `groupLinked()` 的那幾列
  */
 async function clearDone(el, done) {
   const ok = await confirmAction({
@@ -4397,7 +4437,7 @@ async function clearDone(el, done) {
       // 一筆一個 commit：中間失敗時前面那幾筆已經刪掉了，那是可以接受的，
       // 但要講清楚刪到哪裡。
       // eslint-disable-next-line no-await-in-loop
-      await notesData.remove(row.id, '清掉已完成的隨手記');
+      await notesData.removeRow(row.note, '清掉已完成的隨手記');
       n += 1;
     }
     toast.saved(`清掉了 ${n} 筆`);

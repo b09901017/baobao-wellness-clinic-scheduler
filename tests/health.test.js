@@ -293,7 +293,7 @@ describe('照錯的時長排出去的那幾段', () => {
 describe('形狀', () => {
   test('三十七項檢查都在，順序固定', () => {
     const result = run();
-    assert.equal(result.checks.length, 37);
+    assert.equal(result.checks.length, 38);
     assert.deepEqual(result.checks.map((c) => c.id), CHECKS.map((c) => c.id));
   });
 
@@ -867,11 +867,12 @@ describe('還沒問這輪方便的時間（以前叫「資料過期」）', () =
 });
 
 // staging-polish 06（ADR-0150）：她 10/18 ——「這兩個問題是不用解決的對吧…只要提醒就好，但是不要展開這麼多人」
-describe('只是提醒的那兩項', () => {
+describe('只是提醒的那幾項', () => {
   const byId = (id) => CHECKS.find((c) => c.id === id);
 
-  test('只有「還沒問這輪方便的時間」與「匯進來的額度還叫舊表的名字」是提醒', () => {
-    assert.deepEqual(CHECKS.filter((c) => c.notice).map((c) => c.id), ['staleAvailability', 'importedLabel']);
+  test('只有「還沒問這輪方便的時間」「匯進來的額度還叫舊表的名字」「連在一起的隨手記勾得不一樣」是提醒', () => {
+    // 第三項 2026-11-06（ADR-0179）：勾還是拿回來要她決定，沒有一鍵修正
+    assert.deepEqual(CHECKS.filter((c) => c.notice).map((c) => c.id), ['staleAvailability', 'importedLabel', 'linkedNotes']);
   });
 
   test('改名：她指名「還沒問這輪方便的時間」，整項沒有「可用性」三個字', () => {

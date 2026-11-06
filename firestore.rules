@@ -293,7 +293,12 @@ service cloud.firestore {
         && d.done is bool
         // 選填的日期。掛了就會出現在日曆上（ADR-0044）。
         // 這一層只擋型別，格式在前端擋（SPEC 第 6.7 節）。
-        && (!('date' in d) || d.date == null || d.date is string);
+        && (!('date' in d) || d.date == null || d.date is string)
+        // 連在一起的那一組共用的字串（ADR-0179；Android 小工具也寫這一格）。沒有、null、或不太長的字串
+        && (!('linkId' in d) || d.linkId == null
+            || (d.linkId is string && d.linkId.size() > 0 && d.linkId.size() <= 64))
+        // 營養品的提醒不連進一組（`validateNote()` 同一句）：一起勾的那幾天沒有人問「給了哪幾款」
+        && !(d.get('linkId', null) != null && d.get('entitlementId', null) != null);
     }
 
     match /notes/{noteId} {

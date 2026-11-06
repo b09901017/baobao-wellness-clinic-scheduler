@@ -18,7 +18,7 @@
 // **改了 `public/` 底下的檔案就把 VERSION 加一**，再跑 `npm run shell:snapshot`。
 // 忘了加的話（以前是慢一輪）現在是**永遠停在舊版** —— `tests/shell-version.test.js` 擋著。
 
-const VERSION = 'v299';
+const VERSION = 'v313';
 const CACHE = `shell-${VERSION}`;
 const EXTERNAL = 'external-v1';
 
@@ -99,6 +99,7 @@ const SHELL = [
   '/js/ui/theme.js',
   '/js/ui/bootTiming.js',
   '/js/ui/swUpdate.js',
+  '/js/ui/keyboard.js',
   '/js/integrations/lineMacro.js',
   '/js/ui/icons.js',
   '/js/ui/session.js',

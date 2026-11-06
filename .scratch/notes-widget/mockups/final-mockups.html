@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>桌面小工具・定稿</title>
+<style>
+  :root {
+    --bg: #faf7f2; --surface-2: #f3efe8; --border: #e6dfd4;
+    --text: #241f1a; --dim: #6b6157; --mute: #9a9086;
+    --accent: #2f5d4c; --accent-soft: #e4ede8; --tea: #a4703c; --tea-soft: #f5e9dc;
+    --late: #a63a2a; --late-bg: #f7e4e0;
+    --sans: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+    --serif: 'Noto Serif TC', 'Songti TC', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ece7df; font-family: var(--sans); color: var(--text); }
+  header.page, section { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+  header.page { padding-top: 26px; }
+  h1 { font-family: var(--serif); font-size: 26px; margin: 0 0 6px; }
+  h2 { font-family: var(--serif); font-size: 20px; margin: 30px 0 4px; }
+  .lead { color: var(--dim); font-size: 14px; margin: 0; line-height: 1.6; }
+  .row { display: flex; flex-wrap: wrap; gap: 26px; margin-top: 14px; }
+  .opt { width: 300px; }
+  .opt h3 { font-size: 15px; margin: 12px 0 4px; }
+  .opt h3 b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; margin-right: 6px; }
+  .opt p { margin: 0; font-size: 13px; color: var(--dim); line-height: 1.6; }
+  .ask { margin-top: 6px; font-size: 13px; color: #8a4b10; background: #f8eed8; border-radius: 8px; padding: 6px 9px; line-height: 1.55; }
+
+  .phone { width: 300px; height: 640px; border-radius: 36px; background: #111; padding: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 28px; overflow: hidden; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='640'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='.6' y2='1'%3E%3Cstop offset='0' stop-color='%2397b3a5'/%3E%3Cstop offset='.5' stop-color='%23d3c7ad'/%3E%3Cstop offset='1' stop-color='%23e4c9a6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='640' fill='url(%23g)'/%3E%3Ccircle cx='230' cy='190' r='90' fill='%23f2e3c6' opacity='.55'/%3E%3Ccircle cx='60' cy='330' r='70' fill='%237d9c8c' opacity='.45'/%3E%3Ccircle cx='200' cy='420' r='60' fill='%23c98f5e' opacity='.35'/%3E%3C/svg%3E") center/cover; }
+  .screen.dark { filter: brightness(.55) saturate(.9); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 26px; display: flex; justify-content: space-between; align-items: center; padding: 0 18px; font-size: 11px; color: #1d1d1d; font-weight: 600; z-index: 9; }
+  .status i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #1d1d1d; margin-left: 3px; }
+  .clock { position: absolute; top: 40px; left: 22px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  .clock .t { font-size: 44px; font-weight: 300; line-height: 1; }
+  .clock .d { font-size: 13px; margin-top: 4px; }
+  .dock { position: absolute; left: 0; right: 0; bottom: 18px; display: flex; justify-content: space-around; padding: 0 16px; }
+  .app { width: 46px; text-align: center; font-size: 10px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .app span { display: block; width: 46px; height: 46px; border-radius: 15px; margin-bottom: 4px; }
+
+  /* 小工具 D */
+  .w { position: absolute; left: 12px; right: 12px; top: 118px; border-radius: 24px; overflow: hidden; }
+  .w.blur { background: rgba(255,255,255,.40); backdrop-filter: blur(16px) saturate(1.1); -webkit-backdrop-filter: blur(16px) saturate(1.1); border: 1px solid rgba(255,255,255,.55); }
+  .w.tint { background: rgba(255,253,249,.72); border: 1px solid rgba(255,255,255,.5); }
+  .w.night { background: rgba(28,26,23,.55); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.12); color: #f1ebe2; }
+  .w-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 6px 16px; }
+  .w-title { font-family: var(--serif); font-size: 17px; font-weight: 700; }
+  .w-title small { font-family: var(--serif); font-size: 13px; color: var(--mute); font-weight: 400; margin-left: 4px; }
+  .night .w-title small { color: #b9ae9f; }
+  .btns { display: flex; gap: 8px; }
+  .rb { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
+  .rb.plus { background: var(--accent); color: #fff; font-size: 20px; }
+  .rb.mic { background: rgba(255,255,255,.55); color: var(--mute); }
+  .night .rb.mic { background: rgba(255,255,255,.12); color: #8f857a; }
+  svg.ic { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 16px; font-size: 14px; }
+  .sep { height: 1px; margin: 3px 16px; background: rgba(36,31,26,.10); }
+  .night .sep { background: rgba(255,255,255,.12); }
+  .box { flex: none; width: 19px; height: 19px; border-radius: 6px; border: 1.6px solid rgba(80,70,60,.38); background: rgba(255,255,255,.65); position: relative; }
+  .night .box { border-color: rgba(255,255,255,.35); background: rgba(255,255,255,.08); }
+  .box.on { background: var(--accent); border-color: var(--accent); }
+  .box.on::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gone .txt { text-decoration: line-through; color: var(--mute); }
+  .tag { flex: none; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.6); color: var(--dim); }
+  .tag.who { background: rgba(245,233,220,.9); color: #8a5a2b; }
+  .tag.late { background: rgba(247,228,224,.92); color: var(--late); }
+  .tag.link { background: rgba(228,237,232,.92); color: var(--accent); }
+  .night .tag { background: rgba(255,255,255,.12); color: #d8cfc4; }
+  .night .tag.who { background: rgba(164,112,60,.35); color: #f2d9bd; }
+  .night .tag.late { background: rgba(166,58,42,.4); color: #ffd3ca; }
+  .night .tag.link { background: rgba(47,93,76,.55); color: #cfe6dc; }
+
+  /* 浮起的卡 */
+  .dim { position: absolute; inset: 0; background: rgba(20,18,15,.30); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 4; }
+  .card { position: absolute; left: 10px; right: 10px; z-index: 5; background: var(--bg); border-radius: 22px; box-shadow: 0 8px 28px rgba(0,0,0,.22); padding: 14px 0; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; padding: 0 14px 10px 16px; }
+  .ta { margin: 0 12px 10px; background: #fff; border: 1.5px solid var(--text); border-radius: 16px; padding: 10px 13px; font-size: 17px; line-height: 1.5; }
+  .ta .caret { display: inline-block; width: 1.5px; height: 19px; background: var(--accent); vertical-align: -3px; margin-left: 1px; }
+  .sugg { display: flex; gap: 6px; padding: 0 12px; margin-bottom: 10px; }
+  .chip { flex: none; height: 30px; padding: 0 11px; border-radius: 999px; background: #fff; border: 1px solid var(--border); display: inline-flex; align-items: center; font-size: 13px; white-space: nowrap; }
+  .chip.person { background: var(--tea-soft); border-color: #ebd6bf; color: #6d4520; }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chiprow { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px; margin-bottom: 12px; }
+  .chiprow .chip { padding: 0 8px; font-size: 12px; height: 28px; }
+  .cta { margin: 0 12px; height: 44px; border-radius: 999px; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+  .kbd { position: absolute; left: 0; right: 0; bottom: 0; height: 232px; background: #f1ece6; z-index: 6; padding: 8px 5px 22px; display: flex; flex-direction: column; gap: 7px; }
+  .kbd .cand { height: 30px; display: flex; gap: 16px; align-items: center; padding: 0 10px; font-size: 15px; color: #333; border-bottom: 1px solid #e2dbd2; }
+  .kbd .krow { display: flex; gap: 5px; justify-content: center; }
+  .kbd .k { width: 24px; height: 34px; border-radius: 6px; background: #fff; box-shadow: 0 1px 0 #d4ccc1; font-size: 11px; display: grid; place-items: center; color: #444; }
+  .kbd .k.wide { width: 120px; } .kbd .k.mid { width: 40px; background: #e3dcd2; }
+
+  /* 選單 */
+  .menu { position: absolute; left: 16px; right: 16px; z-index: 5; background: var(--bg); border-radius: 22px; box-shadow: 0 8px 28px rgba(0,0,0,.22); overflow: hidden; }
+  .menu .mh { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .menu .mh .t { font-size: 15px; font-weight: 700; }
+  .menu .mh .days { margin-top: 6px; display: flex; gap: 5px; flex-wrap: wrap; }
+  .mi { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-size: 14.5px; border-top: 1px solid var(--surface-2); }
+  .mi:first-of-type { border-top: 0; }
+  .mi .ic { color: var(--dim); }
+  .mi small { margin-left: auto; color: var(--mute); font-size: 12px; }
+  .mi.primary { color: var(--accent); font-weight: 700; } .mi.primary .ic { color: var(--accent); }
+
+  /* 小月曆 */
+  .cal { padding: 0 14px 6px; }
+  .cal .mo { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; padding: 2px 2px 8px; }
+  .cal .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 13px; }
+  .cal .wd { color: var(--mute); font-size: 11px; }
+  .cal .d { height: 32px; display: grid; place-items: center; border-radius: 50%; }
+  .cal .d.past { color: #c9c0b4; }
+  .cal .d.own { border: 1.5px dashed var(--mute); color: var(--mute); }
+  .cal .d.on { background: var(--accent); color: #fff; font-weight: 700; }
+  .cal .d.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .toggle { display: flex; align-items: center; justify-content: space-between; margin: 8px 14px 12px; padding: 10px 12px; background: var(--accent-soft); border-radius: 14px; font-size: 13.5px; }
+  .sw { width: 40px; height: 24px; border-radius: 999px; background: var(--accent); position: relative; flex: none; }
+  .sw::after { content: ''; position: absolute; right: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+  .note { background: #fffdf9; border: 1px dashed #d7c8b3; border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--dim); line-height: 1.7; margin: 20px 0 30px; max-width: 980px; }
+  .note b { color: var(--text); }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>桌面小工具・定稿（D ＋ 2）</h1>
+  <p class="lead">你點頭了才開始寫 Android 的畫面。黃底那幾句是要你回答的。名字都是假的；桌布是畫的示意。</p>
+</header>
+
+<section>
+  <h2>一、放在桌面上</h2>
+  <div class="row">
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w blur">
+          <div class="w-head"><span class="w-title">隨手記<small>6</small></span>
+            <span class="btns"><span class="rb mic"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span class="rb plus">＋</span></span></div>
+          <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span></div>
+          <div class="item"><span class="box"></span><span class="txt">王小明 回電改週四</span><span class="tag who">王小明</span></div>
+          <div class="item gone"><span class="box on"></span><span class="txt">報告寄給醫師</span></div>
+          <div class="sep"></div>
+          <div class="item"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+          <div class="sep"></div>
+          <div class="item"><span class="box"></span><span class="txt">訂下個月的耗材</span></div>
+          <div class="sep"></div>
+          <div class="item" style="padding-bottom:12px"><span class="box"></span><span class="txt">跟醫師確認報告格式</span><span class="tag">11/9</span></div>
+        </div>
+        <div class="dock"><div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div><div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div></div>
+      </div></div>
+      <h3><b>1</b>三星（毛玻璃）</h3>
+      <p>由上到下：今天（3 筆，最上面那筆連在一起「共 3 天」；剛勾掉的那筆劃線、3 秒後離開）→ 一條淡線 → 日期過了的 → 沒有日期的 → 以後的。標題旁的數字一組算 1。</p>
+      <div class="ask">麥克風這一輪還不會動：畫成灰的放著（像這張），還是這一輪先不畫、只留＋？</div>
+    </div>
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w tint">
+          <div class="w-head"><span class="w-title">隨手記<small>6</small></span>
+            <span class="btns"><span class="rb plus">＋</span></span></div>
+          <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span></div>
+          <div class="item"><span class="box"></span><span class="txt">王小明 回電改週四</span><span class="tag who">王小明</span></div>
+          <div class="sep"></div>
+          <div class="item"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+          <div class="sep"></div>
+          <div class="item"><span class="box"></span><span class="txt">訂下個月的耗材</span></div>
+          <div class="sep"></div>
+          <div class="item" style="padding-bottom:12px"><span class="box"></span><span class="txt">跟醫師確認報告格式</span><span class="tag">11/9</span></div>
+        </div>
+        <div class="dock"><div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div><div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div></div>
+      </div></div>
+      <h3><b>2</b>HTC（半透明、不模糊）</h3>
+      <p>HTC 的桌面不會替小工具模糊，所以底色要白一點，字才看得清楚。這張是「只留＋、不畫麥克風」的樣子。</p>
+    </div>
+
+    <div class="opt">
+      <div class="phone"><div class="screen dark">
+      </div></div>
+      <div style="margin-top:-640px; position:relative; width:300px; height:640px; padding:9px; pointer-events:none">
+        <div class="screen" style="background:transparent">
+          <div class="status" style="color:#eee"><span>10:24</span><span><i style="background:#eee"></i><i style="background:#eee"></i><i style="background:#eee"></i></span></div>
+          <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+          <div class="w night">
+            <div class="w-head"><span class="w-title">隨手記<small>6</small></span>
+              <span class="btns"><span class="rb mic"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span class="rb plus">＋</span></span></div>
+            <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span></div>
+            <div class="item"><span class="box"></span><span class="txt">王小明 回電改週四</span><span class="tag who">王小明</span></div>
+            <div class="sep"></div>
+            <div class="item"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+            <div class="sep"></div>
+            <div class="item" style="padding-bottom:12px"><span class="box"></span><span class="txt">訂下個月的耗材</span></div>
+          </div>
+        </div>
+      </div>
+      <h3><b>3</b>手機開深色模式時</h3>
+      <p>深色的毛玻璃，字變淺色。</p>
+      <div class="ask">手機的深色模式：跟著手機換（建議），還是永遠淺色？</div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>二、按＋之後（浮起一張卡）</h2>
+  <div class="row">
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div></div>
+        <div class="dim"></div>
+        <div class="card" style="bottom:242px">
+          <div class="card-head"><span class="w-title">記一筆</span><span style="font-size:20px;color:var(--mute)">×</span></div>
+          <div class="ta" style="min-height:66px">王<span class="caret"></span></div>
+          <div class="sugg"><span class="chip person">王小明</span><span class="chip person">王小美</span><span class="chip person">王大同</span></div>
+          <div class="chiprow"><span class="chip">今天</span><span class="chip">挑日期</span><span class="chip">掛給誰</span><span class="chip">給營養品</span></div>
+          <div class="cta">記下來</div>
+        </div>
+        <div class="kbd"><div class="cand"><span>王</span><span>往</span><span>網</span><span>忘</span></div>
+          <div class="krow"><span class="k">ㄅ</span><span class="k">ㄉ</span><span class="k">ˇ</span><span class="k">ˋ</span><span class="k">ㄓ</span><span class="k">ˊ</span><span class="k">˙</span><span class="k">ㄚ</span><span class="k">ㄞ</span><span class="k">ㄢ</span></div>
+          <div class="krow"><span class="k">ㄆ</span><span class="k">ㄊ</span><span class="k">ㄍ</span><span class="k">ㄐ</span><span class="k">ㄔ</span><span class="k">ㄗ</span><span class="k">ㄧ</span><span class="k">ㄛ</span><span class="k">ㄟ</span><span class="k">ㄣ</span></div>
+          <div class="krow"><span class="k">ㄇ</span><span class="k">ㄋ</span><span class="k">ㄎ</span><span class="k">ㄑ</span><span class="k">ㄕ</span><span class="k">ㄘ</span><span class="k">ㄨ</span><span class="k">ㄜ</span><span class="k">ㄠ</span><span class="k">ㄤ</span></div>
+          <div class="krow"><span class="k mid">?123</span><span class="k wide">空白</span><span class="k mid">完成</span></div></div>
+      </div></div>
+      <h3><b>4</b>一打開：2 行高</h3>
+      <p>後面的桌面調暗、輕輕模糊。字比 app 裡大一號。打「王」→ 跳出姓王的客戶。</p>
+    </div>
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="dim"></div>
+        <div class="card" style="bottom:242px">
+          <div class="card-head"><span class="w-title">記一筆</span><span style="font-size:20px;color:var(--mute)">×</span></div>
+          <div class="ta" style="min-height:118px">王小明 回電，說下週二早上不行，改週四下午三點，記得跟醫師講報告要先看過再約<span class="caret"></span></div>
+          <div class="chiprow"><span class="chip on">11/7(六)</span><span class="chip">挑日期</span><span class="chip on">王小明</span><span class="chip">給營養品</span></div>
+          <div class="cta">記下來</div>
+        </div>
+        <div class="kbd"><div class="cand"><span>看</span><span>過</span><span>再</span><span>約</span></div>
+          <div class="krow"><span class="k">ㄅ</span><span class="k">ㄉ</span><span class="k">ˇ</span><span class="k">ˋ</span><span class="k">ㄓ</span><span class="k">ˊ</span><span class="k">˙</span><span class="k">ㄚ</span><span class="k">ㄞ</span><span class="k">ㄢ</span></div>
+          <div class="krow"><span class="k">ㄆ</span><span class="k">ㄊ</span><span class="k">ㄍ</span><span class="k">ㄐ</span><span class="k">ㄔ</span><span class="k">ㄗ</span><span class="k">ㄧ</span><span class="k">ㄛ</span><span class="k">ㄟ</span><span class="k">ㄣ</span></div>
+          <div class="krow"><span class="k">ㄇ</span><span class="k">ㄋ</span><span class="k">ㄎ</span><span class="k">ㄑ</span><span class="k">ㄕ</span><span class="k">ㄘ</span><span class="k">ㄨ</span><span class="k">ㄜ</span><span class="k">ㄠ</span><span class="k">ㄤ</span></div>
+          <div class="krow"><span class="k mid">?123</span><span class="k wide">空白</span><span class="k mid">完成</span></div></div>
+      </div></div>
+      <h3><b>5</b>字多了：長到 4 行</h3>
+      <p>點了王小明 → 框裡換成全名、自動掛給他（綠的那顆）；選了明天 → 日期那一顆變綠。再多就在框裡往下捲。</p>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>三、點小工具上的一筆</h2>
+  <div class="row">
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div></div>
+        <div class="dim"></div>
+        <div class="menu" style="top:150px">
+          <div class="mh"><div class="t">提醒帶健保卡</div>
+            <div class="days"><span class="tag link" style="background:var(--accent-soft)">11/6(五)</span><span class="tag" style="background:var(--surface-2)">11/8(日)</span><span class="tag" style="background:var(--surface-2)">11/10(二)</span></div></div>
+          <div class="mi primary"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>做完了，勾掉<small>3 天一起</small></div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>改哪一天<small>只改這一天</small></div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.8-3.5 3-5 6-5s5.2 1.5 6 5"/></svg>掛給誰</div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>改文字</div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>複製到別天</div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><path d="M9 15l6-6M7 11l-2 2a3 3 0 0 0 4 4l2-2M17 13l2-2a3 3 0 0 0-4-4l-2 2"/></svg>拆開這一天</div>
+          <div class="mi"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>拿掉日期<small>還留在隨手記</small></div>
+        </div>
+      </div></div>
+      <h3><b>6</b>點字跳出的選單</h3>
+      <p>跟 app 裡長按出來的同一組。連在一起的最上面列出是哪幾天（綠的是這一天），多一顆「拆開這一天」。</p>
+    </div>
+
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="dim"></div>
+        <div class="card" style="top:120px">
+          <div class="card-head"><span class="w-title">複製到別天</span><span style="font-size:20px;color:var(--mute)">×</span></div>
+          <div class="cal">
+            <div class="mo"><span>‹</span><span>11月</span><span>›</span></div>
+            <div class="grid">
+              <span class="wd">日</span><span class="wd">一</span><span class="wd">二</span><span class="wd">三</span><span class="wd">四</span><span class="wd">五</span><span class="wd">六</span>
+              <span class="d past">1</span><span class="d past">2</span><span class="d past">3</span><span class="d past">4</span><span class="d past">5</span><span class="d own today">6</span><span class="d">7</span>
+              <span class="d on">8</span><span class="d">9</span><span class="d on">10</span><span class="d">11</span><span class="d">12</span><span class="d">13</span><span class="d">14</span>
+              <span class="d">15</span><span class="d">16</span><span class="d">17</span><span class="d">18</span><span class="d">19</span><span class="d">20</span><span class="d">21</span>
+              <span class="d">22</span><span class="d">23</span><span class="d">24</span><span class="d">25</span><span class="d">26</span><span class="d">27</span><span class="d">28</span>
+              <span class="d">29</span><span class="d">30</span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <div class="toggle"><span>連在一起：勾一天，其他天一起勾</span><span class="sw"></span></div>
+          <div class="cta">複製到 2 天</div>
+        </div>
+      </div></div>
+      <h3><b>7</b>複製到別天</h3>
+      <p>點好幾天（綠的），虛線圈是這一筆自己那一天。開關預設打開。app 裡長按的「複製到別天」也是這一張。</p>
+    </div>
+
+  </div>
+  <div class="note">
+    <b>還是照之前說好的：</b>營養品的提醒在小工具上點勾、或按「給營養品」，會打開 app 處理（給了哪幾款、選哪一包）。沒網路也記得下來。
+  </div>
+</section>
+</body>
+</html>

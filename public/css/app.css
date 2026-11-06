@@ -244,6 +244,16 @@ svg {
   padding-bottom: max(var(--space-1), env(safe-area-inset-bottom));
 }
 
+/* 打字的時候收起來（ADR-0181，`ui/keyboard.js`）：版面跟著鍵盤縮（`interactive-widget=resizes-content`）之後，
+   導覽列會站到鍵盤上面、吃掉一截；打字時她用不到它。只在手機寬度 —— iPad 橫放是側邊那一排，而且 Safari 不縮版面。
+   右下角那一顆（`.fab`，`position: fixed`）同一個理由一起收：首頁那張卡打字時它蓋在框與底下那兩排上面（段三審查 R1） */
+@media (max-width: 899px) {
+  html[data-keyboard] .app__nav,
+  html[data-keyboard] .fab {
+    display: none;
+  }
+}
+
 .app__nav a {
   flex: 1;
   min-height: 46px;
@@ -4395,6 +4405,29 @@ button.mark--contact::after {
   font-variant-numeric: tabular-nums;
 }
 
+/* 長按連在一起的隨手記：抬頭底下那幾天，代表的那一天實心（ADR-0179） */
+.actions__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.actions__tag {
+  padding: 1px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions__tag.is-on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .actions__list {
   display: flex;
   flex-direction: column;
@@ -4596,6 +4629,110 @@ button.mark--contact::after {
 
 .popcard__actions .btn {
   flex: 1;
+}
+
+/* 「改日期」那張卡（ADR-0179）：改成今天／改成某天／拿掉日期，一個選項一列 */
+.datechoice {
+  display: flex;
+  flex-direction: column;
+}
+
+.datechoice__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-1);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+
+.datechoice__row:first-child {
+  border-top: 0;
+}
+
+.datechoice__label {
+  flex: 1;
+  font-weight: 600;
+}
+
+.datechoice__note {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.datechoice__pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+/* 「複製到別天」那張卡：小月曆借日曆跳日期那一張的 `.datepick__*`，多兩種格子 —— 它自己那一天與同一組已經有的那幾天
+   （虛線圈、點不了）、今天以前的（灰、點不了） */
+/* 卡片比日曆那一張面板窄：格子要縮得下去（按鈕預設的左右內距讓七格的最小寬度超過卡片，卡片一出現直的捲軸就多一條橫的） */
+.copydays .datepick__row {
+  min-height: 40px;
+}
+
+/* 翻月那兩顆的觸控區往外撐 6px（`.calbar__nav::after`）—— 貼著卡片邊的話撐出去那一截就是一條橫的捲軸 */
+.copydays .datepick__bar {
+  padding: 0 6px;
+}
+
+.copydays__day {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0;
+}
+
+.copydays__day.is-there {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.copydays__day:disabled {
+  color: var(--text-mute);
+  cursor: default;
+}
+
+.copydays__day.is-there:disabled {
+  color: var(--accent);
+}
+
+.copydays__linked {
+  margin: var(--space-3) 0 0;
+}
+
+.copydays__split {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  background: var(--surface-2);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.copydays__splitnote {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-dim);
 }
 
 /* 讀取模式的一列：左邊標題右邊值。她掃的是右邊那一欄。 */
@@ -7596,19 +7733,56 @@ summary {
 
 /* ---------- 隨手記的捕捉面板 ---------- */
 
-/* 日期、掛給誰、給營養品那幾排。**四個入口共用**（首頁那一格、右下角泡泡、
-   日曆的待辦編輯器、客戶詳情）—— 長得不一樣會讓她以為是兩種東西。
-   共用的不只是 `components/note.js` 那幾支，**包住它們的這一層也是**：
-   2026-09-01 之前只有兩個入口包了它，另外兩個裸放，於是那兩邊的丸子貼著
-   輸入框（她的原話：「跟輸入框以及下方的任務貼得太近了」）。
+/* 今天、挑日期、掛給誰、給營養品**排一排**（notes-widget 02，她 11/6：「能不能今天挑日期掛給誰，給營養品是同一排?」），
+   放不下（選了日期、選了人之後字變長）才換行。**四個入口共用這一層**（首頁那一格、右下角泡泡、
+   日曆的待辦編輯器、客戶詳情）—— 長得不一樣會讓她以為是兩種東西；2026-09-01 之前只有兩個入口包了它，
+   另外兩個裸放，丸子貼著輸入框。
 
-   **gap 是「排與排之間」，不是「丸子與丸子之間」**：一排裡面是 --space-2，
-   兩排之間要更大，否則三排丸子看起來像一團。 */
+   **裡面那幾塊（`.notedate`、`.notewho`、`.notegive` 與泡泡包住掛給誰的那一層）`display: contents`**：
+   它們的丸子直接是這一層的 flex 項目，才排得成一排；點開才長出來的名單（`.notewho__list`，給營養品的兩層也是它）
+   `order: 1` ＋ 整行寬，**落在那一排底下自己一行**，不擠在丸子中間。JS 照舊在那幾塊自己身上接監聽、讀值。 */
 .notemeta {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* 子孫不是子代：首頁那一格與泡泡的「掛給誰」包在 `[data-quickwho]` 那一層裡、日曆待辦編輯器的包在 `[data-calwho]`
+   那一層裡（選了一包營養品時整塊收起來） */
+.notemeta .notedate,
+.notemeta .notewho,
+.notemeta .notegive,
+.notemeta [data-quickwho],
+.notemeta [data-calwho] {
+  display: contents;
+}
+
+.notemeta .notewho__list {
+  order: 1;
+  margin-top: var(--space-1);
+}
+
+/* 「掛給誰」名單最上面那一格搜尋（notes-widget 03）。名單點開才長出來，所以它也是 */
+.notewho__search {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+/* 打名字就跳出客戶（notes-widget 03）：輸入框底下、丸子那一排上面。沒有符合的不佔位置（`hidden`）。
+   最多 6 位，換行不橫捲 —— 橫捲會把丸子撐開觸控區的那 5px 裁掉 */
+.notesuggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* 跳出來的是「建議」，不是那一排的選項：綠框綠字，跟底下四顆分得出來（字色用 `--accent`，不是綠底上的字那一個） */
+.notesuggest .chip {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 包在一個有標籤的欄位裡時（日曆的待辦編輯器），上邊界由 `.field` 給 ——
@@ -7788,6 +7962,19 @@ summary {
 .notetag--warn {
   color: var(--soon);
   background: var(--soon-bg);
+}
+
+/* 清單上一列代表連在一起的一組（ADR-0179）：日期那一顆旁邊「共 3 天」。
+   跟客戶、日期那兩顆同一家（小丸），用強調色的淡底 —— 字是 `--accent`（綠底上的字才用 `--accent-text`） */
+.notecount {
+  padding: 1px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 一列＋（勾掉的那幾筆才有的）垃圾桶。 */

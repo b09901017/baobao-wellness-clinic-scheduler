@@ -123,6 +123,53 @@ export function chartNoHas(customer, query) {
   return chartNosOf(customer).some((no) => no.includes(q));
 }
 
+/** 一段字的邊界：空白、標點、符號（「請王小明回電，」的逗號、括號、全形空白都算）。 */
+const SUGGEST_BOUNDARY = /[\s\p{P}\p{S}]/u;
+
+/**
+ * 記一筆時打名字就跳出客戶（notes-widget 03，她 11/6：「我打王 下面就跳出王小明，然後我點了之後，
+ * 輸入框直接跳出王小明我只要在打回電就好，如果我點了就也順便幫我掛給他」）。
+ *
+ * 看的是**游標前面那一段**（往前到空白或標點為止），取其中**最長的、是某一位名字開頭的尾巴**：
+ * 打「請王小」→ 用「王小」（「請王小」沒有人的名字這樣開頭）。比法同 `nameHas()`（`normalizeAlias()`：
+ * 去空白、全形半形一致、英文不分大小寫）—— **但這裡是名字「開頭」，不是「包含」**：打「明」不會跳出王小明。
+ *
+ * 那一段已經是某一位的全名、而且他就是現在掛的那一位 → 不跳（點過了，接著打字不要一直跳）。
+ * 刪掉的客戶不列；**列誰照呼叫端給的名單**（「掛給誰」那一份，停用的與一次性客人都在）。
+ *
+ * Android 小工具的輸入卡（08）照抄這一支：情境在 `tests/notes-name-suggestions.test.js`。
+ *
+ * @param {string} text 框裡的字
+ * @param {number} caret 游標的位置（`selectionStart`）
+ * @param {object[]} customers
+ * @param {{currentId?: string|null, limit?: number}} [o] currentId：現在掛的那一位
+ * @returns {{from: number, to: number, matches: object[]}} 換字的範圍 `[from, to)`；沒有符合的 `matches` 是空的
+ */
+export function nameSuggestions(text, caret, customers = [], { currentId = null, limit = 6 } = {}) {
+  const value = String(text ?? '');
+  const to = Math.max(0, Math.min(Number.isInteger(caret) ? caret : value.length, value.length));
+  const none = { from: to, to, matches: [] };
+  const chars = [...value.slice(0, to)];
+  let start = chars.length;
+  while (start > 0 && !SUGGEST_BOUNDARY.test(chars[start - 1])) start -= 1;
+  const people = (customers ?? []).filter((c) => c && !c.deletedAt && normalizeAlias(c.name));
+
+  for (let i = start; i < chars.length; i += 1) {
+    const tail = chars.slice(i).join('');
+    const q = normalizeAlias(tail);
+    if (!q) continue;
+    const hits = people.filter((c) => normalizeAlias(c.name).startsWith(q));
+    if (!hits.length) continue;
+    const exact = (c) => normalizeAlias(c.name) === q;
+    if (currentId && hits.some((c) => c.id === currentId && exact(c))) return none;
+    const matches = hits
+      .sort((a, b) => Number(exact(b)) - Number(exact(a)) || String(a.name).localeCompare(String(b.name), 'zh-Hant'))
+      .slice(0, limit);
+    return { from: to - tail.length, to, matches };
+  }
+  return none;
+}
+
 /**
  * 打幾個字找客戶（拍 Abovee 每一列的「換一位」、療程單的「是誰」）。
  *

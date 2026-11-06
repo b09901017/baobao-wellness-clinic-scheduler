@@ -714,6 +714,26 @@ export const COVERAGE = {
     'public/js/domain/followups.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/customers.js',
     'tests-e2e/fixtures/ai/aboveeList-one-time.json',
   ],
+  // 複製到別天、連在一起的隨手記（notes-widget 04、05，ADR-0179）：長按 → 小月曆 → 一組三天；清單一列「共 N 天」、
+  // 日曆每一天一筆；在日曆勾一天整組一起勾（連不在這個月的）；拆開這一天；日曆編輯器只改日期不寫另外那幾天
+  '97-notes-linked-copy': [
+    'public/js/domain/notes.js', 'public/js/data/notes.js', 'public/js/ui/components/note.js',
+    'public/js/ui/components/actions.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/domain/calendar.js', 'firestore.rules',
+  ],
+  // 記一筆那一排（notes-widget 02、03）：四顆排一排、首頁那張卡給營養品、長按提示；打名字跳出客戶、掛給誰搜尋
+  '98-note-capture-row': [
+    'public/js/ui/components/note.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/customers.js', 'public/css/app.css',
+  ],
+  // 給 Android 小工具的兩條網址（notes-widget 10）：開某一筆（營養品的提醒先問給了哪幾款）、開記一筆並展開給營養品；冷開機與 app 開著時
+  '99-notes-widget-links': [
+    'public/js/ui/views.js', 'public/js/ui/views/home.js', 'public/js/ui/components/note.js', 'public/js/ui/router.js',
+  ],
+  // 鍵盤開著的時候（notes-widget 01，ADR-0181）：版面跟著鍵盤縮、打字時收起底部導覽列
+  '100-keyboard-layout': [
+    'public/js/ui/keyboard.js', 'public/index.html', 'public/js/app.js', 'public/css/app.css',
+  ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
@@ -781,6 +801,20 @@ export const CSS_SCOPES = {
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
   // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
   notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 記一筆那一排（notes-widget 02）：今天／挑日期／掛給誰／給營養品排一排的那一層與兩塊選填的丸子
+  notemeta: {
+    classes: ['notemeta', 'notewho', 'notegive', 'notesuggest'],
+    owners: [
+      'public/js/ui/components/note.js', 'public/js/ui/views/home.js',
+      'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',
+    ],
+  },
+  // 連在一起的隨手記（ADR-0179）：清單上那一顆「共 N 天」、「改日期」那張卡、「複製到別天」那張小月曆
+  notecount: { classes: ['notecount'], owners: ['public/js/ui/components/note.js'] },
+  datechoice: { classes: ['datechoice'], owners: ['public/js/ui/components/note.js'] },
+  copydays: { classes: ['copydays'], owners: ['public/js/ui/components/note.js'] },
+  // 長按選單抬頭底下那一排小丸（連在一起的隨手記是哪幾天）
+  actionstags: { classes: ['actions__tag', 'actions__tags'], owners: ['public/js/ui/components/actions.js'] },
   // 挑顏色那一排圓點：客戶備註、長備註那幾則的編輯、設定頁警示、行事備註（ADR-0171 的 `.swatches--event`）
   swatch: {
     classes: ['swatch', 'swatches'],
@@ -829,8 +863,8 @@ export function pick(files = []) {
       continue;
     }
 
-    // 改到 spec 自己就跑它自己。
-    const own = file.match(/^tests-e2e\/specs\/(\d\d-[^.]+)\./);
+    // 改到 spec 自己就跑它自己。編號是三位數的（`100-keyboard-layout`）也要認得 —— 以前只認兩位數，那一支被當成沒登記、退回全跑
+    const own = file.match(/^tests-e2e\/specs\/(\d+-[^.]+)\./);
     if (own) { specs.add(own[1]); continue; }
 
     // Rules 的測試、start-emulators 之類的，不影響 app 行為。

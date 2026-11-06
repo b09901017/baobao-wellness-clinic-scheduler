@@ -161,7 +161,13 @@
 `tests/abovee-row-hints-placed.test.js` 把 `needsAttention` 切成六萬字、比到不相干的函式，紅得莫名其妙。
 讀寫都帶 `newline=''`／`newline='\n'`（`open(p, encoding='utf-8', newline='')` 讀、`newline='\n'` 寫），寫完 `file <路徑>` 看有沒有「CRLF」。
 
-> 用 python 改了檔嗎？寫的時候帶 `newline='\n'` 了沒；`file` 一次。
+**11/6 再踩一次，而且更糟**（notes-widget 段二，`f0ea3b51`）：一支改檔腳本用預設的 `open(p, 'w')`（整份變 CRLF），下一支用 `newline=''` 讀、
+自己再把 `\n` 換成 `\r\n` 接上去 —— 接縫處多了兩個**單獨的 `\r`**（`}\r\r\n`）。有單獨的 CR，git 就把整支當成 `-text`，
+`.gitattributes` 的 `eol=lf` 不轉了：`app.css` 一萬一千行以 CRLF 進了版本庫，diff 是 +12315/-11852，下一次合 develop 每一行都衝突。
+`git add` 時的「CRLF will be replaced by LF」警告**不保證**真的轉了（它照樣印）。
+同一個腳本**一律** `newline='\n'` 寫；不要在 `newline=''` 讀進來的字串上自己拼 `\r\n`。
+
+> 用 python 改了檔嗎？寫的時候帶 `newline='\n'` 了沒；`file` 一次。commit 之後 `git ls-files --eol <檔>` 是 `i/lf` 嗎？
 
 ---
 

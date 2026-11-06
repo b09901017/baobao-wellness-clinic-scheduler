@@ -474,8 +474,8 @@ describe('資料健檢：「EECP體驗」那一門還在', () => {
   });
   const rows = (s) => runHealthCheck(s, TODAY).checks.find((c) => c.id === 'eecpTrialCourse').findings;
 
-  test('接在 CHECKS 後面（它後面只有 10/19 的「病歷號還寫成一則短備註」）', () => {
-    assert.deepEqual(CHECKS.slice(-2).map((c) => c.id), ['eecpTrialCourse', 'chartNoField']);
+  test('接在 CHECKS 後面（它後面只有 10/19 的「病歷號還寫成一則短備註」與 11/6 的連在一起的隨手記）', () => {
+    assert.deepEqual(CHECKS.slice(-3).map((c) => c.id), ['eecpTrialCourse', 'chartNoField', 'linkedNotes']);
   });
 
   test('沒扣額度的兩段 → 一列；按了之後是 EECP、體驗、20 分、狀態不動，那一門刪掉', () => {

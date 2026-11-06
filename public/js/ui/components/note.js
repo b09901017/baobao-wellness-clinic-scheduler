@@ -23,15 +23,36 @@
 // **預設是沒有日期。** 泡泡那一支的標準是「三秒內記完」
 //（`domain/notes.js` 的檔頭），多一個必填欄位就毀了它。
 
-import { isOneTime } from '../../domain/customers.js';
+import {
+  isOneTime, nameHas, chartNoHas, nameSuggestions,
+} from '../../domain/customers.js';
 import { esc } from './form.js';
 import { icon } from '../icons.js';
-import { shortDate, todayISO } from '../../domain/dates.js';
+import { shortDate, todayISO, addMonths } from '../../domain/dates.js';
 import { undelivered, deliveryChoices, noteTextFor } from '../../domain/products.js';
-import { MAX_LENGTH } from '../../domain/notes.js';
+import {
+  MAX_LENGTH, linkedPeers, noteActions, dateChoices, linkedReach, linkedWords, copyPlan, copiedSay,
+} from '../../domain/notes.js';
+import { monthWeeks, titleOf, WEEKDAY_HEADERS } from '../../domain/calendar.js';
 import { openSheet } from './sheet.js';
 import { openCard, closeCard } from './card.js';
+import { openActions } from './actions.js';
 import { confirmAction } from './dialog.js';
+
+/**
+ * 隨手記清單標題旁邊那一顆 `?`（首頁那張卡、`#/todo/notes`）。她 11/6：「這邊也許可以加一個小tooltip說長按可以修改」。
+ * 長按有哪幾顆照 `domain/notes.js` 的 `noteActions()` —— 那邊改了這一句要跟著改。
+ */
+export const LONGPRESS_TIP = '點一下勾掉；長按可以改日期、改字、掛給誰、複製到別天';
+
+/**
+ * 「掛給誰」那兩份名單上面那一格搜尋（notes-widget 03）：名字（`nameHas()`）或病歷號（`chartNoHas()`）。
+ * **一格一格問，不要接成一串再比**（`CLAUDE.md`「打字找客戶的框」）。沒打字＝每一位都列。
+ */
+const whoMatches = (c, q) => !String(q ?? '').trim() || nameHas(c?.name, q) || chartNoHas(c, q);
+
+const whoSearch = (attr) => `<input type="search" class="notewho__search" ${attr}
+  placeholder="找名字或病歷號" aria-label="找客戶" autocomplete="off" enterkeyhint="search" />`;
 
 /** 隨手記「掛給誰」那兩排：一次性客人名字後面一小格「一次性」（ADR-0172 第 5 題：找人的框也標）。 */
 const guestTag = (c) => (isOneTime(c) ? ' <span class="guestmark">一次性</span>' : '');
@@ -48,10 +69,14 @@ const guestTag = (c) => (isOneTime(c) ? ' <span class="guestmark">一次性</spa
  * 「選了之後做什麼」在底下的 `runAction()` —— 五個入口共用同樣那三份。
  *
  * @param {object} n
- * @param {{today?: string, customer?: boolean, iconSize?: number}} [options]
+ * @param {{today?: string, customer?: boolean, iconSize?: number, badge?: string|null}} [options]
  *   customer：要不要把掛的客戶名字印出來（客戶詳情頁上是多餘的）
+ *   badge：清單上一列代表連在一起的一組時，日期那一顆旁邊那一顆（`linkedBadge()`：「共 3 天」，ADR-0179）。
+ *   **日曆、逾期／今天／明天不傳**（那幾頁每一天各一列）
  */
-export function row(n, { today = todayISO(), customer = true, iconSize = 13, trash = false } = {}) {
+export function row(n, {
+  today = todayISO(), customer = true, iconSize = 13, trash = false, badge = null,
+} = {}) {
   const late = n.date && !n.done && n.date < today;
 
   // 掛在這一筆身上的東西做成小丸擺在右邊：客戶一顆、日期一顆，沒掛的就沒有。
@@ -62,7 +87,8 @@ export function row(n, { today = todayISO(), customer = true, iconSize = 13, tra
       ? `<span class="notetag">${esc(n.customerName)}</span>` : ''}
     ${n.date
       ? `<span class="notetag notetag--date ${late ? 'notetag--past' : ''}">${esc(shortDate(n.date))}</span>`
-      : ''}`;
+      : ''}
+    ${badge ? `<span class="notecount">${esc(badge)}</span>` : ''}`;
 
   return `
     <div class="noterow">
@@ -166,12 +192,13 @@ function wireOne(box) {
 
 // ---------- 掛給誰 ----------
 //
-// 也是選填的，而且跟日期一樣：**點開才讀客戶名單**。她十次有九次不掛人，
-// 沒必要為了那一次讓每次開面板都多一趟往返。
+// 也是選填的。客戶名單**用到才讀、只讀一次**：點開「掛給誰」或打字跳出客戶（`wireSuggest()`）時讀，
+// 兩邊共用同一份（`wireCapture()` 的 `customers()`）。她十次有九次不掛人，沒必要每次開面板都多一趟往返。
 //
 // 首頁那一格以前沒有這個欄位（只有日期），所以變成一個「掛得了日期、
 // 掛不了人」的奇怪組合，而掛人比掛日期常用（2026-08-24）。
-// 抽出來之後首頁那一格與右下角的泡泡長一模一樣。
+// 首頁那一格、右下角的泡泡、日曆的待辦編輯器三個入口接線都走底下的 `wireCapture()`
+//（2026-11-06 notes-widget 02：首頁那一格也有了「給營養品」，四顆排一排）。
 
 /**
  * @param {{customerId?: string|null, customerName?: string|null}} [options]
@@ -246,14 +273,33 @@ export function wireWho(root, { load }) {
         return;
       }
     }
-    list.innerHTML = `
-      <div class="chips">
-        ${customers.map((c) => `
-          <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
-                  aria-pressed="${idIn.value === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
-        || '<span class="muted">還沒有客戶。</span>'}
-      </div>`;
+    if (!customers.length) {
+      list.innerHTML = '<span class="muted">還沒有客戶。</span>';
+      return;
+    }
+    // 最上面一格搜尋（notes-widget 03）：一邊打一邊只換底下那一排，搜尋框留著（鍵盤不收）
+    list.innerHTML = `${whoSearch('data-nw-search')}<div class="chips" data-nw-chips>${chipsFor('')}</div>`;
   };
+
+  const shownFor = (q) => (customers ?? []).filter((c) => whoMatches(c, q));
+  const chipsFor = (q) => shownFor(q).map((c) => `
+    <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
+            aria-pressed="${idIn.value === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
+    || '<span class="muted">找不到這個名字或病歷號。</span>';
+
+  box.addEventListener('input', (e) => {
+    if (!e.target.matches?.('[data-nw-search]')) return;
+    const chips = box.querySelector('[data-nw-chips]');
+    if (chips) chips.innerHTML = chipsFor(e.target.value);
+  });
+
+  // 搜尋框在首頁那一格的 <form> 裡：Enter 不可以把隨手記送出去。剛好剩一位就是選他
+  box.addEventListener('keydown', (e) => {
+    if (!e.target.matches?.('[data-nw-search]') || e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    const shown = shownFor(e.target.value);
+    if (shown.length === 1) set(shown[0]);
+  });
 
   box.addEventListener('click', (e) => {
     if (e.target.closest('[data-nw-clear]')) return set(null);
@@ -269,6 +315,173 @@ export function wireWho(root, { load }) {
 
   paint();
   return { set };
+}
+
+// ---------- 記一筆那一排：三個有「掛給誰」的入口共用的接線 ----------
+//
+// 首頁那張卡、右下角泡泡、日曆的待辦編輯器（2026-11-06 notes-widget 02）。以前三處各接一次
+// `wire()`／`wireWho()`／`wireGive()`，「選了一包就把掛給誰收起來、字自動填」各寫一份 ——
+// 首頁那一格當初就是少接了給營養品。客戶詳情那一格只有日期（固定掛那一位），不走這一支。
+
+/**
+ * 打名字就跳出客戶的那一排（notes-widget 03）。放在**輸入框底下、丸子那一排上面**（鍵盤跳出來時它貼著輸入框）；
+ * 沒有符合的不佔位置。接線在 `wireCapture()`。
+ */
+export function suggestRow() {
+  return '<div class="notesuggest" data-nsuggest hidden aria-label="符合的客戶"></div>';
+}
+
+/**
+ * 那一排現在選了什麼：日期、掛給誰；**選了一包營養品時掛的人與 `entitlementId` 由那一包決定**
+ *（「掛給誰」那一排那時候是收起來的）。`customerId`／`customerName` 一律兩個一起回
+ *（`domain/notes.js` 的 `normalizePatch()`：只帶一個，另一個會被算成空的）。
+ */
+export function readCapture(root) {
+  const bag = readGive(root);
+  return {
+    date: read(root),
+    ...(bag
+      ? { customerId: bag.customerId, customerName: bag.customerName, entitlementId: bag.entitlementId }
+      : readWho(root)),
+  };
+}
+
+/**
+ * 掛上那一排的互動。
+ *
+ * @param {HTMLElement} root 包住那一排（與輸入框）的那一塊。**每次重畫都要再叫一次**：
+ *   監聽掛在那幾塊自己身上（`[data-notedate]`、`[data-notewho]`、`[data-notegive]`），重畫就是新的節點
+ * @param {object} o
+ * @param {() => HTMLInputElement|null} o.input 打字的那一格（選了一包營養品時把字填進去）
+ * @param {() => HTMLElement|null} o.whoBox 選了一包時要收起來的那一塊（包住「掛給誰」）
+ * @param {() => Promise<object[]>} o.loadCustomers 用到才讀（點開掛給誰、或打字跳出客戶）、只讀一次
+ * @param {(() => Promise<object[]>)|null} [o.loadBags] `givableBags()`；沒有「給營養品」那一顆就不用給
+ * @returns {{read: () => object, reset: () => void}} reset：存完之後清回沒有日期、沒掛人、沒選一包
+ */
+export function wireCapture(root, {
+  input = () => null, whoBox = () => null, loadCustomers, loadBags = null,
+} = {}) {
+  // 「掛給誰」的名單與打名字跳出客戶讀同一份（spec：列的人＝掛給誰的名單），只讀一次；讀不到下次再讀
+  let pending = null;
+  const customers = () => {
+    pending ??= Promise.resolve().then(loadCustomers).catch((err) => {
+      pending = null;
+      throw err;
+    });
+    return pending;
+  };
+  const when = wire(root);
+  const whom = wireWho(root, { load: customers });
+  const suggest = wireSuggest(root, { input, customers });
+  const bag = wireGive(root, {
+    load: loadBags ?? (async () => []),
+    onPick: (picked) => {
+      const box = whoBox();
+      if (box) box.hidden = Boolean(picked);
+      const el = input();
+      if (picked && el) el.value = picked.text;
+      if (picked) suggest.hide();
+    },
+  });
+  suggest.onPick((c) => whom.set(c));
+  return {
+    read: () => readCapture(root),
+    reset: () => {
+      when.set(null);
+      whom.set(null);
+      bag.set(null);
+      suggest.hide();
+    },
+  };
+}
+
+/**
+ * 打名字就跳出客戶（notes-widget 03）。她 11/6：「我打王 下面就跳出王小明，然後我點了之後，
+ * 輸入框直接跳出王小明我只要在打回電就好，如果我點了就也順便幫我掛給他」。
+ *
+ * - 找哪一段、列誰只問 `domain/customers.js` 的 `nameSuggestions()`（名字**開頭**，不是包含）
+ * - **注音選字中不找**（`compositionstart`～`compositionend`；`input` 事件的 `isComposing`）：一排名字會蓋住選字列
+ * - 點一位：那一段換成全名、游標接在後面、**框不失焦**（`pointerdown`／`mousedown` 擋掉預設 —— 失焦就是鍵盤收起來）、
+ *   掛給他（已經掛給別人就換成他；名字從框裡刪掉不自動拿掉，按「✕ 不掛了」）
+ * - **選了一包營養品時不出現**：那一包已經決定是誰
+ */
+function wireSuggest(root, { input, customers }) {
+  const row = root?.querySelector('[data-nsuggest]');
+  const el = input();
+  let picked = () => {};
+  const api = { hide: () => {}, onPick: (fn) => { picked = fn; } };
+  if (!row || !el) return api;
+  let shown = null;
+  let composing = false;
+  let asked = 0;
+
+  const hide = () => {
+    shown = null;
+    row.hidden = true;
+    row.innerHTML = '';
+  };
+  api.hide = hide;
+
+  const quiet = () => composing || readGive(root) || document.activeElement !== el;
+
+  const refresh = async () => {
+    asked += 1;
+    const mine = asked;
+    if (quiet()) return hide();
+    let list;
+    try {
+      list = await customers();
+    } catch {
+      return hide();
+    }
+    // 讀名單的那一下她可能又打了字：只畫最後一次
+    if (mine !== asked) return undefined;
+    if (quiet()) return hide();
+    const caret = el.selectionStart ?? el.value.length;
+    const s = nameSuggestions(el.value, caret, list, { currentId: readWho(root).customerId });
+    if (!s.matches.length) return hide();
+    shown = s;
+    row.innerHTML = s.matches.map((c) => `
+      <button class="chip chip--sm" type="button" data-ns-pick="${esc(c.id)}">${esc(c.name)}${guestTag(c)}</button>`).join('');
+    row.hidden = false;
+    return undefined;
+  };
+
+  el.addEventListener('compositionstart', () => {
+    composing = true;
+    hide();
+  });
+  el.addEventListener('compositionend', () => {
+    composing = false;
+    refresh();
+  });
+  el.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    refresh();
+  });
+  el.addEventListener('blur', () => hide());
+
+  // 點下去那一下不要讓框失焦（鍵盤會收起來）
+  const keepFocus = (e) => {
+    if (e.target.closest('[data-ns-pick]')) e.preventDefault();
+  };
+  row.addEventListener('pointerdown', keepFocus);
+  row.addEventListener('mousedown', keepFocus);
+  row.addEventListener('click', (e) => {
+    const hit = e.target.closest('[data-ns-pick]');
+    if (!hit || !shown || readGive(root)) return;
+    const c = shown.matches.find((x) => x.id === hit.dataset.nsPick);
+    if (!c) return;
+    const v = el.value;
+    el.value = `${v.slice(0, shown.from)}${c.name}${v.slice(shown.to)}`;
+    const at = shown.from + String(c.name).length;
+    el.focus();
+    el.setSelectionRange?.(at, at);
+    picked(c);
+    hide();
+  });
+
+  return api;
 }
 
 // ---------- 營養品的交付 ----------
@@ -310,9 +523,16 @@ export function wireWho(root, { load }) {
 export async function prepareToggle(note, {
   loadEntitlements, recordDelivery, setDone, today, loadProducts,
 }) {
+  // 連在一起的同一組一起勾（ADR-0179）：作用在幾天由寫入那一支回報（它重讀過那一組），不是畫面手上那一份 ——
+  // 日曆只讀了一個月，自己數會少數不在這個月的那幾天
+  let reach = null;
   const plain = {
-    run: async () => ({ ...note, ...(await setDone(note.id, !note.done)) }),
-    success: note.done ? '拿回來了' : '勾掉了',
+    run: async () => {
+      const { reach: r = null, ...changes } = (await setDone(note.id, !note.done)) ?? {};
+      reach = r;
+      return { ...note, ...changes };
+    },
+    success: () => `${note.done ? '拿回來了' : '勾掉了'}${linkedWords(reach).toast}`,
   };
 
   // 拿回來（取消勾選）永遠只是拿回來 —— 不要順便問她給了什麼。
@@ -465,26 +685,33 @@ export async function askGiven(entitlement, { customerName = '', master } = {}) 
 /**
  * 執行一顆快捷動作。
  *
+ * **連在一起的**（ADR-0179）：勾、改字、改掛給誰由寫入那一支一起寫到同一組（`data/notes.js`）；這一支只多兩件事 ——
+ * 改字、掛給誰那張卡講出「共 N 天會一起改」（`deps.peers`，數字只問 `linkedReach()`），「複製到別天」那張卡最上面多一顆「拆開這一天」。
+ *
  * @param {string} action `noteActions()` 給的 id
  * @param {object} note
  * @param {object} deps
  * @param {(id: string, changes: object) => Promise<any>} deps.update
- * @param {(id: string, reason: string) => Promise<any>} deps.remove
  * @param {(id: string, done: boolean) => Promise<any>} deps.setDone
  * @param {(customerId: string) => Promise<object[]>} deps.loadEntitlements
  * @param {(note, entitlement, delivery) => Promise<object>} deps.recordDelivery
  * @param {() => Promise<object[]>} deps.loadCustomers
+ * @param {(linkId: string) => Promise<object[]>} deps.listLinked 照 `linkId` 重讀那一組（含已刪除的）
+ * @param {(note, dates: string[], o: {linked: boolean}) => Promise<{created: number}>} deps.copyTo
+ * @param {(id: string) => Promise<any>} deps.unlink
  * @param {string} deps.today
- * @param {(kind: 'save', run: Function, o: {success: string}) => Promise<any>} deps.save
+ * @param {(run: Function, o: {success: string|Function, key?: string}) => Promise<any>} deps.save
  *   包住寫入的那一層（呼叫端的 `toast.withSaveState`）。復原退得回去。
+ * @param {object[]} [deps.peers] 同一組其他還活著的那幾筆（`openMenu()` 給的；沒給就當沒連在一起）
+ * @param {boolean} [deps.onCalendar] 這一列畫在日曆上（「改日期」那張卡講「從日曆拿掉」）
  * @param {Function} [deps.onEdit] 「改文字」—— 呼叫端自己決定開哪一個編輯器
  * @param {Function} [deps.onBag]  「看那一包營養品」
  * @returns {Promise<boolean>} true = 真的寫了東西（呼叫端該重畫）
  */
 export async function runAction(action, note, deps) {
   const {
-    update, remove, setDone, loadEntitlements, recordDelivery, loadProducts,
-    loadCustomers, today, save, onEdit, onBag,
+    update, setDone, loadEntitlements, recordDelivery, loadProducts,
+    loadCustomers, today, save, onEdit, onBag, peers = [], onCalendar = false,
   } = deps;
 
   if (action === 'bag') {
@@ -501,9 +728,10 @@ export async function runAction(action, note, deps) {
       onEdit(note);
       return false;
     }
-    const text = await askText(note.text ?? '');
+    const words = linkedWords(linkedReach(note, peers));
+    const text = await askText(note.text ?? '', { also: words.card });
     if (text === null || text === note.text) return false;
-    await save(() => update(note.id, { text }), { success: '改好了' });
+    await save(() => update(note.id, { text }), { success: `改好了${words.toast}` });
     return true;
   }
 
@@ -520,27 +748,23 @@ export async function runAction(action, note, deps) {
     return true;
   }
 
-  if (action === 'today') {
-    await save(() => update(note.id, { date: today }), { success: `改成今天（${shortDate(today)}）` });
-    return true;
-  }
-
+  // 「改日期」一張卡：改成今天／改成某天／拿掉日期（她 11/6，ADR-0179）。連在一起的也只改這一天
   if (action === 'date') {
-    const picked = await askDate(note.date ?? today);
+    const picked = await askDateChange(note, { today, onCalendar, linked: peers.length > 0 });
     if (!picked) return false;
-    await save(() => update(note.id, { date: picked }), { success: `改成 ${shortDate(picked)}` });
+    if (picked.date === (note.date ?? null)) return false;
+    const success = picked.date === null
+      ? '從日曆拿掉了，隨手記裡還在'
+      : picked.date === today ? `改成今天（${shortDate(today)}）` : `改成 ${shortDate(picked.date)}`;
+    await save(() => update(note.id, { date: picked.date }), { success });
     return true;
   }
 
-  if (action === 'undate') {
-    await save(() => update(note.id, { date: null }), {
-      success: '從日曆拿掉了，隨手記裡還在',
-    });
-    return true;
-  }
+  if (action === 'copy') return copyAction(note, deps);
 
   if (action === 'who') {
-    const picked = await askCustomer(loadCustomers, note.customerId ?? null);
+    const words = linkedWords(linkedReach(note, peers));
+    const picked = await askCustomer(loadCustomers, note.customerId ?? null, { also: words.card });
     if (picked === undefined) return false;
     // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
     // 只帶其中一個過來，另一個會被算成空的。
@@ -549,28 +773,104 @@ export async function runAction(action, note, deps) {
         customerId: picked?.id ?? null,
         customerName: picked?.name ?? null,
       }),
-      { success: picked ? `掛給${picked.name}了` : '不掛人了' },
+      { success: `${picked ? `掛給${picked.name}了` : '不掛人了'}${words.toast}` },
     );
     return true;
   }
 
-  if (action === 'remove') {
-    const ok = await confirmAction({
-      title: '刪掉這一筆隨手記？',
-      consequences: [
-        note.text,
-        '它會進「已刪除項目」，之後還原得回來',
-        note.date ? '日曆上那一件也會一起消失 —— 那就是它本人' : '它只在隨手記裡',
-      ],
-      confirmLabel: '刪掉',
-      danger: true,
+  return false;
+}
+
+/**
+ * 「複製到別天」：小月曆一次點好幾天、預設連在一起；連在一起的最上面一顆「拆開這一天」（ADR-0179）。
+ *
+ * **打開之前照 `linkId` 重讀那一組**：小月曆上同一組已經有的那幾天要標出來（點了也不會多建 —— `copyPlan()` 跳過），
+ * 「拆開這一天」只在真的還連著時給。畫面手上那一份（日曆一個月）數不準。
+ */
+async function copyAction(note, deps) {
+  const { listLinked, copyTo, unlink, save, today } = deps;
+  if (note.entitlementId) return false; // 營養品的提醒不給複製（選單上也沒有那一顆）
+
+  // 照 `copyTo()` 讀的同一組（沒有 `linkId` 就照它的 id）：已經勾掉的那一筆上一次複製出去的那幾天也要圈起來（R3）
+  let group = [note, ...(deps.peers ?? [])];
+  if (listLinked) {
+    try {
+      group = [note, ...(await listLinked(note.linkId || note.id)).filter((n) => n.id !== note.id)];
+    } catch {
+      /* 讀不到就用手上那一份 —— 寫的那一刻 `copyTo()` 自己會再重讀一次 */
+    }
+  }
+  // 圈起來的那幾天照 `copyPlan()` 算（連在一起時會跳過的那幾天），不在畫面上另算一份
+  const { taken } = copyPlan(note, [], { linked: true, group, newLinkId: '(新的一組)' });
+
+  const picked = await askCopy(note, { today, peers: linkedPeers(note, group), taken });
+  if (!picked) return false;
+
+  if (picked.split) {
+    await save(() => unlink(note.id), {
+      success: `拆開了：${note.date ? shortDate(note.date) : '這一筆'}以後自己勾`,
+      key: `note:unlink:${note.id}`,
     });
-    if (!ok) return false;
-    await save(() => remove(note.id, '長按刪掉'), { success: '刪掉了' });
     return true;
   }
 
-  return false;
+  let result = null;
+  await save(async () => {
+    result = await copyTo(note, picked.dates, { linked: picked.linked });
+    return result;
+  }, {
+    success: () => copiedSay({ ...result, linked: picked.linked }),
+    // 小月曆按兩下、或網路慢按兩次：同一份不建兩次（`copyTo()` 重讀之後也會跳過已經有的那幾天）
+    key: `note:copy:${note.id}:${picked.dates.join(',')}:${picked.linked ? 1 : 0}`,
+  });
+  return true;
+}
+
+/**
+ * 長按一筆隨手記：選單、選了之後做什麼，**三個入口共用這一支**（首頁那張卡與隨手記那一頁、客戶詳情、日曆）——
+ * 三邊各寫一次的話，遲早有一邊漏了「選單最上面列出是哪幾天」或「共 N 天會一起改」。
+ *
+ * @param {object} n 長按的那一筆（清單上一列代表一組時是代表的那一筆，`groupLinked()`）
+ * @param {object} o
+ * @param {object[]} [o.notes] 畫面手上那一份
+ * @param {boolean} [o.complete] 手上那一份是不是**整組都在**：隨手記那一頁（全部）、首頁那張卡（還沒勾的 —— 一組勾法一樣）、
+ *   客戶詳情（那一位）是；日曆（一個月）、逾期／今天／明天（那一天）不是 —— 不是的話打開選單之前照 `linkId` 重讀
+ * @param {boolean} [o.customer] 抬頭要不要印掛的客戶（客戶詳情上是多餘的）
+ * @param {boolean} [o.onCalendar]
+ * @param {object} o.deps `runAction()` 那一份
+ * @param {Function} [o.onEdit]
+ * @param {Function} [o.onBag]
+ * @param {Function} [o.after] 真的寫了東西之後（重畫）
+ */
+export async function openMenu(n, {
+  notes = [], complete = true, customer = true, onCalendar = false, deps, onEdit, onBag, after,
+} = {}) {
+  let peers = linkedPeers(n, notes);
+  if (n.linkId && !complete && deps?.listLinked) {
+    try {
+      peers = linkedPeers(n, await deps.listLinked(n.linkId));
+    } catch {
+      /* 讀不到就照手上那一份 —— 選單上少列幾天，寫的那一刻照樣重讀 */
+    }
+  }
+  const days = [...new Set([n, ...peers].map((x) => x.date).filter(Boolean))].sort();
+
+  openActions({
+    title: n.text,
+    // 連在一起的：日期那一段換成底下那一排（哪幾天、代表的那一天標出來）
+    subtitle: [peers.length ? null : (n.date ? shortDate(n.date) : '沒有日期'), customer ? n.customerName : null]
+      .filter(Boolean).join('・'),
+    tags: peers.length ? days.map((d) => ({ label: shortDate(d), on: d === n.date })) : [],
+    items: noteActions(n, { reach: linkedReach(n, peers) }),
+    onPick: async (action) => {
+      try {
+        const changed = await runAction(action, n, { ...deps, peers, onCalendar, onEdit, onBag });
+        if (changed) await after?.();
+      } catch {
+        /* 已處理（toast） */
+      }
+    },
+  });
 }
 
 /**
@@ -580,9 +880,11 @@ export async function runAction(action, note, deps) {
  * `#/todo/notes`、客戶詳情，加上那顆泡泡記完之後）。日曆有它自己的
  * （那裡連日期與刪除都在同一張表上），所以那邊傳 `onEdit` 走自己的。
  *
+ * @param {string} value
+ * @param {{also?: string}} [o] 連在一起的會一起改，講出來（`linkedWords().card`：「共 3 天會一起改」—— lessons 五）
  * @returns {Promise<string|null>} null = 她按了取消或清成空白
  */
-function askText(value) {
+function askText(value, { also = '' } = {}) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v) => {
@@ -594,6 +896,7 @@ function askText(value) {
 
     openCard({
       title: '改文字',
+      subtitle: also || '',
       body: `
         <label class="field">
           <span class="visually-hidden">記什麼</span>
@@ -679,13 +982,13 @@ export function askDate(value, copy = {}) {
 }
 
 /**
- * 掛給誰。一排丸子，跟 `wireWho()` 那一排長一樣 ——
- * 同一件事在兩個地方長得不一樣，她會以為是兩種東西。
+ * 「改日期」那張卡（她 11/6：「改成今天 改成某天 改成拿掉日期」，ADR-0179）。有哪幾個選項只問 `dateChoices()`。
+ * 「改成某天」點了才露出日期框（同 `askDate()` 的理由：長按選單收掉之後手勢堆疊散了，`showPicker()` 叫不動）。
  *
- * @returns {Promise<{id, name}|null|undefined>}
- *   物件 = 選了誰、null = 不掛人、**undefined = 她按了取消（什麼都不要做）**
+ * @returns {Promise<{date: string|null}|null>} null = 她按了取消／點外面；`date: null` = 拿掉日期
  */
-function askCustomer(loadCustomers, currentId) {
+function askDateChange(note, { today, onCalendar = false, linked = false } = {}) {
+  const choices = dateChoices(note, { today, onCalendar });
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v) => {
@@ -695,8 +998,205 @@ function askCustomer(loadCustomers, currentId) {
       resolve(v);
     };
 
+    const sub = [note.date ? `現在是 ${shortDate(note.date)}` : '現在沒有日期', linked ? '只改這一天' : null]
+      .filter(Boolean).join('・');
+
+    openCard({
+      title: '改日期',
+      subtitle: esc(sub),
+      body: `
+        <div class="datechoice">
+          ${choices.map((c) => `
+            <button class="datechoice__row" type="button" data-dc="${c.id}">
+              <span class="datechoice__label">${esc(c.label)}</span>
+              ${c.id === 'today' ? `<span class="datechoice__note num">${esc(shortDate(today))}</span>` : ''}
+              ${c.note ? `<span class="datechoice__note">${esc(c.note)}</span>` : ''}
+            </button>`).join('')}
+          <div class="datechoice__pick" data-dc-pickbox hidden>
+            <label class="field">
+              <span class="visually-hidden">改成哪一天</span>
+              <input type="date" data-dc-input value="${esc(note.date ?? today)}" style="width: 100%" />
+            </label>
+            <button class="btn btn--primary btn--wide" type="button" data-dc-ok>改成這一天</button>
+          </div>
+        </div>`,
+      onClose: () => finish(null),
+      onMount: (el) => {
+        if (el.dataset.dcWired) return;
+        el.dataset.dcWired = '1';
+        el.addEventListener('click', (e) => {
+          const hit = e.target.closest('[data-dc]');
+          if (hit?.dataset.dc === 'today') return finish({ date: today });
+          if (hit?.dataset.dc === 'undate') return finish({ date: null });
+          if (hit?.dataset.dc === 'pick') {
+            const box = el.querySelector('[data-dc-pickbox]');
+            box.hidden = false;
+            hit.setAttribute('aria-expanded', 'true');
+            box.querySelector('[data-dc-input]')?.focus();
+            return undefined;
+          }
+          if (e.target.closest('[data-dc-ok]')) {
+            const v = el.querySelector('[data-dc-input]')?.value || null;
+            if (v) finish({ date: v });
+          }
+          return undefined;
+        });
+      },
+    });
+  });
+}
+
+/**
+ * 「複製到別天」那張卡：小月曆（這個月＋可以翻月）一次點好幾天、底下「連在一起」預設打開、「複製到 N 天」。
+ *
+ * - 它自己那一天、同一組已經有的那幾天：圈起來、點不了（`copyPlan()` 也會跳過）
+ * - 今天以前的點不了（替過去的一天補一則提醒沒有意義；要補記昨天那一件用「記一筆」）
+ * - 連在一起的：最上面一顆「拆開這一天」（放在這裡是她 11/6 定的，長按選單放不下）
+ *
+ * 小月曆**另畫一份**，不共用日曆的 `openDatePicker()`：那一張是「點一天就跳過去」、綁著日曆自己的狀態（`state.view`）；
+ * 這一張要一次點好幾天、標出不能點的。格子照同一支 `monthWeeks()`（週一起算）、長相照同一組 `.datepick__*` 的 class。
+ *
+ * @returns {Promise<{dates: string[], linked: boolean}|{split: true}|null>} null = 她按了 ✕／點外面／返回
+ */
+function askCopy(note, { today, peers = [], taken: takenDays = [] } = {}) {
+  const taken = new Set(takenDays);
+  const own = note.date ?? null;
+  const picked = new Set();
+  let linked = true;
+  let cursor = `${(own && own >= today ? own : today).slice(0, 7)}-01`;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      closeCard();
+      resolve(v);
+    };
+
+    const okLabel = () => `複製到 ${picked.size} 天`;
+    const body = () => copyDaysHtml({
+      cursor, today, own, taken, picked, linked, canSplit: peers.length > 0, done: Boolean(note.done),
+    });
+
+    const card = openCard({
+      title: '複製到別天',
+      body: body(),
+      actions: `<button class="btn btn--primary btn--wide" type="button" data-cd-ok disabled>${okLabel()}</button>`,
+      onClose: () => finish(null),
+      onMount: (el) => {
+        if (el.dataset.cdWired) return;
+        el.dataset.cdWired = '1';
+        const repaint = () => {
+          card.update(body());
+          const ok = el.querySelector('[data-cd-ok]');
+          if (ok) {
+            ok.textContent = okLabel();
+            ok.disabled = picked.size === 0;
+          }
+        };
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('[data-cd-split]')) return finish({ split: true });
+          const step = e.target.closest('[data-cd-step]');
+          if (step) {
+            cursor = addMonths(cursor, Number(step.dataset.cdStep));
+            repaint();
+            return undefined;
+          }
+          const day = e.target.closest('[data-cd-day]');
+          if (day && !day.disabled) {
+            const d = day.dataset.cdDay;
+            if (picked.has(d)) picked.delete(d);
+            else picked.add(d);
+            repaint();
+            return undefined;
+          }
+          if (e.target.closest('[data-cd-ok]') && picked.size) {
+            return finish({ dates: [...picked].sort(), linked });
+          }
+          return undefined;
+        });
+        el.addEventListener('change', (e) => {
+          if (e.target.matches('[data-cd-linked]')) linked = e.target.checked;
+        });
+      },
+    });
+  });
+}
+
+/** 小月曆那一塊（翻頁、週列頭、格子、開關；連在一起的最上面多「拆開這一天」）。 */
+function copyDaysHtml({
+  cursor, today, own, taken, picked, linked, canSplit, done = false,
+}) {
+  const ym = cursor.slice(0, 7);
+  const weeks = monthWeeks(ym);
+  const cell = (c) => {
+    const isOwn = c.date === own;
+    const isTaken = taken.has(c.date);
+    const past = c.date < today;
+    const disabled = isOwn || isTaken || past;
+    const cls = [
+      'datepick__day', 'datepick__day--tap', 'num', 'copydays__day',
+      c.inMonth ? '' : 'is-out', c.date === today ? 'is-today' : '',
+      isOwn || isTaken ? 'is-there' : '',
+    ].filter(Boolean).join(' ');
+    return `<button class="${cls}" type="button" data-cd-day="${c.date}"
+              aria-pressed="${picked.has(c.date)}" ${disabled ? 'disabled' : ''}
+              aria-label="${esc(shortDate(c.date))}${isOwn ? '（這一筆）' : isTaken ? '（已經有了）' : ''}">${Number(c.date.slice(8))}</button>`;
+  };
+  return `
+    <div class="copydays">
+      ${canSplit ? `
+        <button class="copydays__split" type="button" data-cd-split>
+          ${icon('unlink', { size: 16 })}<span>拆開這一天${own ? `（${esc(shortDate(own))}）` : ''}</span>
+          <span class="copydays__splitnote">以後這一天自己勾</span>
+        </button>` : ''}
+      <div class="datepick__bar">
+        <button class="calbar__nav" type="button" data-cd-step="-1" aria-label="上個月">${icon('left', { size: 15 })}</button>
+        <span class="datepick__label num">${esc(titleOf('month', cursor, today))}</span>
+        <button class="calbar__nav" type="button" data-cd-step="1" aria-label="下個月">${icon('right', { size: 15 })}</button>
+      </div>
+      <div class="datepick__row datepick__row--head">
+        ${WEEKDAY_HEADERS.map((w) => `<span class="datepick__wd">${esc(w)}</span>`).join('')}
+      </div>
+      ${weeks.map((row) => `<div class="datepick__row">${row.map(cell).join('')}</div>`).join('')}
+      <label class="choice choice--row copydays__linked">
+        <input type="checkbox" data-cd-linked ${linked ? 'checked' : ''} />
+        <span>${done
+          // 已經勾掉的那一筆不拉進來（拉進來就是一組勾得不一樣，ADR-0179）—— 連在一起的是新的那幾天（R3）
+          ? '新的那幾天連在一起：勾一天，其他天一起勾（這一筆已經勾了，不算在裡面）'
+          : '連在一起：勾一天，其他天一起勾'}</span>
+      </label>
+    </div>`;
+}
+
+/**
+ * 掛給誰。一排丸子，跟 `wireWho()` 那一排長一樣 ——
+ * 同一件事在兩個地方長得不一樣，她會以為是兩種東西。
+ *
+ * @param {{also?: string}} [o] 連在一起的會一起改，講出來（`linkedWords().card`）
+ * @returns {Promise<{id, name}|null|undefined>}
+ *   物件 = 選了誰、null = 不掛人、**undefined = 她按了取消（什麼都不要做）**
+ */
+function askCustomer(loadCustomers, currentId, { also = '' } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let live = [];
+    const chipsFor = (q) => live.filter((c) => whoMatches(c, q)).map((c) => `
+      <button class="chip" type="button" data-who-pick="${esc(c.id)}"
+              data-who-name="${esc(c.name)}"
+              aria-pressed="${currentId === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
+      || '<span class="muted">找不到這個名字或病歷號。</span>';
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      closeCard();
+      resolve(v);
+    };
+
     const card = openCard({
       title: '掛給誰',
+      subtitle: also || '',
       body: '<p class="muted">讀取中…</p>',
       actions: `
         ${currentId ? '<button class="btn" type="button" data-who-none>✕ 不掛人</button>' : ''}
@@ -712,17 +1212,21 @@ function askCustomer(loadCustomers, currentId) {
           if (hit) finish({ id: hit.dataset.whoPick, name: hit.dataset.whoName });
           return undefined;
         });
+        // 最上面那一格搜尋（notes-widget 03）：只換底下那一排，搜尋框留著
+        el.addEventListener('input', (e) => {
+          if (!e.target.matches?.('[data-who-search]')) return;
+          const chips = el.querySelector('[data-who-chips]');
+          if (chips) chips.innerHTML = chipsFor(e.target.value);
+        });
       },
     });
 
     loadCustomers()
       .then((rows) => {
-        const live = (rows ?? []).filter((c) => c.active !== false);
+        // **這一份濾掉停用的**（`wireWho()` 那一份不濾）—— 照現狀各自保留（notes-widget 03 的「做完時留下的」）
+        live = (rows ?? []).filter((c) => c.active !== false);
         card.update(live.length
-          ? `<div class="chips">${live.map((c) => `
-              <button class="chip" type="button" data-who-pick="${esc(c.id)}"
-                      data-who-name="${esc(c.name)}"
-                      aria-pressed="${currentId === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')}</div>`
+          ? `${whoSearch('data-who-search')}<div class="chips" data-who-chips>${chipsFor('')}</div>`
           : '<p class="muted">還沒有客戶。</p>');
       })
       .catch(() => {
