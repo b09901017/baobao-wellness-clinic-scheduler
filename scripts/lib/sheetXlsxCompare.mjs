@@ -320,8 +320,11 @@ export function compareSheet(real, stub, { skip = new Set() } = {}) {
       const rf = r[kind] ?? DEFAULTS[kind];
       const sf = s[kind] ?? DEFAULTS[kind];
       if (same(rf, sf)) continue;
-      // 兩邊都空、替身沒下格式、匯出檔留著一個：以前畫在那裡的格式（`sheet.clear()` 清值不清數字格式，11/5 晚 staging 第四輪那一份）
-      if (kind === 'numberFormat' && rv === null && sv === null && sf === DEFAULTS.numberFormat) {
+      // 替身沒下格式、匯出檔留著一個，而且那一格兩邊都空、或兩邊是同一段字（文字格式）：以前畫在那裡的格式
+      //（`sheet.clear()` 清值不清數字格式 —— 11/5 晚 staging 第四輪那一份是空的格子；11/6 那一份是整塊往下搬之後，標題落在以前一行字的那一格、留著文字格式）。
+      // 字在文字格式裡長得一樣，看不出來；**替身那一格是數字**的照樣要查（數字被留著的文字格式吃掉會變成字）
+      const leftoverText = rf === '@' && typeof sv === 'string' && same(rv, sv);
+      if (kind === 'numberFormat' && sf === DEFAULTS.numberFormat && ((rv === null && sv === null) || leftoverText)) {
         add(info, 'numberFormat.leftover', ref, rf, sf);
       } else add(diffs, kind, ref, rf, sf);
     }
@@ -342,7 +345,8 @@ export function compareSheet(real, stub, { skip = new Set() } = {}) {
   for (const row of new Set([...real.heights.keys(), ...stub.heights.keys()])) {
     const rh = real.heights.get(row) ?? real.defaultHeight;
     const sh = stub.heights.get(row) ?? stub.defaultHeight;
-    // 比設下去的高：Google 會替沒合併、折行的格子自己長高（`setRowHeights()` 不是強制的）—— 高了算已知，矮了才要查
+    // 比設下去的高：高了算已知，矮了才要查。**高了不是 Google 自己長高**（11/6 staging 那一份查過：設過高度的列 Google 不會替折行的格子長高，
+    // 所以 `.gs` 要自己估高）—— 是上一次畫得比較長、這一次沒畫到的那幾列留著舊的高度（`clear()` 不動列高，這一次只設到最後一列）
     if (rh > sh + 1) add(info, 'rowHeight.grew', String(row), rh, sh);
     else if (rh < sh - 1) add(diffs, 'rowHeight', String(row), rh, sh);
   }

@@ -209,6 +209,22 @@ describe('一樣的說一樣、改一格說一格', () => {
     assert.deepEqual(compareBook(dump, snapshot).totals.diffs, { numberFormat: 1 });
   });
 
+  // 11/6 staging 那一份：記一句疊在日期底下之後下面整塊往下搬，47 格標題（「買過什麼」…）落在以前一行字的那一格、留著文字格式
+  test('替身沒下格式、匯出檔留著文字格式、兩邊同一段字 → 已知；替身那一格是數字的照樣要查', () => {
+    const dump = dumpLike(snapshot);
+    const sheet = sheetOf(dump, '客戶A');
+    const [title] = sheet.cells.find(([, c]) => c.v === '買過什麼');
+    cellOf(sheet, title).fmt = '@';
+    let out = compareBook(dump, snapshot);
+    assert.deepEqual(out.totals.diffs, {});
+    assert.equal(out.totals.info['numberFormat.leftover'], 1);
+
+    const [count] = sheet.cells.find(([, c]) => typeof c.v === 'number');
+    cellOf(sheet, count).fmt = '@';
+    out = compareBook(dump, snapshot);
+    assert.deepEqual(out.totals.diffs, { numberFormat: 1 }, '數字那一格留著文字格式：要查');
+  });
+
   test('一段短備註被 Google 認成數字 → value.number', () => {
     const bundle = structuredClone(BUNDLE);
     bundle.sheets[1].noteLines = [{ text: '0912345678', color: 'grey' }];
@@ -231,7 +247,7 @@ describe('一樣的說一樣、改一格說一格', () => {
     assert.deepEqual(compareBook(dump, snapshot).totals.diffs, { border: 1, 'sheet.gridlines': 1 });
   });
 
-  test('列高：矮了是要查的、高了是 Google 自己長高（已知）', () => {
+  test('列高：矮了是要查的、高了是上一次畫得比較長留下的（已知）', () => {
     const dump = dumpLike(snapshot);
     const sheet = sheetOf(dump, '王小明');
     sheet.heights = sheet.heights.map(([r, pt]) => {

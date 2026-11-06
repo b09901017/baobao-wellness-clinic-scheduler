@@ -409,6 +409,7 @@ subagent 過目 01（11/5），主控對過後改了：
 主控自己做（小，一支）：分支 `claude/sheet-slot-notes-below`（從 develop `a4315111`）。做法與數字在 issue 15 的「做完時留下的」，決定在 ADR-0177。
 `LAYOUT_VERSION` 6、只動 `.gs`（沒有動 `public/`，app 不用更新）。
 同一天她又說「就都不要有凍結，太割裂了」→ issue 16（ADR-0178）：列也不凍結，`LAYOUT_VERSION` 7，分支 `claude/sheet-no-freeze`。下面的步驟一次貼就兩件都有。
+她貼了版號 7、匯出驗過（issue 15 的「之二」）：折行的記一句只看得到第一行、顏色幾乎都淡紫 → 版號 8（分支 `claude/sheet-stack-row-heights`）：那幾列照字數加高、顏色照日期錯開。要再貼一次
 
 **她要照順序做的**（PR 合進 develop 之後）：
 1. 打開 **staging 那一份** Google 試算表 →「擴充功能」→「Apps Script」→「編輯器」→ 貼上 develop 的 `sheets/readonly-report.gs` → 儲存

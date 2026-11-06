@@ -44,7 +44,7 @@ var SUPPORTED_FORMAT = 8;
  * 所以記下來的指紋後面接著這個數字：**改了任何一頁的畫法就加一**，下一次推送每一頁都重畫。
  * 忘了加的話，沒變的那幾頁會一直停在舊的畫法（直到那一位的資料變了、或按「整份重畫」）。
  */
-var LAYOUT_VERSION = 7;
+var LAYOUT_VERSION = 8;
 /** 每一頁上次畫的指紋記在文件屬性裡，鍵是「fp:分頁名」。分頁刪掉、改名，鍵就對不到 → 重畫。 */
 var FP_PREFIX = 'fp:';
 /**
@@ -144,7 +144,8 @@ var MARK_TINT = {
 
 /**
  * 記一句疊在日期底下那幾格的底色（issues/15）：她 11/6「附註的那一個可以用舒服的顏色填滿，你就隨機填顏色就好」。
- * **照畫的順序輪流**（一欄一欄、由上往下），不是真的隨機：上下挨著的不同色，同一份資料每次畫出來都一樣（指紋才有意義）。
+ * **照「第幾個日期＋疊在第幾格」錯開**（`(日期 + 格) % 5`），不是真的隨機：上下、左右挨著的不同色，同一份資料每次畫出來都一樣（指紋才有意義）。
+ * 一開始是每一頁從第一色輪起 —— 大部分頁只有一兩句，11/6 staging 那一份 25 句裡 17 句同一色，看起來不像她說的「隨機」。
  * Google 試算表「淺色 2」那一排裡挑的；**避開狀態色**（綠、黃、淡藍、灰、紅，`COLOR`）—— 疊在日期那一欄底下，同色會被看成那一天的狀態。
  */
 var NOTE_FILLS = [
@@ -761,7 +762,8 @@ function renderCustomer(ss, data, bundle, book) {
   sheet.getRange(MATRIX_HEADER_ROW, COL.SPACER, rows.length + 1, 1).setBackground(COLOR.spacer);
 
   var after = MATRIX_HEADER_ROW + Math.max(rows.length, 1) + 1;
-  after = renderBelowDates(sheet, below, after);
+  var stack = renderBelowDates(sheet, below, after);
+  after = stack.next;
   after = renderPurchases(sheet, data, after, width);
   after = renderProducts(sheet, data, after, width);
   after = renderNotes(sheet, data, after + 1, width);
@@ -781,6 +783,9 @@ function renderCustomer(ss, data, bundle, book) {
   finish(sheet, MATRIX_HEADER_ROW, rows.length, head.length, width);
   // 名字那一列加高（18 號字）。折行的那幾列 `finish()` 已經照字數加高了
   sheet.setRowHeights(2, 1, STYLE.titleHeight);
+  // 疊在日期底下、要折行的那幾列照字數加高：**設過高度的列 Google 不會自己長高**（11/6 staging 匯出檔：18 句只看得到第一行）。
+  // 那幾列沒有合併，`finish()` 的 `fitRows()` 管不到，所以在這裡另外加
+  for (var sr = 0; sr < stack.heights.length; sr++) sheet.setRowHeights(stack.heights[sr][0], 1, stack.heights[sr][1]);
   clockAdd('排版', t, false);
   paint(entry.sheet, sheet);
   return name;
@@ -910,26 +915,32 @@ function depthOf(cols) {
 }
 
 /**
- * 把 `belowByDate()` 疊好的畫上去，回下一塊從哪一列接。
+ * 把 `belowByDate()` 疊好的畫上去。回 `{ next, heights }`：下一塊從哪一列接、要加高的那幾列（`[列, 高]`，`finish()` 之後套）。
  * 每一格先下文字格式（`@`）：一句「10/15」不能被 Google 認成日期（同待辦的日期，issues/08）。
- * 記一句塗 `NOTE_FILLS` 輪流的顏色、置中；二返註記照舊小字、字色、不塗底。
+ * 記一句塗 `NOTE_FILLS[(日期 + 格) % 5]`、置中、10 號；二返註記照舊 9 號小字、字色、不塗底。
+ * 高度照字數估（`rowHeightFor()`，日期欄 `STYLE.dateWidth` 寬），一列取最高的那一格；沒超過 `STYLE.rowHeight` 的不列。
  */
 function renderBelowDates(sheet, cols, top) {
-  var fill = 0;
+  var tallest = {};
   for (var d = 0; d < cols.length; d++) {
     for (var k = 0; k < cols[d].length; k++) {
       var one = cols[d][k];
+      var size = one.followup ? 9 : 10;
       var cell = sheet.getRange(top + k, COL.FIRST_DATE + d).setNumberFormat('@').setValue(one.text)
         .setVerticalAlignment('middle').setWrap(true);
       if (one.followup) {
-        cell.setFontSize(9).setFontColor(COLOR.noticeText);
+        cell.setFontSize(size).setFontColor(COLOR.noticeText);
       } else {
-        cell.setFontSize(10).setHorizontalAlignment('center').setBackground(NOTE_FILLS[fill % NOTE_FILLS.length]);
-        fill += 1;
+        cell.setFontSize(size).setHorizontalAlignment('center').setBackground(NOTE_FILLS[(d + k) % NOTE_FILLS.length]);
       }
+      var h = rowHeightFor(one.text, STYLE.dateWidth, size);
+      if (h > STYLE.rowHeight && h > (tallest[top + k] || 0)) tallest[top + k] = h;
     }
   }
-  return top + depthOf(cols);
+  var heights = [];
+  for (var row in tallest) heights.push([Number(row), tallest[row]]);
+  heights.sort(function (a, b) { return a[0] - b[0]; });
+  return { next: top + depthOf(cols), heights: heights };
 }
 
 /**
