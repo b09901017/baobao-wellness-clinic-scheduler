@@ -14,7 +14,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 設計 | grilling 四輪、spec、issue 01–09、subagent 過目 | xhigh | **做完**（11/6） |
 | 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 `c86ed1e8`、合 develop `696826bc`；已推） |
 | 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | **做完**（11/6）：02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`、app.css 換回 LF `b4249786`、01 `0bd3750f`（ADR-0181）；CI 全量到 10 是 6/6 綠，到 01 的那一次推完才跑 |
-| 三 | `/matt-code-review` 審網頁那一半（01–05） | xhigh | |
+| 三 | `/matt-code-review` 審網頁那一半（01–05、10） | xhigh | **做完**（11/6）：`REVIEW.md` 六條（R1 打字時泡泡還站在鍵盤上面〔要實機看〕、R2 「作用在幾天」三個數字、R3 從已勾掉的複製、R4 資料健檢日子排序、R5 連動表、R6 小的）；**沒有會寫錯資料的、沒有要她決定的** |
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | |
 | 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：SDK 授權條款、Firebase 主控台登記**） | xhigh | |
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | |
@@ -103,18 +103,55 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
    **跑種子／`allowUser` 要帶 `E2E_WORKERS=1`**（settings 的 `E2E_WORKERS=2` 會寫到別組模擬器）
 5. 2 個 worker 下 `01` 的 J-E10、`91` 的 N4 各紅過一次（`signIn` 的 `waitForFunction` 20 秒逾時），單獨重跑都綠 —— 跟這一輪無關，記著
 
+### 段三
+
+審查的結果全部在 `REVIEW.md`（R1～R6、查過不成立的、段四手動驗收清單一定要有的）。範圍外的一件：
+
+1. **沒有日期的隨手記，改文字／掛給誰／改日期／複製到別天只有長按一條路**（ADR-0060 要每一顆另有一條點得到的路）：有日期的走日曆那張待辦卡，沒日期的不上日曆。
+   改文字、掛給誰在這一輪之前就是這樣（舊缺口），這一輪多了「複製到別天」。標題旁的 `?` 講了長按做得到什麼。**不在這一輪修**，記進記憶的 backlog（第 24 條）
+
 ## 要她決定的
 
 - **段二沒有要問的**（中途發現 1–5 都不用她決定）
+- **段三沒有要問的**：`REVIEW.md` 六條都照建議修（R1 收起泡泡是 ADR-0181 收導覽列同一個理由；R3 的冪等是寫法、不是她的選擇）
 
 1. ~~長按選單~~ → 她 11/6 回了（她已經決定的）
 3. ~~段一的兩件~~ → 她 11/6 回「照建議」（她已經決定的）
-2. **段二開頭**：請她把 HTC 開「USB 偵錯」接筆電（設定 → 關於手機 → 軟體資訊 → 連點「版本號碼」七下 → 開發人員選項 → USB 偵錯；接上時手機問「允許 USB 偵錯嗎」按允許）
+2. ~~**段二開頭**：請她把 HTC 開「USB 偵錯」接筆電~~ → 段二接好了（中途發現 → 段二 4）
 - ~~樣子定稿~~：主控 11/6 畫好（`mockups/final-1～3.png`、`final-mockups.html`），她回了麥克風與深色（她已經決定的）；選單那一張（final-3 的 6）照重排之後的為準
 - **在 app 記的，多久出現在小工具上**（擋段六）：主控 11/6 問她（建議：自己記的馬上；在 app 記的，打開小工具的輸入卡時、或最多 15 分鐘更新一次；要即時就加一支 Cloud Function 推通知，之後再說）
 - **段五開頭**：~~接受 Android SDK 授權條款~~（她 11/6 同意了）；在 Firebase 主控台替 staging／正式站登記 Android app
 
 ## 每一段的開場
+
+### 段四（effort：high）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具（後面幾段）。
+你是段四：照 `.scratch/notes-widget/REVIEW.md` 修網頁那一半（R1～R6），寫手動驗收清單（本機模擬器真的走過）、開 PR 進 develop、CI 全綠就合併，請她在 staging 主畫面那一顆點。不做 06–09。
+
+在 worktree `.claude/worktrees/notes-widget`（分支 `claude/notes-widget`，已推；最新的是段三的審查 commit）。
+先讀：`.scratch/notes-widget/REVIEW.md` 全部（每一條：在哪裡、什麼情境會錯、建議、紅燈測試；最後一節「段四的手動驗收清單一定要有的」）；
+`.scratch/notes-widget/HANDOFF.md` 的「每一段共同的規矩」「她已經決定的」「中途發現」；`.scratch/notes-widget/spec.md`；issue 01–05、10 的「做完時留下的」；
+ADR-0179、ADR-0181；`CLAUDE.md`；`docs/agents/lessons.md`（一、五、十一、十三）。
+建議的順序：R2、R3（domain 的純函式＋紅燈測試）→ R1（CSS 一行＋E2E `100` 加一支）→ R4 → R5（`CLAUDE.md` 連動表；ADR-0181、ADR-0179 還在這一支 PR 裡、直接改那一句）→ R6。
+每一條修完在 REVIEW.md 那一條標題底下寫「**段四：修了** —— <commit>（一句怎麼修的）」（樣子照 `.scratch/abovee-confirm-glance/REVIEW.md`）；不修的寫理由。
+
+規矩（HANDOFF 有全文）：動工前 `git fetch`，落後 `origin/develop` 就 `git merge origin/develop`（不要 rebase）。改既有的函式、畫面上的字之前照 `ripple-check` 查牽連
+（這個 worktree 的 CodeGraph，`codegraph sync` 後再查，跟 grep 對一次）；修完找同一個形狀的地方。中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段四」、段末一次問她。同時最多兩個 subagent。
+一條一個 commit：紅燈 → 綠 → `npm run verify` → commit。`public/` 有動照規定升 `sw.js` 的 VERSION（段二停在 v307；先看 `origin/develop` 有沒有更大的，同一支 PR 第二次動再加一）並 `npm run shell:snapshot`；新檔案、新 spec 進 `SHELL` 與 `tests-e2e/related.js`。
+模擬器同一時間只能一組（所有 worktree 共用 port），起之前先看 port；`E2E_WORKERS=2`，模擬器與 E2E 帶同一個值。全量 E2E 交 CI（`gh workflow run e2e-full.yml --ref claude/notes-widget`）。
+用 python 改檔一律 `newline='\n'`，commit 之後 `git ls-files --eol` 看是 `i/lf`（lessons 十一：03 把 app.css 整份寫成 CRLF 過）。
+
+手動驗收清單：照 `CLAUDE.md`「交付時條列一份她可以照順序點的手動驗收清單」—— 她照順序點的路（`首頁 → 隨手記那張卡 → …`），**寫的人要在本機模擬器真的走過**（會寫入的在模擬器走，不在 staging）；
+鍵盤、注音那幾條只有 HTC／三星主畫面那一顆點得出來，標明「staging 部署之後、在主畫面那一顆點」。清單放 PR 內文（一個真名都不帶）。
+PR：基底 `develop`；推之前看一眼 commit 訊息與 PR 內文沒有真名、`node --test tests/no-secrets.test.js` skipped 0；`gh pr checks` 每一條都綠才合（lessons 十三：不只全量 E2E 那一條）；合完 staging 自動部署。**進 main 要她另外說。**
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：每一條一個 commit 並推上去、REVIEW.md 每一條的「段四：」、HANDOFF 更新（分段表、中途發現、要她決定的）、PR 連結與合併 commit、
+段五的開場與 effort（06，xhigh；**開頭先問她在 Firebase 主控台替 staging／正式站登記 Android app**；段五從新的 `origin/develop` 開 `claude/notes-widget-android`，同一個 worktree）寫進 HANDOFF「每一段的開場」；最後回覆簡短說修了什麼、PR、卡在哪。
+```
 
 ### 段一（effort：xhigh）
 
