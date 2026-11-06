@@ -1414,6 +1414,7 @@ function mountNoteEditor(el, data, sheet, spec) {
                value="${esc(existing?.text ?? '')}"
                placeholder="例：幫王小明問週六有沒有位子" />
       </label>
+      ${note.suggestRow()}
       ${/* 三排各自是一個欄位，節奏跟上面那個「記什麼」一樣 ——
              以前它們裸放而且中間一點間距都沒有，「營養品」和「掛給誰」
              會擠在一起（她的原話）。`.notemeta` 是那四個入口共用的外框。 */''}

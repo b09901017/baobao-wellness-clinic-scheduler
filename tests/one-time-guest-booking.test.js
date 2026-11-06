@@ -119,7 +119,8 @@ describe('入口接對了沒（掃原始碼）', () => {
     assert.match(body(calendar, 'function pickCustomer('), /isOneTime\(c\)/);
     assert.match(read('public/js/ui/views/bulkCancel.js'), /isOneTime\(c\) \? ' <span class="guestmark">一次性<\/span>'/);
     const note = read('public/js/ui/components/note.js');
-    assert.equal((note.match(/\$\{guestTag\(c\)\}/g) ?? []).length, 2);
+    // 掛給誰那一排、長按的「改掛給誰」、打名字跳出客戶那一排（notes-widget 03）
+    assert.equal((note.match(/\$\{guestTag\(c\)\}/g) ?? []).length, 3);
   });
 
   test('「約二返」：一次性客人去日曆新增（leaveFor），日曆那一頁接（takeFor）', () => {

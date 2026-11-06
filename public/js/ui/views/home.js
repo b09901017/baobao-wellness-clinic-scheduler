@@ -1574,6 +1574,7 @@ function notesCard(notes) {
                  placeholder="記一筆…" aria-label="新的隨手記" />
           <button class="btn btn--primary" type="submit">記</button>
         </div>
+        ${note.suggestRow()}
         ${/* 今天／挑日期／掛給誰／給營養品排一排（notes-widget 02：她 11/6 要首頁這一格也有給營養品，
                一排放得下就不撐長 —— 當初不放是怕多一排）。包住掛給誰的那一層選了一包時收起來 */''}
         <div class="notemeta">
@@ -1652,6 +1653,7 @@ function quickBody() {
     <input type="text" data-quicktext maxlength="${NOTE_TEXT_MAX}"
            placeholder="例：指定 LuLu，不要排騰崴" aria-label="記什麼"
            enterkeyhint="done" autocomplete="off" style="width: 100%" />
+    ${note.suggestRow()}
 
     <div class="notemeta">
       ${note.field()}

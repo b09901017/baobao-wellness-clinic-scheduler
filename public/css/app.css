@@ -7752,6 +7752,27 @@ summary {
   margin-top: var(--space-1);
 }
 
+/* 「掛給誰」名單最上面那一格搜尋（notes-widget 03）。名單點開才長出來，所以它也是 */
+.notewho__search {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+/* 打名字就跳出客戶（notes-widget 03）：輸入框底下、丸子那一排上面。沒有符合的不佔位置（`hidden`）。
+   最多 6 位，換行不橫捲 —— 橫捲會把丸子撐開觸控區的那 5px 裁掉 */
+.notesuggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* 跳出來的是「建議」，不是那一排的選項：綠框綠字，跟底下四顆分得出來（字色用 `--accent`，不是綠底上的字那一個） */
+.notesuggest .chip {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* 包在一個有標籤的欄位裡時（日曆的待辦編輯器），上邊界由 `.field` 給 ——
    標籤跟它底下的控制項之間本來就只該隔 3px，再加 12px 會斷成兩塊。 */
 .field > .notemeta {

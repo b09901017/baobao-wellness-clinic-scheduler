@@ -795,7 +795,7 @@ export const CSS_SCOPES = {
   notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
   // 記一筆那一排（notes-widget 02）：今天／挑日期／掛給誰／給營養品排一排的那一層與兩塊選填的丸子
   notemeta: {
-    classes: ['notemeta', 'notewho', 'notegive'],
+    classes: ['notemeta', 'notewho', 'notegive', 'notesuggest'],
     owners: [
       'public/js/ui/components/note.js', 'public/js/ui/views/home.js',
       'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',

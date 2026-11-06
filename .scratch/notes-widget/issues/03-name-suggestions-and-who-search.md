@@ -1,6 +1,6 @@
 # 03：打名字就跳出客戶（點了自動掛給他）、「掛給誰」可以搜尋
 
-Status: todo
+Status: done
 Blocked by: 02（同一批檔案；丸子那一排的版面先定）
 
 ## 動工前先讀
@@ -48,4 +48,28 @@ Blocked by: 02（同一批檔案；丸子那一排的版面先定）
 
 ## 做完時留下的
 
-（做完補）
+段二（2026-11-06）。單元 `tests/notes-name-suggestions.test.js`（情境表 `CASES`，**06 建共用情境檔時從這裡搬**）、E2E `98-note-capture-row` 的 S1–S7。sw.js v304。
+
+**純函式（Kotlin 08 照抄）**：`domain/customers.js` 的 `nameSuggestions(text, caret, customers, { currentId, limit = 6 })` → `{ from, to, matches }`
+- 游標前面那一段：往前到**空白、標點、符號**為止（`/[\s\p{P}\p{S}]/u`，全形逗號、括號都算）
+- 那一段裡**最長的、是某一位名字開頭的尾巴**（照字元從最左邊往右試，第一個有人的就是）；比法 `normalizeAlias()`（同 `nameHas()`），但是 **`startsWith` 不是 `includes`**
+- `matches`：全名完全一樣的排第一、再照 `localeCompare(…, 'zh-Hant')`；刪掉的不列；最多 6 位
+- 那一段的全名就是 `currentId` 那一位 → 回空的（點過了接著打字不再跳）
+- `from`／`to` 是 UTF-16 的位置（跟 `selectionStart` 同一種），換成全名就是 `text.slice(0, from) + 名字 + text.slice(to)`
+
+**畫面**（`note.js`）：
+- `note.suggestRow()` 放在輸入框底下、丸子那一排上面（首頁那張卡、泡泡、日曆待辦編輯器三處）；接線在 `wireCapture()` 裡的 `wireSuggest()`，客戶詳情沒有那一排（不會跳）
+- 注音：`compositionstart` 收起來、`compositionend` 再找一次、`input` 帶 `isComposing` 的不找；失焦收起來
+- 點一位：`pointerdown`／`mousedown` 擋掉預設（框不失焦＝鍵盤不收），換字、游標放在全名後面、`whom.set(c)`
+- 選了一包營養品：一打字就收（在等名單之前就收）、點了也不掛
+- 跳出來的丸子是綠框綠字（`.notesuggest .chip`），跟底下四顆分得出來；一次性客人標「一次性」
+- 名單：`wireCapture()` 裡「掛給誰」與跳出客戶**共用一次讀取**（讀不到下次再讀）。**打字就會讀一次客戶名單**（以前只有點開「掛給誰」才讀）—— 一次、之後用同一份
+
+**「掛給誰」搜尋**：兩份名單最上面一格 `input[type=search]`（`[data-nw-search]`／長按那一張 `[data-who-search]`），名字 `nameHas()` 或病歷號 `chartNoHas()` 一格一格問；只換底下那一排（`[data-nw-chips]`／`[data-who-chips]`），搜尋框留著。
+首頁那張卡的搜尋框在 `<form>` 裡：Enter 擋掉（不送出隨手記），剛好剩一位就選他。沒有客戶時不畫搜尋框。
+
+**兩份名單照現狀各自保留**：長按的「改掛給誰」（`askCustomer()`）濾掉停用的客戶，記一筆那一排（`wireWho()`）不濾 —— 沒統一（spec「列的人＝掛給誰的名單」講的是跳出客戶那一排用 `wireWho()` 那一份，照做）。
+
+`tests/one-time-guest-booking.test.js` 數 `note.js` 裡 `${guestTag(c)}` 的次數，從 2 改成 3（跳出客戶那一排也標一次性）。
+
+**實機才驗得到的**：注音（真的 Gboard／三星鍵盤）組字中不跳、點了丸子鍵盤不收 —— E2E 用假的 composition 事件與桌機 Chromium 量的，列進手動驗收清單（她在 HTC 上點）。

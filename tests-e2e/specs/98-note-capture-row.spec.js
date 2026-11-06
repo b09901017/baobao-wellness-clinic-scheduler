@@ -4,7 +4,7 @@
 // 三個有「掛給誰」的入口共用 `ui/components/note.js` 的 `wireCapture()`：首頁那張卡、右下角泡泡、日曆的待辦編輯器。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, scenarioProducts } from '../fixtures/data.js';
+import { masterDocs, customer, note, scenarioProducts } from '../fixtures/data.js';
 
 const CHIPS = ['[data-nd-today]', '[data-nd-pick]', '[data-nw-toggle]', '[data-ng-toggle]'];
 
@@ -67,4 +67,161 @@ test('C4 長按提示收在 `?` 裡：首頁那張卡與隨手記那一頁的標
 
   await app.go('/todo/notes');
   await expect(page.locator('.page__title [data-tip]')).toHaveAttribute('data-tip', /長按/);
+});
+
+// ---------- 03：打名字就跳出客戶、「掛給誰」可以搜尋 ----------
+
+const PEOPLE = () => [
+  ...masterDocs(),
+  customer({ id: 'wxm', name: '王小明', chartNo: '1234' }),
+  customer({ id: 'wdt', name: '王大同' }),
+  customer({ id: 'lw', name: '李王' }),
+  customer({ id: 'cb', name: '客戶B' }),
+];
+
+/** 打開泡泡「記一筆」、等抽屜滑完。 */
+async function openQuick(page) {
+  await page.locator('[data-quick]').click();
+  const drawer = page.locator('.drawer');
+  await expect(drawer.locator('[data-quicktext]')).toBeVisible();
+  await drawer.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))));
+  return drawer;
+}
+
+const focused = (loc) => loc.evaluate((el) => document.activeElement === el);
+
+test('S1 泡泡打「請王」：只跳出名字開頭是王的；點王小明 → 框裡換成全名、游標在後面、框還聚焦、掛給他', async ({ app, page }) => {
+  await app.seed(PEOPLE());
+  await app.signIn('/');
+  const drawer = await openQuick(page);
+  const input = drawer.locator('[data-quicktext]');
+  await input.fill('請王');
+
+  const row = drawer.locator('[data-nsuggest]');
+  await expect(row.locator('[data-ns-pick]')).toHaveText(['王大同', '王小明']);
+  await row.locator('[data-ns-pick="wxm"]').click();
+
+  await expect(input).toHaveValue('請王小明');
+  expect(await focused(input), '框還聚焦（鍵盤不收）').toBe(true);
+  expect(await input.evaluate((el) => el.selectionStart)).toBe(4);
+  await expect(row).toBeHidden();
+  await expect(drawer.locator('[data-nw-label]')).toHaveText('王小明');
+
+  await input.press('End');
+  await input.pressSequentially('回電');
+  await expect(row, '已經是現在掛的那一位的全名：接著打字不再跳').toBeHidden();
+  await drawer.locator('[data-save]').click();
+  await app.saved();
+  const saved = (await app.readAll('notes')).find((n) => n.text === '請王小明回電');
+  expect(saved?.customerId).toBe('wxm');
+});
+
+test('S2 注音選字中不跳，選好字才找', async ({ app, page }) => {
+  await app.seed(PEOPLE());
+  await app.signIn('/');
+  const drawer = await openQuick(page);
+  const input = drawer.locator('[data-quicktext]');
+  await input.focus();
+  await input.evaluate((el) => {
+    el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    el.value = '王';
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: '王' }));
+  });
+  const row = drawer.locator('[data-nsuggest]');
+  await expect(drawer.locator('[data-quicktext]')).toHaveValue('王');
+  await expect(row, '組字中不跳').toBeHidden();
+  await input.evaluate((el) => el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '王' })));
+  await expect(row.locator('[data-ns-pick]')).toHaveCount(2);
+});
+
+test('S3 已經掛給王小明又點客戶B → 改掛客戶B；把框裡的名字刪掉，掛給誰不自動拿掉', async ({ app, page }) => {
+  await app.seed(PEOPLE());
+  await app.signIn('/');
+  const form = page.locator('[data-newnote]');
+  const input = form.locator('input[name="text"]');
+  await input.fill('王小');
+  await form.locator('[data-ns-pick="wxm"]').click();
+  await expect(form.locator('[data-nw-label]')).toHaveText('王小明');
+
+  await input.press('End');
+  await input.pressSequentially('跟客戶');
+  await form.locator('[data-ns-pick="cb"]').click();
+  await expect(input).toHaveValue('王小明跟客戶B');
+  await expect(form.locator('[data-nw-label]')).toHaveText('客戶B');
+
+  await input.fill('王小明跟');
+  await expect(form.locator('[data-nw-label]'), '名字從框裡刪掉 → 照舊掛客戶B').toHaveText('客戶B');
+});
+
+test('S4 「掛給誰」的名單可以搜尋：名字或病歷號；Enter 不送出、剛好一位就選他', async ({ app, page }) => {
+  await app.seed(PEOPLE());
+  await app.signIn('/');
+  const form = page.locator('[data-newnote]');
+  await form.locator('[data-nw-toggle]').click();
+  const search = form.locator('[data-nw-search]');
+  await expect(form.locator('[data-nw-pick]')).toHaveCount(4);
+
+  await search.fill('大同');
+  await expect(form.locator('[data-nw-pick]')).toHaveText(['王大同']);
+  await search.fill('1234');
+  await expect(form.locator('[data-nw-pick]')).toHaveText(['王小明']);
+  await search.press('Enter');
+  await expect(form.locator('[data-nw-label]')).toHaveText('王小明');
+  expect((await app.readAll('notes')).length, 'Enter 沒有把隨手記送出去').toBe(0);
+});
+
+test('S5 長按的「改掛給誰」也可以搜尋', async ({ app, page }) => {
+  await app.seed([...PEOPLE(), note({ id: 'n1', text: '回電' })]);
+  await app.signIn('/');
+  const target = page.locator('[data-notes] [data-note="n1"]');
+  await expect(target).toBeVisible();
+  const box = await target.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(page.locator('.actionrow').first()).toBeVisible({ timeout: 5_000 });
+  await page.mouse.up();
+  await page.locator('[data-action="who"]').click();
+
+  const card = page.locator('.popcard');
+  await card.locator('[data-who-search]').fill('李');
+  await expect(card.locator('[data-who-pick]')).toHaveText(['李王']);
+  await card.locator('[data-who-pick="lw"]').click();
+  await app.saved();
+  expect((await app.readAll('notes')).find((n) => n.id === 'n1')?.customerId).toBe('lw');
+});
+
+test('S6 選了一包營養品：打名字不跳出客戶', async ({ app, page }) => {
+  await app.seed([...scenarioProducts(), customer({ id: 'wxm', name: '王小明' })]);
+  await app.signIn('/');
+  const drawer = await openQuick(page);
+  const input0 = drawer.locator('[data-quicktext]');
+  await input0.fill('王');
+  await expect(drawer.locator('[data-ns-pick]'), '對照：沒選一包時打「王」會跳').toHaveCount(1);
+  await drawer.locator('[data-ng-toggle]').click();
+  await drawer.locator('[data-ng-cust="cust-c"]').click();
+  await drawer.locator('[data-ng-bag="ent-c-prod"]').click();
+  const input = drawer.locator('[data-quicktext]');
+  await input.focus();
+  await input.press('End');
+  await input.pressSequentially('王');
+  // 選了一包時一打字就收（不等名單讀回來）—— 這裡量的不是「還沒畫出來」
+  await expect(drawer.locator('[data-nsuggest]')).toBeHidden();
+});
+
+test('S7 日曆的待辦編輯器也有；客戶詳情那一格沒有', async ({ app, page }) => {
+  await app.seed(PEOPLE());
+  await app.signIn('/calendar');
+  await page.locator('[data-fab]').click();
+  await page.locator('[data-new-note]').click();
+  await app.layer('[data-noteform]');
+  const form = page.locator('[data-noteform]');
+  await form.locator('input[name="text"]').fill('問王大');
+  await form.locator('[data-ns-pick="wdt"]').click();
+  await expect(form.locator('input[name="text"]')).toHaveValue('問王大同');
+  await form.locator('button[type="submit"]').click();
+  await app.saved();
+  expect((await app.readAll('notes')).find((n) => n.text === '問王大同')?.customerId).toBe('wdt');
+
+  await app.go('/customers/wxm');
+  await expect(page.locator('[data-nsuggest]')).toHaveCount(0);
 });

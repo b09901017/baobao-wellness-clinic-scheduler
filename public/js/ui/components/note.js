@@ -23,7 +23,9 @@
 // **預設是沒有日期。** 泡泡那一支的標準是「三秒內記完」
 //（`domain/notes.js` 的檔頭），多一個必填欄位就毀了它。
 
-import { isOneTime } from '../../domain/customers.js';
+import {
+  isOneTime, nameHas, chartNoHas, nameSuggestions,
+} from '../../domain/customers.js';
 import { esc } from './form.js';
 import { icon } from '../icons.js';
 import { shortDate, todayISO, addMonths } from '../../domain/dates.js';
@@ -42,6 +44,15 @@ import { confirmAction } from './dialog.js';
  * 長按有哪幾顆照 `domain/notes.js` 的 `noteActions()` —— 那邊改了這一句要跟著改。
  */
 export const LONGPRESS_TIP = '點一下勾掉；長按可以改日期、改字、掛給誰、複製到別天';
+
+/**
+ * 「掛給誰」那兩份名單上面那一格搜尋（notes-widget 03）：名字（`nameHas()`）或病歷號（`chartNoHas()`）。
+ * **一格一格問，不要接成一串再比**（`CLAUDE.md`「打字找客戶的框」）。沒打字＝每一位都列。
+ */
+const whoMatches = (c, q) => !String(q ?? '').trim() || nameHas(c?.name, q) || chartNoHas(c, q);
+
+const whoSearch = (attr) => `<input type="search" class="notewho__search" ${attr}
+  placeholder="找名字或病歷號" aria-label="找客戶" autocomplete="off" enterkeyhint="search" />`;
 
 /** 隨手記「掛給誰」那兩排：一次性客人名字後面一小格「一次性」（ADR-0172 第 5 題：找人的框也標）。 */
 const guestTag = (c) => (isOneTime(c) ? ' <span class="guestmark">一次性</span>' : '');
@@ -262,14 +273,33 @@ export function wireWho(root, { load }) {
         return;
       }
     }
-    list.innerHTML = `
-      <div class="chips">
-        ${customers.map((c) => `
-          <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
-                  aria-pressed="${idIn.value === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
-        || '<span class="muted">還沒有客戶。</span>'}
-      </div>`;
+    if (!customers.length) {
+      list.innerHTML = '<span class="muted">還沒有客戶。</span>';
+      return;
+    }
+    // 最上面一格搜尋（notes-widget 03）：一邊打一邊只換底下那一排，搜尋框留著（鍵盤不收）
+    list.innerHTML = `${whoSearch('data-nw-search')}<div class="chips" data-nw-chips>${chipsFor('')}</div>`;
   };
+
+  const shownFor = (q) => (customers ?? []).filter((c) => whoMatches(c, q));
+  const chipsFor = (q) => shownFor(q).map((c) => `
+    <button class="chip chip--sm" type="button" data-nw-pick="${esc(c.id)}"
+            aria-pressed="${idIn.value === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
+    || '<span class="muted">找不到這個名字或病歷號。</span>';
+
+  box.addEventListener('input', (e) => {
+    if (!e.target.matches?.('[data-nw-search]')) return;
+    const chips = box.querySelector('[data-nw-chips]');
+    if (chips) chips.innerHTML = chipsFor(e.target.value);
+  });
+
+  // 搜尋框在首頁那一格的 <form> 裡：Enter 不可以把隨手記送出去。剛好剩一位就是選他
+  box.addEventListener('keydown', (e) => {
+    if (!e.target.matches?.('[data-nw-search]') || e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    const shown = shownFor(e.target.value);
+    if (shown.length === 1) set(shown[0]);
+  });
 
   box.addEventListener('click', (e) => {
     if (e.target.closest('[data-nw-clear]')) return set(null);
@@ -292,6 +322,14 @@ export function wireWho(root, { load }) {
 // 首頁那張卡、右下角泡泡、日曆的待辦編輯器（2026-11-06 notes-widget 02）。以前三處各接一次
 // `wire()`／`wireWho()`／`wireGive()`，「選了一包就把掛給誰收起來、字自動填」各寫一份 ——
 // 首頁那一格當初就是少接了給營養品。客戶詳情那一格只有日期（固定掛那一位），不走這一支。
+
+/**
+ * 打名字就跳出客戶的那一排（notes-widget 03）。放在**輸入框底下、丸子那一排上面**（鍵盤跳出來時它貼著輸入框）；
+ * 沒有符合的不佔位置。接線在 `wireCapture()`。
+ */
+export function suggestRow() {
+  return '<div class="notesuggest" data-nsuggest hidden aria-label="符合的客戶"></div>';
+}
 
 /**
  * 那一排現在選了什麼：日期、掛給誰；**選了一包營養品時掛的人與 `entitlementId` 由那一包決定**
@@ -323,8 +361,18 @@ export function readCapture(root) {
 export function wireCapture(root, {
   input = () => null, whoBox = () => null, loadCustomers, loadBags = null,
 } = {}) {
+  // 「掛給誰」的名單與打名字跳出客戶讀同一份（spec：列的人＝掛給誰的名單），只讀一次；讀不到下次再讀
+  let pending = null;
+  const customers = () => {
+    pending ??= Promise.resolve().then(loadCustomers).catch((err) => {
+      pending = null;
+      throw err;
+    });
+    return pending;
+  };
   const when = wire(root);
-  const whom = wireWho(root, { load: loadCustomers });
+  const whom = wireWho(root, { load: customers });
+  const suggest = wireSuggest(root, { input, customers });
   const bag = wireGive(root, {
     load: loadBags ?? (async () => []),
     onPick: (picked) => {
@@ -332,16 +380,108 @@ export function wireCapture(root, {
       if (box) box.hidden = Boolean(picked);
       const el = input();
       if (picked && el) el.value = picked.text;
+      if (picked) suggest.hide();
     },
   });
+  suggest.onPick((c) => whom.set(c));
   return {
     read: () => readCapture(root),
     reset: () => {
       when.set(null);
       whom.set(null);
       bag.set(null);
+      suggest.hide();
     },
   };
+}
+
+/**
+ * 打名字就跳出客戶（notes-widget 03）。她 11/6：「我打王 下面就跳出王小明，然後我點了之後，
+ * 輸入框直接跳出王小明我只要在打回電就好，如果我點了就也順便幫我掛給他」。
+ *
+ * - 找哪一段、列誰只問 `domain/customers.js` 的 `nameSuggestions()`（名字**開頭**，不是包含）
+ * - **注音選字中不找**（`compositionstart`～`compositionend`；`input` 事件的 `isComposing`）：一排名字會蓋住選字列
+ * - 點一位：那一段換成全名、游標接在後面、**框不失焦**（`pointerdown`／`mousedown` 擋掉預設 —— 失焦就是鍵盤收起來）、
+ *   掛給他（已經掛給別人就換成他；名字從框裡刪掉不自動拿掉，按「✕ 不掛了」）
+ * - **選了一包營養品時不出現**：那一包已經決定是誰
+ */
+function wireSuggest(root, { input, customers }) {
+  const row = root?.querySelector('[data-nsuggest]');
+  const el = input();
+  let picked = () => {};
+  const api = { hide: () => {}, onPick: (fn) => { picked = fn; } };
+  if (!row || !el) return api;
+  let shown = null;
+  let composing = false;
+  let asked = 0;
+
+  const hide = () => {
+    shown = null;
+    row.hidden = true;
+    row.innerHTML = '';
+  };
+  api.hide = hide;
+
+  const quiet = () => composing || readGive(root) || document.activeElement !== el;
+
+  const refresh = async () => {
+    asked += 1;
+    const mine = asked;
+    if (quiet()) return hide();
+    let list;
+    try {
+      list = await customers();
+    } catch {
+      return hide();
+    }
+    // 讀名單的那一下她可能又打了字：只畫最後一次
+    if (mine !== asked) return undefined;
+    if (quiet()) return hide();
+    const caret = el.selectionStart ?? el.value.length;
+    const s = nameSuggestions(el.value, caret, list, { currentId: readWho(root).customerId });
+    if (!s.matches.length) return hide();
+    shown = s;
+    row.innerHTML = s.matches.map((c) => `
+      <button class="chip chip--sm" type="button" data-ns-pick="${esc(c.id)}">${esc(c.name)}${guestTag(c)}</button>`).join('');
+    row.hidden = false;
+    return undefined;
+  };
+
+  el.addEventListener('compositionstart', () => {
+    composing = true;
+    hide();
+  });
+  el.addEventListener('compositionend', () => {
+    composing = false;
+    refresh();
+  });
+  el.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    refresh();
+  });
+  el.addEventListener('blur', () => hide());
+
+  // 點下去那一下不要讓框失焦（鍵盤會收起來）
+  const keepFocus = (e) => {
+    if (e.target.closest('[data-ns-pick]')) e.preventDefault();
+  };
+  row.addEventListener('pointerdown', keepFocus);
+  row.addEventListener('mousedown', keepFocus);
+  row.addEventListener('click', (e) => {
+    const hit = e.target.closest('[data-ns-pick]');
+    if (!hit || !shown || readGive(root)) return;
+    const c = shown.matches.find((x) => x.id === hit.dataset.nsPick);
+    if (!c) return;
+    const v = el.value;
+    el.value = `${v.slice(0, shown.from)}${c.name}${v.slice(shown.to)}`;
+    const at = shown.from + String(c.name).length;
+    el.focus();
+    el.setSelectionRange?.(at, at);
+    picked(c);
+    hide();
+  });
+
+  return api;
 }
 
 // ---------- 營養品的交付 ----------
@@ -1038,6 +1178,12 @@ function copyDaysHtml({
 function askCustomer(loadCustomers, currentId, { also = 0 } = {}) {
   return new Promise((resolve) => {
     let settled = false;
+    let live = [];
+    const chipsFor = (q) => live.filter((c) => whoMatches(c, q)).map((c) => `
+      <button class="chip" type="button" data-who-pick="${esc(c.id)}"
+              data-who-name="${esc(c.name)}"
+              aria-pressed="${currentId === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')
+      || '<span class="muted">找不到這個名字或病歷號。</span>';
     const finish = (v) => {
       if (settled) return;
       settled = true;
@@ -1063,17 +1209,21 @@ function askCustomer(loadCustomers, currentId, { also = 0 } = {}) {
           if (hit) finish({ id: hit.dataset.whoPick, name: hit.dataset.whoName });
           return undefined;
         });
+        // 最上面那一格搜尋（notes-widget 03）：只換底下那一排，搜尋框留著
+        el.addEventListener('input', (e) => {
+          if (!e.target.matches?.('[data-who-search]')) return;
+          const chips = el.querySelector('[data-who-chips]');
+          if (chips) chips.innerHTML = chipsFor(e.target.value);
+        });
       },
     });
 
     loadCustomers()
       .then((rows) => {
-        const live = (rows ?? []).filter((c) => c.active !== false);
+        // **這一份濾掉停用的**（`wireWho()` 那一份不濾）—— 照現狀各自保留（notes-widget 03 的「做完時留下的」）
+        live = (rows ?? []).filter((c) => c.active !== false);
         card.update(live.length
-          ? `<div class="chips">${live.map((c) => `
-              <button class="chip" type="button" data-who-pick="${esc(c.id)}"
-                      data-who-name="${esc(c.name)}"
-                      aria-pressed="${currentId === c.id}">${esc(c.name)}${guestTag(c)}</button>`).join('')}</div>`
+          ? `${whoSearch('data-who-search')}<div class="chips" data-who-chips>${chipsFor('')}</div>`
           : '<p class="muted">還沒有客戶。</p>');
       })
       .catch(() => {
