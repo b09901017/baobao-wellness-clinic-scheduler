@@ -15,8 +15,8 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 `c86ed1e8`、合 develop `696826bc`；已推） |
 | 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | **做完**（11/6）：02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`、app.css 換回 LF `b4249786`、01 `0bd3750f`（ADR-0181）；CI 全量到 10 是 6/6 綠，到 01 的那一次推完才跑 |
 | 三 | `/matt-code-review` 審網頁那一半（01–05、10） | xhigh | **做完**（11/6）：`REVIEW.md` 六條（R1 打字時泡泡還站在鍵盤上面〔要實機看〕、R2 「作用在幾天」三個數字、R3 從已勾掉的複製、R4 資料健檢日子排序、R5 連動表、R6 小的）；**沒有會寫錯資料的、沒有要她決定的** |
-| 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | |
-| 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：SDK 授權條款、Firebase 主控台登記**） | xhigh | |
+| 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | **做完**（11/6）：R2＋R3 `89dd186d`、R1 `9114407e`＋`793de84b`、R4 `58a8ec6d`、R5 `66cc8170`、R6 `8c9bca6a`、related.js 三位數 `d626a699`；sw.js v312；**PR #221**（合併 commit 見 PR）；清單在 PR 內文，A 段模擬器走過、B 段等 staging |
+| 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：Firebase 主控台登記**；SDK 條款她同意了） | xhigh | |
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | |
 | 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | |
 | 八 | `/matt-code-review` 審 Android 那一半 | xhigh | |
@@ -110,10 +110,18 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 1. **沒有日期的隨手記，改文字／掛給誰／改日期／複製到別天只有長按一條路**（ADR-0060 要每一顆另有一條點得到的路）：有日期的走日曆那張待辦卡，沒日期的不上日曆。
    改文字、掛給誰在這一輪之前就是這樣（舊缺口），這一輪多了「複製到別天」。標題旁的 `?` 講了長按做得到什麼。**不在這一輪修**，記進記憶的 backlog（第 24 條）
 
+### 段四
+
+1. **`tests-e2e/related.js` 的 `pick()` 只認兩位數編號的 spec**（`/specs\/(\d\d-…)/`）：段二加的 `100-keyboard-layout` 被當成「沒有登記」→ 改到它就全跑、`tests/e2e-related.test.js` 紅（`npm run verify` 第一步就停）。
+   範圍內、順手修了（`d626a699`，改成 `\d+-`；全 repo 只有這一處寫死兩位數）
+2. **`npm run verify` 在這條分支上照舊全跑 701 支**（related.js 動過 → 跟 develop 比 → `index.html`／`app.js`／`views.js` 是共用底座）。段四照段二的做法手挑摸得到的那幾支、全量交 CI
+3. 本機跑 E2E 第一次載入 gstatic 的 Firebase SDK 偶爾 `ERR_SOCKET_NOT_CONNECTED`（`00-smoke` S1、`01-products` J-E1 各紅一次，重跑綠）—— 網路，不是程式
+
 ## 要她決定的
 
 - **段二沒有要問的**（中途發現 1–5 都不用她決定）
 - **段三沒有要問的**：`REVIEW.md` 六條都照建議修（R1 收起泡泡是 ADR-0181 收導覽列同一個理由；R3 的冪等是寫法、不是她的選擇）
+- **段四沒有要問的**（中途發現 1–3 都不用她決定）。**要她做的**：staging 部署之後在 HTC／三星主畫面那一顆照 PR #221 內文清單的 B 段點（鍵盤、注音、泡泡、iPad、深色）
 
 1. ~~長按選單~~ → 她 11/6 回了（她已經決定的）
 3. ~~段一的兩件~~ → 她 11/6 回「照建議」（她已經決定的）
@@ -123,6 +131,30 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - **段五開頭**：~~接受 Android SDK 授權條款~~（她 11/6 同意了）；在 Firebase 主控台替 staging／正式站登記 Android app
 
 ## 每一段的開場
+
+### 段五（effort：xhigh）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具。
+網頁那一半（01–05、10＋審查 R1～R6）是 PR #221，已合進 develop。你是段五：做 06（Android 工具鏈、骨架、登入、讀寫＋共用情境檔）。不做 07–09。
+
+**第一件事：問她在 Firebase 主控台替 staging／正式站登記 Android app**（套件名稱、每把簽章的 SHA-1 由你先算好給她；用白話講要做什麼、為什麼、做了會怎樣）。
+她回答之前先做不需要登記的部分（工具鏈、骨架、情境檔、本機模擬器那一條）。Android SDK 授權條款她 11/6 同意了，不用再問。
+
+在 worktree `.claude/worktrees/notes-widget`（同一個資料夾）：先 `git fetch`，**從新的 `origin/develop` 開 `claude/notes-widget-android`**（不要在 `claude/notes-widget` 上接著做）。
+先讀：`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」「過目抓到的」13、「中途發現」段二 4〔接 HTC 的路〕與段四）；`.scratch/notes-widget/spec.md`；
+`.scratch/notes-widget/issues/06-android-toolchain-and-data.md`，以及 03、04、10 的「做完時留下的」（Kotlin 照抄：`linkId`、`nameSuggestions()` 的比法與 `CASES`、兩條網址）；
+ADR-0179、`CLAUDE.md`「隨手記的 `linkId`」那一列（跟小工具的約定，段四補的）；`docs/agents/lessons.md`。ADR 用 0180（小工具）。
+
+規矩（HANDOFF 有全文）：改既有的函式與畫面上的字之前照 `ripple-check` 查牽連；中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段五」，段末一次問她；同時最多兩個 subagent。
+一支一個 commit。Android 建置不要把她的筆電跑到全滿又放著（Gradle 限 worker、估計超過十分鐘先講）。真名不進版控；HTC 接的是 staging、截圖只放 scratchpad。
+CI 另開 `android.yml`、`related.js` 的 `IGNORED` 加 `android/`、`.gitignore`／`.gitattributes`（過目抓到的 13）。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：commit 並推上去（推之前 `node --test tests/no-secrets.test.js` skipped 0、看一眼 commit 訊息）、06 的 `Status: done` 與「做完時留下的」、HANDOFF 更新（分段表、中途發現、要她決定的）、
+段六（07 小工具本體、08 輸入卡與選單，high；樣子定稿她點頭了才開）的開場；最後回覆簡短說做了什麼、卡在哪。
+```
 
 ### 段四（effort：high）
 
