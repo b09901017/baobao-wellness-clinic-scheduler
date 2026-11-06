@@ -277,19 +277,29 @@ export function linkedChanges(before, patch = {}, peers = []) {
  *   同一組那一天已經有一筆（還活著的）就不再建 —— 第二次按、失敗重按都不多一份
  * - 它自己那一天、重複的、看不懂的日期不建
  *
- * 兩種情況用 `newLinkId`（呼叫端給一個新的 id）：
- *   - 它拆開過（`linkId` 清了，但它的 id 還是舊那一組的 `linkId`）—— 用它的 id 會連回舊那一組
- *   - 它已經勾掉了 —— 新的那幾筆是還沒勾的，拉進同一組就是一組勾得不一樣；新的那幾筆自己一組，它不動
+ * 用哪一個 `linkId`：
+ *   - 還沒勾、已經在一組裡 → 沿用它的
+ *   - 還沒勾、還沒有 → 它自己的 id（原本那一筆補上）；**它拆開過**（`linkId` 清了，但它的 id 還是舊那一組的 `linkId`）
+ *     → `newLinkId`（呼叫端給一個新的 id）—— 用它的 id 會連回舊那一組
+ *   - **已經勾掉了、自己沒有 `linkId`** → 新的那幾筆用**它的 id**，它自己不寫 `linkId`（段三審查 R3）：新的那幾筆是還沒勾的，
+ *     拉它進來就是一組勾得不一樣，所以它不在那一組裡（`linkedPeers()` 問的是它自己的 `linkId`）；
+ *     但下一次照它的 id 重讀讀得到上一次複製出去的那幾天 → 圈起來、不再建（按兩次不多一份）。
+ *     它的 id 那一組裡**有勾掉的**（拆開過的舊組、或上一次那幾筆也勾了）→ `newLinkId`，新的那幾筆不跟勾掉的連在一起
+ *   - 已經勾掉了、自己在一組裡 → `newLinkId`（不冪等：再複製一次同一天會多一份，ADR-0179 寫了）
  *
  * @param {object} note 要複製的那一筆（重讀的那一份）
  * @param {string[]} dates 她在小月曆上點的那幾天
  * @param {{linked?: boolean, group?: object[], newLinkId?: string}} o
- *   group：照 `linkId` 重讀的那一組（**含已刪除的**，`linkId` 撞不撞要連刪掉的一起看；它沒有 `linkId` 時照它的 id 讀）
+ *   group：照 `linkId`（沒有就照它的 id）重讀的那一組（**含已刪除的**，`linkId` 撞不撞要連刪掉的一起看）
  * @returns {{blocked: string|null, linkId: string|null, link: {id: string, changes: object}|null,
- *            creates: object[], skipped: string[]}}
+ *            creates: object[], skipped: string[], taken: string[], together: number, sourceIn: boolean}}
+ *   taken：同一組已經有的那幾天（不含它自己那一天；小月曆圈起來的）；together：寫完之後那一組活著的有幾筆（沒連在一起是 0）；
+ *   sourceIn：它自己在不在那一組裡
  */
 export function copyPlan(note, dates = [], { linked = true, group = [], newLinkId = null } = {}) {
-  const empty = { linkId: null, link: null, creates: [], skipped: [] };
+  const empty = {
+    linkId: null, link: null, creates: [], skipped: [], taken: [], together: 0, sourceIn: false,
+  };
   if (trimmed(note?.entitlementId)) {
     return { ...empty, blocked: '營養品的提醒不給複製 —— 要約別天給，到客戶詳情的「營養品」那一段約時間' };
   }
@@ -298,22 +308,28 @@ export function copyPlan(note, dates = [], { linked = true, group = [], newLinkI
     .filter((d) => d && isValidDate(d) && d !== trimmed(note?.date))
     .sort();
 
+  const others = (group ?? []).filter((n) => n.id !== note.id);
+  const own = trimmed(note?.linkId);
+  const byMyId = others.filter((n) => trimmed(n.linkId) === note.id);
   let linkId = null;
   let link = null;
   if (linked) {
-    const own = trimmed(note?.linkId);
-    const takenByOthers = (group ?? []).some((n) => n.id !== note.id && trimmed(n.linkId) === note.id);
-    if (note?.done) linkId = newLinkId || note.id;
-    else if (own) linkId = own;
-    else linkId = takenByOthers ? (newLinkId || note.id) : note.id;
+    if (note?.done) {
+      linkId = own || byMyId.some((n) => isLive(n) && n.done) ? (newLinkId || note.id) : note.id;
+    } else if (own) {
+      linkId = own;
+    } else {
+      linkId = byMyId.length ? (newLinkId || note.id) : note.id;
+    }
     if (!note?.done && own !== linkId) link = { id: note.id, changes: { linkId } };
   }
+  const sourceIn = linked && !note?.done;
 
   // 同一組那幾天已經有一筆了（含它自己）—— 只看還活著的
-  const members = linked && !note?.done
-    ? [note, ...(group ?? []).filter((n) => n.id !== note.id && trimmed(n.linkId) === linkId)]
+  const members = linked
+    ? [...(sourceIn ? [note] : []), ...others.filter((n) => trimmed(n.linkId) === linkId)].filter(isLive)
     : [];
-  const taken = new Set(members.filter(isLive).map((n) => trimmed(n.date)).filter(Boolean));
+  const taken = new Set(members.map((n) => trimmed(n.date)).filter(Boolean));
 
   const creates = [];
   const skipped = [];
@@ -332,7 +348,29 @@ export function copyPlan(note, dates = [], { linked = true, group = [], newLinkI
     }));
   }
 
-  return { blocked: null, linkId, link, creates, skipped };
+  return {
+    blocked: null,
+    linkId,
+    link,
+    creates,
+    skipped,
+    taken: [...taken].filter((d) => d !== trimmed(note?.date)).sort(),
+    together: linked ? members.length + creates.length : 0,
+    sourceIn,
+  };
+}
+
+/**
+ * 複製完的那一句（段三審查 R3）：照**真的連起來的**講 —— 連在一起的那一組只有一筆（從勾掉的那一筆只複製到一天）時
+ * 不講「其他天一起勾」；它自己不在那一組裡（已經勾掉了）時講「新的那幾天連在一起」。
+ *
+ * @param {{created: number, linked: boolean, together: number, sourceIn: boolean}} r `copyTo()` 回的
+ */
+export function copiedSay({ created = 0, linked = false, together = 0, sourceIn = false } = {}) {
+  if (!created) return '那幾天已經有了，沒有多建';
+  const base = `複製到 ${created} 天`;
+  if (!linked || together < 2) return base;
+  return sourceIn ? `${base}：勾一天，其他天一起勾` : `${base}：新的那幾天連在一起`;
 }
 
 /**
@@ -388,15 +426,52 @@ export function groupLinked(notes, today) {
 }
 
 /**
+ * 連在一起的一組「會作用在幾天」：**選單、改文字與掛給誰那兩張卡、日曆編輯器那一行、存完與勾掉的 toast、清單那一顆
+ * 只有這一種算法**（段三審查 R2：以前四種算法，同一組講出 2、3 兩種數字）。
+ *
+ * 兩天以上講天（不同的日子；沒日期的不算一天、同一天兩筆算一天）；連在一起但只剩一天（改日期改到撞、拿掉了日期）講筆。
+ *
+ * @param {object} note
+ * @param {object[]} peers 同一組其他還活著的那幾筆（`linkedPeers()`；寫的那一刻是重讀的那一組）
+ * @returns {{days: number, notes: number, count: number, unit: '天'|'筆', label: string}|null} 沒連在一起是 null
+ */
+export function linkedReach(note, peers = []) {
+  if (!note || !(peers ?? []).length) return null;
+  const members = [note, ...peers];
+  const days = new Set(members.map((n) => n?.date).filter(Boolean)).size;
+  const unit = days >= 2 ? '天' : '筆';
+  const count = unit === '天' ? days : members.length;
+  return { days, notes: members.length, count, unit, label: `共 ${count} ${unit}` };
+}
+
+/**
+ * `linkedReach()` 講成每一個地方的那一句。沒連在一起（null）每一句都是空的。
+ *
+ * @param {ReturnType<typeof linkedReach>} reach
+ */
+export function linkedWords(reach) {
+  if (!reach) return { tick: null, change: null, date: null, card: '', toast: '', hint: '' };
+  const n = `${reach.count} ${reach.unit}`;
+  return {
+    tick: `${n}一起`,
+    change: `${n}一起改`,
+    date: `只改這一${reach.unit}`,
+    card: `${reach.label}會一起改`,
+    toast: `（${reach.label}）`,
+    hint: `連在一起：${reach.label}的字與掛給誰會一起改，日期只動這一筆。`,
+  };
+}
+
+/**
  * 一列旁邊那一顆：兩天以上「共 N 天」；連在一起但只剩一天（改日期改到撞、拿掉了日期）「共 N 筆」；一筆的沒有。
+ * 算法是 `linkedReach()`（長按那一列時每一句講的跟這一顆一樣）。
  *
  * @param {{members: object[], days: string[]}} row `groupLinked()` 的一列
  * @returns {string|null}
  */
 export function linkedBadge(row) {
-  if (!row || (row.members?.length ?? 0) < 2) return null;
-  if ((row.days?.length ?? 0) >= 2) return `共 ${row.days.length} 天`;
-  return `共 ${row.members.length} 筆`;
+  const [first, ...rest] = row?.members ?? [];
+  return linkedReach(first, rest)?.label ?? null;
 }
 
 // ---------- 長按的快捷選單 ----------
@@ -422,18 +497,19 @@ export function linkedBadge(row) {
  * 點了一張卡再選（`dateChoices()`）；連在一起的「拆開這一天」收在「複製到別天」那張卡的最上面。
  * 以前已勾掉那幾筆的「刪掉」也放不下了 —— 刪掉還有隨手記那一頁的垃圾桶、「清掉這 N 筆」、日曆編輯器的「刪掉」。
  *
- * 連在一起的（`linkedDays` ≥ 2）底下那一行小字講出會作用在幾天：勾「N 天一起」、改日期「只改這一天」、
+ * 連在一起的底下那一行小字講出會作用在幾天：勾「N 天一起」、改日期「只改這一天」、
  * 掛給誰與改文字「N 天一起改」（她看到一樣東西、按下去就作用在那一樣東西 —— 作用在別天的要講出來）。
+ * 數字與單位只問 `linkedReach()`（只剩一天時講筆：「2 筆一起」「只改這一筆」）。
  *
  * @param {object} note
- * @param {{linkedDays?: number}} [o] 這一組有幾天（含它自己；呼叫端照重讀的那一組算）。日期那幾顆搬進 `dateChoices()` 了，
- *   `today`／`onCalendar` 呼叫端照舊傳、這一份用不到
+ * @param {{reach?: ReturnType<typeof linkedReach>}} [o] 這一組作用在幾天（呼叫端照重讀的那一組算；沒連在一起是 null）
  * @returns {{id:string, label:string, note?:string, icon?:string, tone?:string}[]}
  */
-export function noteActions(note, { linkedDays = 0 } = {}) {
+export function noteActions(note, { reach = null } = {}) {
   const out = [];
   const product = Boolean(note?.entitlementId);
-  const together = !product && linkedDays >= 2 ? `${linkedDays} 天一起` : null;
+  const words = linkedWords(product ? null : reach);
+  const together = words.tick;
 
   if (note?.done) {
     out.push({ id: 'untick', label: '拿回來，還沒做', note: together ?? undefined, icon: 'todo' });
@@ -453,7 +529,7 @@ export function noteActions(note, { linkedDays = 0 } = {}) {
   out.push({
     id: 'date',
     label: '改日期',
-    note: together ? '只改這一天' : (note?.date ?? undefined),
+    note: words.date ?? (note?.date ?? undefined),
     icon: 'calendar',
   });
 
@@ -467,13 +543,13 @@ export function noteActions(note, { linkedDays = 0 } = {}) {
   out.push({
     id: 'who',
     label: note?.customerId ? '改掛給誰' : '掛給誰',
-    note: together ? `${together}改` : (note?.customerName ?? undefined),
+    note: together ? words.change : (note?.customerName ?? undefined),
     icon: 'people',
   });
 
   // 「改文字」補上的是 ADR-0044 Consequences 記著的那個缺口：在這之前
   // 隨手記除了勾掉之外只有日曆上那一張編輯器改得動。
-  out.push({ id: 'edit', label: '改文字', note: together ? `${together}改` : undefined, icon: 'pencil' });
+  out.push({ id: 'edit', label: '改文字', note: together ? words.change : undefined, icon: 'pencil' });
 
   // 小月曆一次點好幾天，預設連在一起（ADR-0179）。連在一起的「拆開這一天」在那張卡的最上面。
   out.push({ id: 'copy', label: '複製到別天', icon: 'copy' });

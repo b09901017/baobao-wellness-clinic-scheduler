@@ -132,7 +132,7 @@ test('L4 日曆編輯器只改日期按存 → 另外那幾天一則稽核都不
   await page.locator('[data-open="note:n1"]').click();
   await page.locator('[data-card-edit]').click();
   const form = page.locator('[data-noteform]');
-  await expect(page.locator('[data-linkhint]'), '連在一起的講出會一起改').toContainText('另外 2 天');
+  await expect(page.locator('[data-linkhint]'), '連在一起的講出會一起改').toContainText('共 3 天');
   await form.locator('[data-nd-input]').fill(addDays(TODAY, 1));
   await form.locator('button[type="submit"]').click();
   await app.saved();
@@ -182,7 +182,7 @@ test('L6 營養品的提醒長按沒有「複製到別天」；點外面關掉�
   expect((await liveNotes(app)).length).toBe(2);
 });
 
-test('L7 長按 → 改文字：卡上講「另外 2 天會一起改」，存完三天的字都換了；toast 講共 3 天', async ({ app, page }) => {
+test('L7 長按 → 改文字：卡上講「共 3 天會一起改」，存完三天的字都換了；toast 講共 3 天', async ({ app, page }) => {
   await app.seed(seed(trio()));
   await app.signIn('/todo/notes');
 
@@ -190,7 +190,7 @@ test('L7 長按 → 改文字：卡上講「另外 2 天會一起改」，存完
   await expect(page.locator('[data-action="edit"] .actionrow__note')).toHaveText('3 天一起改');
   await page.locator('[data-action="edit"]').click();
   const card = page.locator('.popcard');
-  await expect(card.locator('.popcard__sub')).toHaveText('另外 2 天會一起改');
+  await expect(card.locator('.popcard__sub')).toHaveText('共 3 天會一起改');
   await card.locator('[data-edittext]').fill('提醒客戶A回電');
   await card.locator('[data-edittext-ok]').click();
   await app.saved();

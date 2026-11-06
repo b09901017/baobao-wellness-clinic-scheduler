@@ -6,7 +6,7 @@ import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firest
 
 import * as repo from './repo.js';
 import {
-  normalize, normalizePatch, linkedPeers, linkedChanges, copyPlan,
+  normalize, normalizePatch, linkedPeers, linkedChanges, copyPlan, linkedReach,
 } from '../domain/notes.js';
 import { withDelivery, isFullyDelivered, noteTextFor } from '../domain/products.js';
 
@@ -147,7 +147,8 @@ export async function removeRow(note, reason) {
  * @param {object} note 要複製的那一筆
  * @param {string[]} dates
  * @param {{linked?: boolean}} [o] 預設連在一起
- * @returns {Promise<{created: number, skipped: string[], linkId: string|null}>}
+ * @returns {Promise<{created: number, skipped: string[], linkId: string|null, together: number, sourceIn: boolean}>}
+ *   together／sourceIn：寫完之後那一組有幾筆、它自己在不在裡面（toast 照真的連起來的講，`copiedSay()`）
  */
 export async function copyTo(note, dates, { linked = true } = {}) {
   const fresh = await repo.getOne(PATH, note.id);
@@ -161,7 +162,9 @@ export async function copyTo(note, dates, { linked = true } = {}) {
     ...plan.creates.map((data) => ({ op: 'create', path: PATH, data: { ...data, doneAt: null } })),
   ];
   if (ops.length) await repo.commit(ops);
-  return { created: plan.creates.length, skipped: plan.skipped, linkId: plan.linkId };
+  return {
+    created: plan.creates.length, skipped: plan.skipped, linkId: plan.linkId, together: plan.together, sourceIn: plan.sourceIn,
+  };
 }
 
 /**
@@ -181,23 +184,22 @@ export function unlink(id) {
  * 營養品的提醒不會連在一起（`validateNote()`），所以 `recordDelivery()` 那一條路不用管這件事。
  *
  * **回傳寫進去的那幾欄**，理由跟 `recordDelivery()` 同一條：呼叫端要重畫的話，
- * 讀的是寫入的人回報的結果，不是自己猜的。多一格 `linkedDays`：這一下作用在幾天（連在一起的那一組不同的日子，
- * 含它自己；沒連在一起是 0）—— toast「勾掉了（共 N 天）」讀它（重讀的那一組，不是畫面手上那一份）。
+ * 讀的是寫入的人回報的結果，不是自己猜的。多一格 `reach`：這一下作用在幾天（`linkedReach()`，重讀的那一組，
+ * 不是畫面手上那一份；沒連在一起是 null）—— toast「勾掉了（共 N 天）」讀它，跟選單、清單那一顆同一種算法。
  * `prepareToggle()` 把它拿掉才併回那一筆，畫面手上的隨手記不會多那一格。
  *
- * @returns {Promise<{done: boolean, doneAt: string|null, linkedDays: number}>}
+ * @returns {Promise<{done: boolean, doneAt: string|null, reach: object|null}>}
  */
 export async function setDone(id, done) {
   const changes = { done, doneAt: done ? new Date().toISOString() : null };
   const { before, peers } = await freshWithPeers(id);
   if (!peers.length) {
     await repo.update(PATH, id, changes);
-    return { ...changes, linkedDays: 0 };
+    return { ...changes, reach: null };
   }
   const writes = linkedChanges(before, changes, peers);
   if (writes.length) await writeAll(writes);
-  const linkedDays = new Set([before, ...peers].map((n) => n.date).filter(Boolean)).size;
-  return { ...changes, linkedDays };
+  return { ...changes, reach: linkedReach(before, peers) };
 }
 
 /**

@@ -45,7 +45,9 @@ import {
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
-import { MAX_LENGTH as NOTE_TEXT_MAX, linkedPeers } from '../../domain/notes.js';
+import {
+  MAX_LENGTH as NOTE_TEXT_MAX, linkedPeers, linkedReach, linkedWords,
+} from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { slotName, nameOf } from '../../domain/naming.js';
@@ -1466,7 +1468,7 @@ function mountNoteEditor(el, data, sheet, spec) {
       .then((rows) => {
         const peers = linkedPeers(existing, rows);
         if (!peers.length || !sheet.el.isConnected) return;
-        sheet.setNote(`<span data-linkhint>連在一起：另外 ${peers.length} 天的字與掛給誰會一起改，日期只動這一筆。</span>`);
+        sheet.setNote(`<span data-linkhint>${linkedWords(linkedReach(existing, peers)).hint}</span>`);
       })
       .catch(() => { /* 讀不到就不講 */ });
   }

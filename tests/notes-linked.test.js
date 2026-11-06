@@ -19,6 +19,9 @@ import {
   openCount,
   noteActions,
   dateChoices,
+  linkedReach,
+  linkedWords,
+  copiedSay,
 } from '../public/js/domain/notes.js';
 
 const TODAY = '2026-11-06';
@@ -257,7 +260,8 @@ describe('複製到別天（copyPlan）', () => {
     const src = note({ id: 'n1', linkId: null, done: true });
     const plan = copyPlan(src, ['2026-11-08', '2026-11-10'], { linked: true, group: [src], newLinkId: 'fresh' });
     assert.equal(plan.link, null);
-    assert.ok(plan.creates.every((c) => c.linkId === 'fresh' && c.done === false));
+    // R3：用它的 id（它自己不寫 linkId），下一次重讀讀得到這幾天
+    assert.ok(plan.creates.every((c) => c.linkId === 'n1' && c.done === false));
   });
 });
 
@@ -348,7 +352,7 @@ describe('長按選單（她 11/6 定的：勾掉／改日期／掛給誰／改�
   });
 
   test('連在一起的：底下那一行講會作用在幾天（勾、掛給誰、改文字一起；改日期只改這一天）', () => {
-    const notes = (n) => Object.fromEntries(noteActions(n, { today: TODAY, linkedDays: 3 }).map((a) => [a.id, a.note]));
+    const notes = (n) => Object.fromEntries(noteActions(n, { reach: linkedReach(n, trio().filter((x) => x.id !== n.id).map((x) => ({ ...x, done: n.done }))) }).map((a) => [a.id, a.note]));
     const open = notes(trio()[0]);
     assert.equal(open.tick, '3 天一起');
     assert.equal(open.date, '只改這一天');
@@ -356,7 +360,7 @@ describe('長按選單（她 11/6 定的：勾掉／改日期／掛給誰／改�
     assert.equal(open.edit, '3 天一起改');
     assert.equal(notes(trio({ done: true })[0]).untick, '3 天一起');
     // 只有自己一天（沒連在一起）照舊
-    assert.equal(noteActions(note({ date: '2026-11-09' }), { linkedDays: 1 }).find((a) => a.id === 'date').note, '2026-11-09');
+    assert.equal(noteActions(note({ date: '2026-11-09' }), { reach: null }).find((a) => a.id === 'date').note, '2026-11-09');
   });
 
   test('連在一起的也是五顆（拆開這一天收在「複製到別天」那張卡裡）', () => {
@@ -436,5 +440,125 @@ describe('資料健檢', async () => {
     const r = run(trio(), [{ id: 'c1', name: '王小明', deletedAt: 'x' }]);
     const notesRows = check(r, 'orphans').findings.filter((x) => /隨手記/.test(x.title));
     assert.equal(notesRows.length, 1);
+  });
+});
+
+// 段三審查 R2：同一組「會作用在幾天」只有一種算法（`linkedReach()`）—— 選單、兩張卡、日曆編輯器那一行、
+// 兩種 toast、清單那一顆講同一個數字同一個單位。以前選單 `max(不同的日子, 2)`、卡片與存完的 toast 數筆、勾掉的 toast 數日子
+describe('會作用在幾天（linkedReach，R2）', () => {
+  const says = (n, peers) => {
+    const reach = linkedReach(n, peers);
+    const w = linkedWords(reach);
+    const menu = Object.fromEntries(noteActions(n, { reach }).map((a) => [a.id, a.note]));
+    return { reach, w, menu };
+  };
+
+  test('三天：每一句都講 3 天', () => {
+    const [a, b, c] = trio();
+    const { reach, w, menu } = says(a, [b, c]);
+    assert.equal(reach.label, '共 3 天');
+    assert.equal(menu.tick, '3 天一起');
+    assert.equal(menu.who, '3 天一起改');
+    assert.equal(menu.edit, '3 天一起改');
+    assert.equal(menu.date, '只改這一天');
+    assert.equal(w.card, '共 3 天會一起改');
+    assert.equal(w.toast, '（共 3 天）');
+    assert.match(w.hint, /共 3 天/);
+    assert.equal(linkedBadge(groupLinked([a, b, c], TODAY)[0]), reach.label);
+  });
+
+  test('一組三天、其中一天拿掉了日期 → 每一句都講 2 天（跟清單那一顆一樣）', () => {
+    const [a, b, c] = trio();
+    const undated = { ...b, date: null };
+    const { reach, w, menu } = says(a, [undated, c]);
+    assert.equal(reach.label, linkedBadge(groupLinked([a, undated, c], TODAY)[0]));
+    assert.equal(reach.label, '共 2 天');
+    assert.equal(menu.tick, '2 天一起');
+    assert.equal(menu.who, '2 天一起改');
+    assert.equal(w.card, '共 2 天會一起改');
+    assert.equal(w.toast, '（共 2 天）');
+    // 長按的是沒日期的那一筆也一樣
+    assert.equal(linkedReach(undated, [a, c]).label, '共 2 天');
+  });
+
+  test('兩筆改到同一天 → 講筆（跟清單那一顆一樣），改日期「只改這一筆」', () => {
+    const [a, b] = trio();
+    const same = { ...b, date: a.date };
+    const { reach, w, menu } = says(a, [same]);
+    assert.equal(reach.label, linkedBadge(groupLinked([a, same], TODAY)[0]));
+    assert.equal(reach.label, '共 2 筆');
+    assert.equal(menu.tick, '2 筆一起');
+    assert.equal(menu.date, '只改這一筆');
+    assert.equal(w.card, '共 2 筆會一起改');
+    assert.equal(w.toast, '（共 2 筆）');
+  });
+
+  test('沒連在一起 → null，每一句都是空的、選單照舊', () => {
+    const n = note({ date: '2026-11-09' });
+    assert.equal(linkedReach(n, []), null);
+    const w = linkedWords(null);
+    assert.equal(w.card, '');
+    assert.equal(w.toast, '');
+    assert.equal(noteActions(n, { reach: null }).find((a) => a.id === 'date').note, '2026-11-09');
+  });
+});
+
+// 段三審查 R3：從已勾掉的那一筆複製 —— toast 照真的連起來的講；再複製一次同一天不多一份
+describe('從已勾掉的那一筆複製（R3）', () => {
+  const done = () => note({ id: 'n1', linkId: null, done: true });
+
+  test('第一次：新的那幾筆用它自己的 id 當 linkId，它自己不寫 linkId（不跟新的那幾筆連在一起）', () => {
+    const src = done();
+    const plan = copyPlan(src, ['2026-11-08', '2026-11-10'], { linked: true, group: [src], newLinkId: 'fresh' });
+    assert.equal(plan.link, null);
+    assert.ok(plan.creates.every((c) => c.linkId === 'n1' && c.done === false));
+    assert.equal(plan.together, 2);
+    assert.equal(plan.sourceIn, false);
+    // 它自己沒有 linkId，所以不算在那一組裡
+    assert.deepEqual(linkedPeers(src, [src, ...plan.creates.map((c, i) => ({ ...c, id: `c${i}` }))]), []);
+  });
+
+  test('再複製一次（拿第一次寫完重讀的那一組）→ 上一次那幾天圈起來、不再建', () => {
+    const src = done();
+    const first = { ...note({ id: 'c1', linkId: 'n1', date: '2026-11-08' }) };
+    const plan = copyPlan(src, ['2026-11-08', '2026-11-12'], { linked: true, group: [src, first], newLinkId: 'fresh' });
+    assert.deepEqual(plan.skipped, ['2026-11-08']);
+    assert.deepEqual(plan.taken, ['2026-11-08']);
+    assert.deepEqual(plan.creates.map((c) => c.date), ['2026-11-12']);
+    assert.equal(plan.creates[0].linkId, 'n1');
+    assert.equal(plan.together, 2);
+  });
+
+  test('它的 id 那一組裡有勾掉的（拆開過的舊組、或上一次那幾筆也勾了）→ 用新的 id，新的那幾筆不跟勾掉的連在一起', () => {
+    const src = done();
+    const old = note({ id: 'b', linkId: 'n1', date: '2026-11-08', done: true });
+    const plan = copyPlan(src, ['2026-11-08'], { linked: true, group: [src, old], newLinkId: 'fresh' });
+    assert.equal(plan.linkId, 'fresh');
+    assert.deepEqual(plan.skipped, []);
+    assert.deepEqual(plan.taken, []);
+    assert.equal(plan.together, 1);
+  });
+
+  test('它自己已經在一組裡（勾掉的一組）→ 照舊用新的 id（不冪等，寫在 ADR-0179）', () => {
+    const [a, b] = trio({ done: true });
+    const plan = copyPlan(a, ['2026-11-12'], { linked: true, group: [a, b], newLinkId: 'fresh' });
+    assert.equal(plan.linkId, 'fresh');
+    assert.equal(plan.link, null);
+  });
+
+  test('toast：連在一起的只有新的那一筆時不講「其他天一起勾」', () => {
+    assert.equal(copiedSay({ created: 1, linked: true, together: 1, sourceIn: false }), '複製到 1 天');
+    assert.equal(copiedSay({ created: 2, linked: true, together: 2, sourceIn: false }), '複製到 2 天：新的那幾天連在一起');
+    assert.equal(copiedSay({ created: 2, linked: true, together: 3, sourceIn: true }), '複製到 2 天：勾一天，其他天一起勾');
+    assert.equal(copiedSay({ created: 2, linked: false, together: 0, sourceIn: false }), '複製到 2 天');
+    assert.equal(copiedSay({ created: 0, linked: true, together: 3, sourceIn: true }), '那幾天已經有了，沒有多建');
+  });
+
+  test('還沒勾的照舊：together 含它自己', () => {
+    const src = note({ id: 'n1', linkId: null });
+    const plan = copyPlan(src, ['2026-11-08'], { linked: true, group: [src] });
+    assert.equal(plan.together, 2);
+    assert.equal(plan.sourceIn, true);
+    assert.deepEqual(plan.taken, []);
   });
 });
