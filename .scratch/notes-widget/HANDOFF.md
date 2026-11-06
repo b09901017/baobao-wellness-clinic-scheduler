@@ -63,6 +63,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - **小工具什麼時候更新**（她 11/6 回「好照建議做」，主控轉達）：在小工具上自己寫的（記下、勾掉、改）**存完馬上更新**；**按 ＋ 打開輸入卡時抓一次最新的**；背景用 **WorkManager 定時檢查（最短 15 分鐘）**，只問上次之後改過的（`updatedAt` 大於上次的游標，**刪掉的、勾掉的也要問得到**，小工具才會拿掉它們），沒變只花 1 次讀取；手機睡著時讓系統延後，**不為了準時叫醒手機**。即時推播（雲端小程式＋FCM）這一輪不做（主控記進她的 backlog）。資料層段五補好了：core 的 `NotesSync.pull()`、`NoteStore.listOpen()`／`listUpdatedSince()`（06 的「做完時留下的」）
 - **Firebase 主控台登記 Android app**（她 11/6 段五回「兩個都由你用指令登記」）：staging 與正式站各一支、兩把 SHA-1，app id 在 06 的「做完時留下的」
 - **段一那兩件照建議**（她 11/6 段一做完時回「照建議」）：已勾掉的隨手記長按不再有「刪掉」，客戶詳情上要刪去隨手記那一頁按垃圾桶（客戶詳情不加垃圾桶）；「複製到別天」的小月曆今天以前的日子點不了
+- **App Distribution 與鑰匙備份**（她 11/6 段六做完時回「照建議」，主控問的）：staging 與正式站兩個 Firebase 專案都開 App Distribution、**只加她一位測試者**（不公開；會寄邀請信給她）；release 簽章鑰匙檔與密碼**備份一份到私人 repo `.local`**（只 commit，push 照 `.local` 的規矩由她那邊的自動同步）
 
 ## 過目抓到的（設計段，11/6；一個唯讀 subagent 對著程式碼，1、2 主控自己對過）
 
@@ -169,7 +170,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 網頁那一半是 PR #221（已合進 develop）。Android 那一半在分支 `claude/notes-widget-android`（已推、還沒開 PR）：段五 06（工具鏈、登入、讀寫、情境檔，ADR-0180）、段六 07（小工具 `9a54b1cb`）、08（輸入卡與選單 `1a698c08`）。
 你是段七：做 09（App Distribution 派送、HTC／三星裝好兩支、文件、手動驗收清單草稿）。不做審查（段八）。
 
-**第一件事**：問她兩件（一次一題、白話、附建議）：在兩個 Firebase 專案開 App Distribution、把她的 email 加成測試者（主控台的設定 —— 能用 CLI 做的講清楚做了什麼）；release 簽章鑰匙的備份放哪（建議私人 repo `.local`）。
+**那兩件她回了「照建議」**（HANDOFF「她已經決定的」→ App Distribution 與鑰匙備份）：兩個 Firebase 專案都開 App Distribution、只加她一位測試者（能用 CLI 做的用 CLI，做了什麼跟她講；主控台非點不可的一步一步寫給她）；鑰匙檔與密碼備份進私人 repo `.local`（在主資料夾，worktree 裡沒有連結、不要建，照 `docs/agents/worktree.md`；只 commit 不 push；`.local` 裡的東西不進主 repo、不印進 log）。不用再問。
 接 HTC 之前先請她解鎖（有螢幕鎖、逾時一到又會鎖）。
 
 在 worktree `.claude/worktrees/notes-widget`（同一個資料夾），分支 `claude/notes-widget-android`。先 `git fetch`，落後 `origin/develop` 就 `git merge origin/develop`（不要 rebase）。
