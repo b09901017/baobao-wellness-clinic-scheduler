@@ -20,7 +20,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：Firebase 主控台登記**；SDK 條款她同意了） | xhigh | **做完**（11/6）：06 `861fab82`（ADR-0180）；兩支 Android app 登記好了（她答「兩個都由你用指令登記」）；HTC 上模擬器那一支記一筆／勾掉、真的 staging 的 Google 登入都驗過；已推，還沒開 PR |
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | **做完**（11/6）：07 `9a54b1cb`、08 `1a698c08`；HTC 接本機模擬器那一支走過（小工具、勾掉＋3 秒拿回來、輸入卡＋注音跳出客戶、選單、複製到別天、拆開、改日期、改掛給誰）；已推，還沒開 PR |
 | 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | **做完**（11/6）：09（commit 見 issue 09）；App Distribution 兩個專案開好、群組 `owner` 只有她、staging 第一版（0.1.0／1）已派送；鑰匙在 GitHub Secrets 四格＋私人 repo `android-signing/`；HTC 換成 release 版、登入著 staging、小工具重放了；清單草稿 `android-checklist.md`；三星沒裝（段九） |
-| 八 | `/matt-code-review` 審 Android 那一半 | xhigh | |
+| 八 | `/matt-code-review` 審 Android 那一半 | xhigh | **做完**（11/6）：`REVIEW-android.md` 九條 —— R1 app 主畫面的清單能直接勾掉營養品的提醒（高）、R2 同步讀到手機的快取時游標往前跳、別台勾掉／刪掉／新記的之後一直問不到（高，core 紅燈跑過）、R3 同步回來蓋掉同步期間自己記的（中）、R4 選單少接「拿回來」（中）、R5 沒登入時 ＋ 照樣記得下來（中低）、R6～R8 字、還原備份、文件（低）、R9 判斷題；寫進 Firestore 的形狀跟網頁一樣（逐欄比過）。**一題要她決定**（下面「要她決定的」4） |
 | 九 | 照審查修、HTC 上走驗收、PR、合併；HTC 點過她說可以 → 三星裝正式版 | high | |
 
 ## 每一段共同的規矩
@@ -156,7 +156,18 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 6. **段七在 HTC 上不小心開了「充電時不關螢幕」**（`svc power stayon usb`），馬上關回去了（`stay_on_while_plugged_in` = 0）。之後接 HTC 一律請她解鎖，不改設定
 7. HTC 的長按圖示捷徑段七看到了（「小工具改成深色」在），補上段六沒驗到的那一條（沒按）
 
+### 段八
+
+審查的結果全部在 `REVIEW-android.md`（R1～R9、查過不成立的、段九的手動驗收清單一定要有的）。範圍外的沒有。
+（worktree 裡 `public/js/ui/views.js` 與 issue 02 照舊顯示「已修改」、`git diff` 是空的 —— 段六 8 那一條，沒動）
+
 ## 要她決定的
+
+4. **派送的安裝檔要不要改成 GitHub Actions 建？**（段八審查找到的，主控問她）
+   spec「一」談定的是「安裝檔由 GitHub Actions 建，簽章鑰匙放 GitHub Secrets」；段七做成**筆電建、從筆電上傳到 App Distribution**，GitHub Actions 只在合進 develop／main 時建一次、確認鑰匙還能用，**不派送**（段七中途發現 3，沒問過她）。
+   - **建議：這一輪照現在（筆電建）**。只有她一位在用、一個月派不了幾版、每一版都要她先在 HTC 點過；改成 GitHub Actions 派送，要多放一把「能派送」的金鑰進 GitHub Secrets（公開 repo 的 CI 多一把有權限的鑰匙；放 Secrets 那一步 auto mode 會擋、要她自己跑一次腳本）。
+     筆電建的缺點（筆電上還沒 commit 的改動會跟著派出去）用文件補：派送前從合進去的那一個 commit、乾淨的 checkout 建（REVIEW-android R8）。改成 GitHub Actions 派送記進 backlog
+   - 另一個：段九改成「合進 develop 就自動派送測試版」（多一把服務帳號金鑰、多一步 workflow）
 
 - **段七沒有要問的**（中途發現 1–7 都不用她決定）。**要她做的**：收邀請信、裝 App Tester（清單 A0）；照 `android-checklist.md` 的 A 段在 HTC 點（段九陪她走）
 - **段二沒有要問的**（中途發現 1–5 都不用她決定）
@@ -173,6 +184,36 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - ~~**段五開頭**：接受 Android SDK 授權條款；在 Firebase 主控台替 staging／正式站登記 Android app~~ → 都回了（她已經決定的）
 
 ## 每一段的開場
+
+### 段九（effort：high）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具。
+網頁那一半是 PR #221（已合進 develop）。Android 那一半在分支 `claude/notes-widget-android`（已推、還沒開 PR）：段五 06、段六 07／08、段七 09，段八審查寫了 `.scratch/notes-widget/REVIEW-android.md`。
+你是段九：照 REVIEW-android 修（R1～R8；R9 是判斷題，挑順手的）→ HTC 上陪她走 `.scratch/notes-widget/android-checklist.md` 的 A 段（加上 REVIEW-android 最後那一節）→ 開 PR 進 develop、CI 綠了合併 → 她在 HTC 點過說可以 → 派送正式版、三星裝（B 段）。
+
+在 worktree `.claude/worktrees/notes-widget`（同一個資料夾），分支 `claude/notes-widget-android`。先 `git fetch`，落後 `origin/develop` 就 `git merge origin/develop`（不要 rebase）。
+先讀：`.scratch/notes-widget/REVIEW-android.md` 全部（每一條：在哪裡、什麼情境會錯、建議、嚴重程度；R2 的紅燈測試寫在裡面）；`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」「中途發現」段五～段八、「要她決定的」4）；
+issue 06、07、08、09 的「做完時留下的」；ADR-0180、ADR-0179；`CLAUDE.md`「隨手記的 `linkId`」「隨手記的形狀或規則（Android 小工具那一份）」「寫入的等待與失敗文案」三列；`docs/agents/lessons.md`。
+
+「要她決定的」4（派送的安裝檔要不要改成 GitHub Actions 建）：主控問過她就照她的；**還沒回答就照建議**（筆電建、R8 補那一行文件、改成 GitHub Actions 派送記進記憶的 backlog）。
+
+建議的順序：R1（三個入口共用一支「營養品的提醒點勾＝開網頁」）→ R2（core 先加那一題紅燈 → 同步那兩支只認伺服器的答案）→ R3（core 的 `NotesSync` 給一支套在現在那一份上＋單元測試）→ R4 → R5 → R6 → R7、R8（文件；ADR-0180 是這一支 PR 新增的，直接改）→ R9。
+每一條修完在 REVIEW-android 那一條標題底下寫「**段九：修了** —— <commit>（一句怎麼修的）」；不修的寫理由。core 的改動一律紅燈 → 綠；動到網頁也有的規則照 `CLAUDE.md` 那一列（情境檔先加一題、`node scripts/notes-parity.mjs --write`、兩邊都綠）—— 這一輪的修法預計都只在 Android 那一側。
+
+HTC：接之前先請她解鎖（有螢幕鎖、逾時一到又會鎖；不改她手機的設定）。HTC 上裝的是 release 版 0.1.0（1）登入著 staging、小工具在桌面 —— 修完要派送新的一版給 HTC：`versionCode` 加一、照 `docs/STAGING.md`「建一版、派送」（從乾淨的 checkout 建）。
+HTC 接的是 staging、畫面上有真名：截圖只放 scratchpad，不進 `.scratch/`、commit、PR。會寫入的那幾步她在 staging 點（staging 上記的不搬）；要我自己先走的寫入在本機模擬器那一支（`-Pemulator`，06 的「做完時留下的」七步；模擬器同一時間只能一組，起之前看 port）。
+三星裝正式版之前：她在 HTC 點過、說可以；派送正式站那一支是寫正式環境的設定 —— 照「先問再做」跟她確認一次再派。
+
+規矩（HANDOFF 有全文）：改既有的函式與畫面上的字之前照 `ripple-check` 查牽連；中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段九」、段末一次問她；同時最多兩個 subagent。
+建置：`cd android && JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.12.101-hotspot" ./gradlew …`（限 4 個 worker；不要放著連跑；做完 `./gradlew --stop`）。用 python 改檔一律 `newline='\n'`，commit 後 `git ls-files --eol` 看是 `i/lf`。
+PR：基底 `develop`；推之前 `node --test tests/no-secrets.test.js` skipped 0、看一眼 commit 訊息與 PR 內文沒有真名、email、鑰匙；`gh pr checks` 每一條都綠才合（`android.yml` 第一次在 CI 上跑就是這一支 PR —— 紅了先看段五中途發現 8）。合完 `android.yml` 在 develop 上會建一次 release（確認 Secrets 的鑰匙建得出來）。**進 main 要她另外說。**
+手動驗收清單放 PR 內文（她照順序點的路、寫的人走過；一個真名都不帶）。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：每一條一個 commit 並推上去、REVIEW-android 每一條的「段九：」、HANDOFF 更新（分段表、中途發現、要她決定的）、PR 連結與合併 commit、`README.md` 開發狀態 41k 打勾；最後回覆簡短說修了什麼、PR、她在 HTC／三星點到哪、卡在哪。
+```
 
 ### 段八（effort：xhigh）
 
