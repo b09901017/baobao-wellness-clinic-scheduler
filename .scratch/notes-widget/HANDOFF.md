@@ -1,6 +1,7 @@
 # 隨手記這一輪 —— 交接
 
 分支：`claude/notes-widget`（11/6 從 `origin/develop` `a4315111` 開）。
+**Android 那一半：分支 `claude/notes-widget-android`**（11/6 段五從 `origin/develop` `6dda1024`〔PR #221 合進去之後〕開，同一個 worktree）。
 checkout：`.claude/worktrees/notes-widget`（段都共用這一個資料夾，一次只有一段在寫）。`node_modules` 已 `npm ci`、CodeGraph 已 `codegraph init`（這條分支自己的索引）。
 主控：kickoff 那個 session（2026-11-06）。全貌、她的原話、談定的在 `spec.md`；樣子圖在 `mockups/`。
 
@@ -16,7 +17,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | **做完**（11/6）：02 `c989c592`、03 `f0ea3b51`、10 `347f95c5`、app.css 換回 LF `b4249786`、01 `0bd3750f`（ADR-0181）；CI 全量到 10 是 6/6 綠，到 01 的那一次推完才跑 |
 | 三 | `/matt-code-review` 審網頁那一半（01–05、10） | xhigh | **做完**（11/6）：`REVIEW.md` 六條（R1 打字時泡泡還站在鍵盤上面〔要實機看〕、R2 「作用在幾天」三個數字、R3 從已勾掉的複製、R4 資料健檢日子排序、R5 連動表、R6 小的）；**沒有會寫錯資料的、沒有要她決定的** |
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | **做完**（11/6）：R2＋R3 `89dd186d`、R1 `9114407e`＋`793de84b`、R4 `58a8ec6d`、R5 `66cc8170`、R6 `8c9bca6a`、R7 `97ecf4e6`、R8 `0408b8fa`（查過是舊行為、加護欄）、related.js 三位數 `d626a699`；sw.js v313；**PR #221**（合併 commit 見 PR）；清單在 PR 內文，A 段模擬器走過、B 段等 staging |
-| 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：Firebase 主控台登記**；SDK 條款她同意了） | xhigh | |
+| 五 | 06 Android 工具鏈、骨架、登入、讀寫＋情境檔（**先問她：Firebase 主控台登記**；SDK 條款她同意了） | xhigh | **做完**（11/6）：06 `861fab82`（ADR-0180）；兩支 Android app 登記好了（她答「兩個都由你用指令登記」）；HTC 上模擬器那一支記一筆／勾掉、真的 staging 的 Google 登入都驗過；已推，還沒開 PR |
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | |
 | 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | |
 | 八 | `/matt-code-review` 審 Android 那一半 | xhigh | |
@@ -59,6 +60,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - **小工具**（她 11/6 看定稿圖）：麥克風**畫成灰的放著**（定稿圖 1 那樣，這一輪點了不會動 —— 點了講一句「語音下一版」或不反應，段六定）；
   **深色／淺色她要自己切換**：「我希望可以自己切換，也許可以長按那個app圖示，捷徑圖示，可以切換?之類的都可以」→ 長按「隨手記」圖示的捷徑（app shortcuts）切換深色／淺色，預設淺色（段六做；要不要多一個「跟著手機」照做起來順不順再說）
 - **Android SDK 授權條款她同意了**（11/6 段二，經主控轉達：「可以，下載」）：段二下載 platform-tools（adb）放使用者資料夾、不進 repo；**段五裝開發工具時不用再問條款**（Firebase 主控台登記 Android app 照舊要問）
+- **Firebase 主控台登記 Android app**（她 11/6 段五回「兩個都由你用指令登記」）：staging 與正式站各一支、兩把 SHA-1，app id 在 06 的「做完時留下的」
 - **段一那兩件照建議**（她 11/6 段一做完時回「照建議」）：已勾掉的隨手記長按不再有「刪掉」，客戶詳情上要刪去隨手記那一頁按垃圾桶（客戶詳情不加垃圾桶）；「複製到別天」的小月曆今天以前的日子點不了
 
 ## 過目抓到的（設計段，11/6；一個唯讀 subagent 對著程式碼，1、2 主控自己對過）
@@ -120,10 +122,21 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 5. **用滑鼠把抽屜拖到抽屜外面放開，抽屜會被關掉**（寫 K5 時撞到）：Chrome 把 click 派給按下與放開兩個元素的共同祖先（backdrop），backdrop 被點到就關。
    手指拖（HTC、iPad）不會有 click，所以她碰不到；只有接滑鼠的桌機會。**範圍外、沒修**，記著（要修是 `sheet.js` 拖過之後吞掉下一個 click）
 
+### 段五
+
+1. **2026 的 AndroidX／Compose 要 `compileSdk` 37**（36 編不過）→ 裝了 `platforms/android-37.2`、`compileSdk` 37.2；`targetSdk` 照舊 36。不用她決定
+2. **新的指令列工具（v23）把 `sdkmanager` 換成 `android` CLI**，預設會送使用統計 → 一律 `android --no-metrics …`；套件名用斜線（`platforms/android-37.2`），在 cmd 裡分號會被切開。寫進 06 的「做完時留下的」
+3. **Write／Edit 會把「反斜線 u」的跳脫寫成真的字**（U+2028 讓 `notesParity.js` 的正規表示式直接語法錯誤；Kotlin 照樣編得過、看不出來）→ 換回跳脫、`lessons.md` 十一補了一條
+4. **經過 USB（`adb reverse`）的寫入要 2～5 秒才回到模擬器** → 開發版幾乎每一筆都講「存在這台手機上了」（`FirestoreNoteStore` 等 4 秒）。資料真的寫進去了；段六做輸入卡時看真的網路下要不要留那一句、等多久
+5. **HTC 有螢幕鎖**：每一次接上都要她先解鎖（我不能輸入她的解鎖密碼）。段六開頭就請她解鎖；`uiautomator dump` 讀不到這支 app 的字 → 用截圖看
+6. **HTC 上現在裝著接真的 staging、登入著的「隨手記（測試）」**（筆電 debug 鑰匙簽的；她自己選的帳號）。裝 `-Pemulator` 那一支會蓋掉它（同一個套件名）；換成段九派送的 release 那一支之前要先移除（寫進 09 了）
+7. **release 鑰匙只在她筆電上一份**（`~/.android/baofu-notes-release.jks`）→ 09 放 GitHub Secrets、備份放哪問她（寫進 09 了）
+
 ## 要她決定的
 
 - **段二沒有要問的**（中途發現 1–5 都不用她決定）
 - **段三沒有要問的**：`REVIEW.md` 六條都照建議修（R1 收起泡泡是 ADR-0181 收導覽列同一個理由；R3 的冪等是寫法、不是她的選擇）
+- **段五沒有要問的**（中途發現 1–7 都不用她決定；7 的「備份放哪」留給段九問）
 - **段四沒有要問的**（中途發現 1–5 都不用她決定；5 是範圍外的小事，記著）。**要她做的**：staging 部署之後在 HTC／三星主畫面那一顆照 PR #221 內文清單的 B 段點（鍵盤、注音、泡泡、iPad、深色）
 
 1. ~~長按選單~~ → 她 11/6 回了（她已經決定的）
@@ -131,9 +144,38 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 2. ~~**段二開頭**：請她把 HTC 開「USB 偵錯」接筆電~~ → 段二接好了（中途發現 → 段二 4）
 - ~~樣子定稿~~：主控 11/6 畫好（`mockups/final-1～3.png`、`final-mockups.html`），她回了麥克風與深色（她已經決定的）；選單那一張（final-3 的 6）照重排之後的為準
 - **在 app 記的，多久出現在小工具上**（擋段六）：主控 11/6 問她（建議：自己記的馬上；在 app 記的，打開小工具的輸入卡時、或最多 15 分鐘更新一次；要即時就加一支 Cloud Function 推通知，之後再說）
-- **段五開頭**：~~接受 Android SDK 授權條款~~（她 11/6 同意了）；在 Firebase 主控台替 staging／正式站登記 Android app
+- ~~**段五開頭**：接受 Android SDK 授權條款；在 Firebase 主控台替 staging／正式站登記 Android app~~ → 都回了（她已經決定的）
 
 ## 每一段的開場
+
+### 段六（effort：high）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具。
+網頁那一半是 PR #221（已合進 develop）。段五做完 06（Android 工具鏈、骨架、登入、讀寫＋共用情境檔，ADR-0180），在分支 `claude/notes-widget-android`（已推、還沒開 PR）。
+你是段六：做 07（桌面小工具本體，D 半透明便利貼）、08（浮在桌面上的輸入卡、點字跳出的選單）。不做 09。
+
+**第一件事**：看 `.scratch/notes-widget/HANDOFF.md`「要她決定的」——「在 app 記的，多久出現在小工具上」她回了沒；沒回就先問她（一次一題、附建議：自己記的馬上；在 app 記的，打開輸入卡時、或最多 15 分鐘更新一次），07 的更新方式照她的答案。
+接著請她把 HTC 解鎖、USB 接著（HTC 有螢幕鎖，我不能替她輸入）。
+
+在 worktree `.claude/worktrees/notes-widget`（同一個資料夾），分支 `claude/notes-widget-android`。先 `git fetch`，落後 `origin/develop` 就 `git merge origin/develop`（不要 rebase）。
+先讀：`.scratch/notes-widget/HANDOFF.md`（「每一段共同的規矩」「她已經決定的」〔麥克風畫成灰的、深色淺色用長按「隨手記」圖示的捷徑切換、預設淺色〕「中途發現 → 段五」）；`.scratch/notes-widget/spec.md`「一」；
+issue 07、08；**06 的「做完時留下的」**（工具鏈怎麼叫、core 那幾支在哪、接模擬器那一支怎麼建、HTC 上接模擬器的七步、驗過什麼）；ADR-0180、ADR-0179；
+`.scratch/notes-widget/mockups/` 的 `final-1～3.png` 與 `final-mockups.html`（選單照重排之後的為準）；`CLAUDE.md`「隨手記的形狀或規則（Android 小工具那一份）」那一列；`docs/agents/lessons.md`（十一多了一條：Write 會把反斜線 u 的跳脫寫成真的字）。
+
+規矩（HANDOFF 有全文）：**畫面裡不另寫一份規則** —— 清單分組用 core 的 `Notes.groupLinked()`、選單用 `noteActions()`／`dateChoices()`、寫入用 `Backend.notes`（`NotesWriter`）、
+打名字跳出客戶用 `Names.nameSuggestions()`（collator 給 `android.icu.text.Collator` 的 zh-Hant）；營養品的提醒點勾＝打開 `WebLinks.note()`、給營養品＝`WebLinks.newGive()`（`BuildConfig.WEB_ORIGIN`）。
+網頁沒有的（小工具的清單順序：今天 → 過了沒勾的 → 沒日期 → 以後的）寫在 core、自己的單元測試；要動網頁也有的規則照 `CLAUDE.md` 那一列（情境檔先加一題、`node scripts/notes-parity.mjs --write`、兩邊都綠）。
+改既有的函式與畫面上的字之前照 `ripple-check` 查牽連；中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段六」，段末一次問她；同時最多兩個 subagent。
+建置：`cd android && JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.12.101-hotspot" ./gradlew …`（限 4 個 worker；不要放著連跑；做完 `./gradlew --stop`）。
+會寫入的驗收用 `-Pemulator` 那一支接本機模擬器（模擬器同一時間只能一組，起之前看 port；收掉時連那兩個 PID 一起停），staging 留給她點；HTC 的截圖只放 scratchpad（staging 畫面上有真名）。
+三星的毛玻璃要實機試，三星段九才裝（HTC 點過她說可以）。用 python 改檔一律 `newline='\n'`，commit 後 `git ls-files --eol` 看是 `i/lf`。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：07、08 各一個 commit 並推上去（推之前 `node --test tests/no-secrets.test.js` skipped 0、看一眼 commit 訊息）、`Status: done` 與「做完時留下的」、HANDOFF 更新（分段表、中途發現、要她決定的）、
+段七（09 派送、裝好兩支、文件，medium）的開場；最後回覆簡短說做了什麼、卡在哪。
+```
 
 ### 段五（effort：xhigh）
 
