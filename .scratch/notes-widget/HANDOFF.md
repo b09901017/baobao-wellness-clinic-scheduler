@@ -21,7 +21,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 六 | 07 小工具本體、08 輸入卡與選單（**樣子定稿她點頭了才開**） | high | **做完**（11/6）：07 `9a54b1cb`、08 `1a698c08`；HTC 接本機模擬器那一支走過（小工具、勾掉＋3 秒拿回來、輸入卡＋注音跳出客戶、選單、複製到別天、拆開、改日期、改掛給誰）；已推，還沒開 PR |
 | 七 | 09 派送、裝好兩支、文件、手動驗收草稿 | medium | **做完**（11/6）：09（commit 見 issue 09）；App Distribution 兩個專案開好、群組 `owner` 只有她、staging 第一版（0.1.0／1）已派送；鑰匙在 GitHub Secrets 四格＋私人 repo `android-signing/`；HTC 換成 release 版、登入著 staging、小工具重放了；清單草稿 `android-checklist.md`；三星沒裝（段九） |
 | 八 | `/matt-code-review` 審 Android 那一半 | xhigh | **做完**（11/6）：`REVIEW-android.md` 九條 —— R1 app 主畫面的清單能直接勾掉營養品的提醒（高）、R2 同步讀到手機的快取時游標往前跳、別台勾掉／刪掉／新記的之後一直問不到（高，core 紅燈跑過）、R3 同步回來蓋掉同步期間自己記的（中）、R4 選單少接「拿回來」（中）、R5 沒登入時 ＋ 照樣記得下來（中低）、R6～R8 字、還原備份、文件（低）、R9 判斷題；寫進 Firestore 的形狀跟網頁一樣（逐欄比過）。**一題要她決定**（下面「要她決定的」4） |
-| 九 | 照審查修、HTC 上走驗收、PR、合併；HTC 點過她說可以 → 三星裝正式版 | high | |
+| 九 | 照審查修、HTC 上走驗收、PR、合併；HTC 點過她說可以 → 三星裝正式版 | high | **進行中**（11/6）：R1 `f520974a`、R2＋R3 `a904793e`、R4 `c30fbd24`、R5 `7c4f41e6`、R6 `7ba7bf85`、R7＋R8 `0adef9d2`、R9 `a99dbafb`；0.1.1（versionCode 2）派送到 staging；**PR #222** 開了、CI 跑著；等她在 HTC 照清單 A8～A9（與 A3～A6 的寫入）點 |
 
 ## 每一段共同的規矩
 
@@ -162,6 +162,12 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 
 審查的結果全部在 `REVIEW-android.md`（R1～R9、查過不成立的、段九的手動驗收清單一定要有的）。範圍外的沒有。
 （worktree 裡 `public/js/ui/views.js` 與 issue 02 照舊顯示「已修改」、`git diff` 是空的 —— 段六 8 那一條，沒動）
+
+### 段九
+
+1. **HTC 這一次沒接 USB**：修完沒在 HTC 上走本機模擬器那一支（`-Pemulator` 是 debug 鑰匙，要先移除 release 版 → 她的登入與桌面上的小工具都要重來）。R2／R3 靠 core 的單元測試（紅燈 → 綠），其餘在 staging 由她點（清單 A9）
+2. **給 HTC 的 0.1.1 是從這條分支推上去的那一個 commit 建的**（`git status` 乾淨、還沒合進 develop）—— 驗收要在合併之前；正式版照 `STAGING.md` 從合進去的那一個 commit 建
+3. 這個 worktree 的 `public/js/ui/views.js` 與 issue 02 照舊顯示「已修改」、內容一樣（段六 8），沒動
 
 ## 要她決定的
 
