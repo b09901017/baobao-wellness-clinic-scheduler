@@ -12,7 +12,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 設計 | grilling 四輪、spec、issue 01–09、subagent 過目 | xhigh | **做完**（11/6） |
-| 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 見 git log；已推） |
+| 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 `c86ed1e8`、合 develop `696826bc`；已推） |
 | 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | |
 | 三 | `/matt-code-review` 審網頁那一半（01–05） | xhigh | |
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | |
@@ -36,7 +36,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
   **新檔案要進 `sw.js` 的 `SHELL` 與 `tests-e2e/related.js`**（新的 spec 也要登記）
 - **平行的一輪**：試算表（worktree `sheet-push-gaps-112028`、分支 `claude/sheet-slot-notes-below`）正在改 `sheets/readonly-report.gs` 與 `tests/sheet-*.test.js`，**已經佔了 ADR-0177**。不碰它的資料夾與分支。
   這一輪的 ADR：~~0178~~ **被試算表那一輪先拿走了**（`claude/sheet-no-freeze` 的 `0178-sheet-nothing-frozen.md`）→ **0179 連在一起的隨手記（段一寫了）、0180 原生小工具**、0181 留給鍵盤（要寫的話）；
-  寫之前看 `docs/adr/` 與其他 worktree 有沒有人先拿走（`ls ../*/docs/adr | grep 018`）。**`docs/adr/README.md` 索引最後一列**：試算表那一輪合進 develop 時 0178 那一列會跟 0179 撞在同一個位置，merge 時兩列都留、照號碼排
+  寫之前看 `docs/adr/` 與其他 worktree 有沒有人先拿走（`ls ../*/docs/adr | grep 018`）。`docs/adr/README.md` 索引最後一列常常撞（每一輪都接在最後）：merge 時兩列都留、照號碼排（段一合 develop 時 0178／0179 就是這樣解的）
 - **模擬器同一時間只能一組**（所有 worktree 共用 port）：起之前 `netstat -ano | findstr :5000`（與 `emulatorPortsFor` 那幾組）；有人在跑就不要停掉別人的，先問她
 - **公開 repo**：真名一律寫王小明／客戶A；commit 訊息、PR 內文推之前自己看一眼（`CLAUDE.md`「上線」）；推之前 `node --test tests/no-secrets.test.js` 要 skipped 0（這個 worktree 不建 `.local` 連結，`tests/helpers/localDir.js` 自己去主資料夾找）；
   讀 `.local` 的一律接主資料夾的過濾網 `| node <主資料夾>/.local/references/redact.mjs`
