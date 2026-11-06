@@ -2,6 +2,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
+  browserPopupRedirectResolver,
   signOut as fbSignOut,
   onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
@@ -16,15 +18,39 @@ const provider = new GoogleAuthProvider();
 // 會被當成瀏覽器分頁，登入從 redirect 悄悄換成 popup。`tests/immersive-display.test.js` 盯著。
 const INSTALLED = '(display-mode: fullscreen), (display-mode: standalone)';
 
-// iOS 加到主畫面後的 standalone 模式關不掉 popup，會卡住。那裡改用 redirect。
+// 轉頁登入（redirect）還是彈窗（popup）。
+//
+// - **裝到主畫面的那一顆**：iOS 的 standalone 模式關不掉 popup，會卡住
+// - **iPad、手機、Safari 的瀏覽器分頁**（ADR-0173）：彈窗要在按下去的那一刻同步打開，那幾種擋非同步開的窗。
+//   Firebase 本來是一打開 app 就先載好登入那一塊來趕上這一刻 —— 那正是她 iPad 上打開慢的原因，
+//   所以開機不再先載（`firebase.js`），那幾種改走轉頁（ADR-0168 之後轉頁走 app 自己的網址，分頁也登得進去）
+// - 其餘（桌機的 Chrome／Edge／Firefox）照舊彈窗：不用離開這一頁。E2E 走這一條
+const BLOCKS_LATE_POPUPS = /iPad|iPhone|iPod|Android|Mobi/i;
+
 function prefersRedirect() {
-  return window.matchMedia(INSTALLED).matches || window.navigator.standalone === true;
+  if (window.matchMedia(INSTALLED).matches || window.navigator.standalone === true) return true;
+  const ua = window.navigator.userAgent || '';
+  // iPadOS 的 Safari 預設自稱 Macintosh：用觸控點認出來
+  const ipadAsMac = /Macintosh/.test(ua) && (window.navigator.maxTouchPoints ?? 0) > 1;
+  const safari = /Safari/.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg|Android/.test(ua);
+  return BLOCKS_LATE_POPUPS.test(ua) || ipadAsMac || safari;
 }
 
 export async function signIn() {
   const auth = getAuthInstance();
-  if (prefersRedirect()) return signInWithRedirect(auth, provider);
-  return signInWithPopup(auth, provider);
+  if (prefersRedirect()) return signInWithRedirect(auth, provider, browserPopupRedirectResolver);
+  return signInWithPopup(auth, provider, browserPopupRedirectResolver);
+}
+
+/**
+ * 轉頁登入回來的那一次把它收下來（ADR-0173）。以前 `getAuth()` 開機時自己收；現在不帶登入那一塊，要自己叫。
+ * **沒有轉頁登入時它不載任何東西**：先看 SDK 自己記在這一頁 sessionStorage 的那一筆，沒有就回 null。
+ * 收不下來（取消、網路）不講：她看到的就是還在登入頁，再按一次就好 —— 以前也是一句都不講。
+ */
+let redirectDone = null;
+function finishRedirect() {
+  redirectDone ??= getRedirectResult(getAuthInstance(), browserPopupRedirectResolver).catch(() => null);
+  return redirectDone;
 }
 
 export function signOut() {
@@ -35,7 +61,7 @@ export function signOut() {
 
 // ---------- 這一台上次通過了（ADR-0167，after-golive 07）----------
 //
-// 開機要等登入（手機上先載一個 iframe、換 token）＋白名單（讀一次伺服器）才畫殼，全部是網路來回，
+// 開機要等登入（還原登入、跟伺服器確認帳號；ADR-0173 之前手機上還先載一個 iframe）＋白名單（讀一次伺服器）才畫殼，全部是網路來回，
 // 而她 99% 的打開都是「同一台、同一個帳號、還在白名單裡」。所以白名單說可以的時候在這一台記下 uid，
 // 下次打開先畫殼（`app.js`），登入在背景確認；確認出來不是同一位、或沒有權限、或被登出，才換掉。
 //
@@ -125,16 +151,27 @@ export async function accessState(uid) {
  *   量開機那一張要分開「登入」與「權限」兩步（after-golive 05）
  */
 export function watchAuth(cb, { onUser } = {}) {
-  return onAuthStateChanged(getAuthInstance(), async (user) => {
-    onUser?.(user);
-    if (!user) {
-      forgetAllowed();
-      return cb({ user: null, access: 'denied' });
-    }
-    const access = await accessState(user.uid);
-    // 連不上不改記著的那一筆：不知道就不改（記著的是同一位時 app.js 留著殼）
-    if (access === 'allowed') rememberAllowed(user.uid);
-    else if (access === 'denied') forgetAllowed();
-    cb({ user, access });
+  // 先收轉頁登入回來的那一次再開始聽：不然回來那一下先聽到「沒登入」、閃一下登入頁才進去。
+  // 平常（沒有轉頁登入）它跟第一次回答一樣只等這一台記著的登入還原好，不多等
+  let off = null;
+  let stopped = false;
+  finishRedirect().then(() => {
+    if (stopped) return;
+    off = onAuthStateChanged(getAuthInstance(), async (user) => {
+      onUser?.(user);
+      if (!user) {
+        forgetAllowed();
+        return cb({ user: null, access: 'denied' });
+      }
+      const access = await accessState(user.uid);
+      // 連不上不改記著的那一筆：不知道就不改（記著的是同一位時 app.js 留著殼）
+      if (access === 'allowed') rememberAllowed(user.uid);
+      else if (access === 'denied') forgetAllowed();
+      cb({ user, access });
+    });
   });
+  return () => {
+    stopped = true;
+    off?.();
+  };
 }

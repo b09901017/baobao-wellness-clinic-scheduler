@@ -10,6 +10,7 @@
 //   6. 張數上限講得出來
 //   7. 手機解不開整張的 1 億像素照片 → 解碼時就縮，照樣轉正送出（after-golive 01）
 //   8. 手機橫放時取景框撐滿、快門在右邊那一欄（after-golive 02）
+//   9. 相機給了、一格影像都沒有（她 iPad 主畫面那一顆）→ 換一組再要一次，還是沒有就退回、講「畫面一直出不來」（ADR-0173）
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -524,4 +525,44 @@ test('L5 手機橫放、前鏡頭在左或右（全螢幕）：取景與右邊�
     }
     expect(l.shutterHit).toBe(true);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 相機給了、畫面一直出不來（`.scratch/ipad-photo-and-speed/issues/01`，ADR-0173）
+// ---------------------------------------------------------------------------
+//
+// 她 2026-11-05：iPad 主畫面那一顆有問權限、綠色四個角有出來、畫面一片黑、沒有字；Safari 分頁好好的。
+// 以前等 `video.play()` 回了才顯示、沒有逾時 —— 黑著，也不退回系統相機。
+
+test('C9 相機給了一條一格都不出的影像 → 再要一次（不指定解析度），還是沒有就退回、講畫面出不來；快門不拍黑的', async ({ app, page }) => {
+  await page.addInitScript(() => {
+    window.__camAsks = [];
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      window.__camAsks.push(c.video);
+      // frameRate 0：不叫 requestFrame() 就一格都不出
+      return document.createElement('canvas').captureStream(0);
+    };
+  });
+  await app.signIn('/');
+  await openCam(page);
+
+  await page.locator('[data-cam-shutter]').click();
+  await expect(page.locator('[data-cam-tray] li')).toHaveCount(0);
+
+  const { PICTURE_WAIT_MS, NO_PICTURE_SAY } = await page.evaluate(async () => {
+    const m = await import('/js/ui/components/camera.js');
+    return { PICTURE_WAIT_MS: m.PICTURE_WAIT_MS, NO_PICTURE_SAY: m.NO_PICTURE_SAY };
+  });
+  const fallback = page.locator('[data-cam-fallback]');
+  await expect(fallback).toBeVisible({ timeout: PICTURE_WAIT_MS * 2 + 5_000 });
+  await expect(fallback).toContainText(NO_PICTURE_SAY);
+  await expect(fallback.locator('[data-cam-system]')).toBeVisible();
+  await expect(page.locator('.cam.cam--live')).toHaveCount(0);
+
+  const asks = await page.evaluate(() => window.__camAsks);
+  expect(asks, '要兩次').toHaveLength(2);
+  expect(asks[0].width, '第一次要 4K').toBeTruthy();
+  expect(asks[1].width, '第二次不指定解析度').toBeUndefined();
+  // 退回之後相機關掉了（不然那顆燈一直亮著）
+  expect(await page.evaluate(() => document.querySelector('[data-cam-video]').srcObject)).toBeNull();
 });

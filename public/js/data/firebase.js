@@ -3,7 +3,10 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import {
-  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
   connectAuthEmulator,
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import {
@@ -26,7 +29,13 @@ export function initFirebase() {
   if (app) return { app, auth, db };
 
   app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
+  // 不用 `getAuth()`（ADR-0173）：它帶著彈窗／轉頁登入用的那一塊，而在 iPad、手機、Safari 上會**先**載好它
+  // （apis.google.com 的腳本＋一個 iframe）才去還原這一台記著的登入 —— 一年登入一次，卻每次打開都等它
+  // （她 iPad 上「登入」那一格 1.4～3.1 秒）。那一塊改成按「登入」時才帶（`auth.js`）。
+  // 存登入的地方跟 `getAuth()` 同一組、同一個順序：既有的登入照樣讀得到，不用重新登入。
+  auth = initializeAuth(app, {
+    persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+  });
 
   // 離線快取：訊號差的時候讀取仍然打得開，寫入由 SDK 自行排隊重送。
   // 單分頁模式即可 —— 她一次只會開一個。

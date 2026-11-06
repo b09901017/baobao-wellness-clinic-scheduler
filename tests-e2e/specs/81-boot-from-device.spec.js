@@ -11,6 +11,7 @@
 //   P9、P10 首頁先用手機裡的畫（08）：雲端還沒回來數字就在、一樣的話一個節點都不換、不算進 cacheReads()；
 //      別的地方改過 → 先畫舊的、雲端回來換成新的
 //   P12、P13 段四審查補的：快取先畫、雲端還沒回來就換頁 → 下一頁不帶那個記號；登出之後換網址不再照畫一頁
+//   P14 iPad 打開：開機沒有打到 Google 登入那一塊（apis.google.com、iframe；ADR-0173）
 //   P4 新的一版裝好了 → 跳「有新版本」、沒點之前跑的是舊的而且照常用得了 → 點 → 重新載入、跑的是新的；
 //      接著離線重新打開照樣打得開
 // 換了 VERSION 時清掉哪幾格、留哪幾格在 `tests/sw-cache.test.js`（Playwright 攔不到瀏覽器去比對 sw.js 的那一下）
@@ -342,3 +343,27 @@ test('P13 登出之後在登入頁換網址（按返回）→ 不再照畫一頁
   await expect(page.locator('[data-signin]')).toBeVisible();
 });
 
+
+// iPad 上「登入」那一格 1.4～3.1 秒（她 2026-11-05）：`getAuth()` 在 iPad、手機、Safari 上一打開就先載登入那一塊（ADR-0173）。
+// **要換成 iPad 的 UA 才量得到**：桌機的 UA 本來就不先載 —— 不換的話改之前就是綠的。
+// UA 在登入之後才換：第一次登入走 fixture 的彈窗，換成 iPad 的話 app 會改走轉頁。
+const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
+
+test('P14 iPad 打開：開機沒有任何請求打到 Google 登入那一塊（apis.google.com、/auth/iframe），照樣登入好的', async ({ app, page }) => {
+  await app.seed(seed());
+  await app.signIn('/');
+  await page.addInitScript((ua) => {
+    Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => ua });
+    Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 5 });
+  }, IPAD_UA);
+
+  const hits = [];
+  page.on('request', (r) => {
+    if (/apis\.google\.com|\/auth\/iframe/.test(r.url())) hits.push(r.url());
+  });
+  await app.reload();
+
+  expect(await page.evaluate(() => navigator.userAgent), '這一次是用 iPad 的 UA 打開的').toContain('iPad');
+  await expect(page.locator('#root[data-access="allowed"]')).toHaveCount(1);
+  expect(hits, '開機不先載登入那一塊').toEqual([]);
+});

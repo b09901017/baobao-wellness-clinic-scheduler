@@ -24,6 +24,47 @@ const LANDSCAPE = new Set(['aboveeList']);
 /** 這幾種原因是「整個停下來」：再送下一張只是一樣被擋，而且上限那幾種還會多記一次被擋。 */
 const STOP_ALL = new Set(['offline', 'paused', 'monthCap', 'dailyLimit', 'notAllowed', 'verify']);
 
+/**
+ * 要相機的兩次（ADR-0173）：先要 4K（字小的單子清楚一點）；那一次幾秒都沒有影像，就換一組不指定解析度的再要一次。
+ * 猜的是 iPad 主畫面那一顆在 4K 的要求下拿不到畫面 —— 猜錯也不壞，只是多等幾秒才退回系統相機。
+ */
+const CAMERA_ASKS = [
+  { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+  { facingMode: { ideal: 'environment' } },
+];
+
+/** 一次要相機之後最多等幾毫秒等第一格影像。 */
+export const PICTURE_WAIT_MS = 3000;
+
+/** 相機給了、畫面一直出不來時退回的那一句（被拒、沒有相機的那一句寫在畫面上）。 */
+export const NO_PICTURE_SAY = '相機開了，但畫面一直出不來。改用系統相機拍，或從相簿選。';
+
+/**
+ * 影像真的出來了沒：瀏覽器交出一格（`requestVideoFrameCallback`），或時間在走而且有寬高。
+ * 兩條都問 —— 前者在影像還是透明的時候不一定叫，後者在 `play()` 卡住的時候不會成立。
+ *
+ * @param {HTMLVideoElement} v
+ * @param {number} ms 等多久就算沒有
+ * @returns {Promise<boolean>}
+ */
+function hasPicture(v, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearInterval(poll);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), ms);
+    const poll = setInterval(() => {
+      if (v.readyState >= 2 && v.videoWidth > 0 && v.currentTime > 0) finish(true);
+    }, 100);
+    if (typeof v.requestVideoFrameCallback === 'function') v.requestVideoFrameCallback(() => finish(true));
+  });
+}
+
 let current = null;
 
 /**
@@ -115,31 +156,51 @@ export function openCamera({ kind, max = 10, onDone }) {
 
   // ---------- 取景 ----------
 
+  // **有影像才算開好**（ADR-0173）。以前 `await video.play()` 回了才顯示：她 iPad 主畫面那一顆有問權限、
+  // 也允許了，畫面卻一直黑、沒有字 —— 同一個網址在 Safari 分頁好好的。等的那一下沒有逾時，所以也不退回系統相機
+  // （而系統相機在那一台是好的）。現在 play() 叫了就好，看的是真的有一格影像；幾秒都沒有就換一組再試，還是沒有就退回。
   async function startStream() {
     if (!navigator.mediaDevices?.getUserMedia) return showFallback();
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
-      });
-      if (closed) { stream.getTracks().forEach((t) => t.stop()); return undefined; }
+    for (const wants of CAMERA_ASKS) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: wants });
+      } catch {
+        // 被拒、沒有相機：再要一次也一樣
+        return showFallback();
+      }
+      if (closed) { stopStream(); return undefined; }
       video.srcObject = stream;
-      await video.play().catch(() => {});
-      el.classList.add('cam--live');
-      return undefined;
-    } catch {
-      return showFallback();
+      video.play().catch(() => {});
+      // eslint-disable-next-line no-await-in-loop
+      const live = await hasPicture(video, PICTURE_WAIT_MS);
+      if (closed) { stopStream(); return undefined; }
+      if (live) {
+        el.classList.add('cam--live');
+        return undefined;
+      }
+      stopStream();
+      video.srcObject = null;
     }
+    return showFallback('noPicture');
   }
 
-  function showFallback() {
-    // 被拒、沒有相機、不是 https：取景框換成一句話＋兩顆，不是一片黑
+  function stopStream() {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+
+  /** @param {'noPicture'} [why] 沒給＝被拒、沒有相機、不是 https */
+  function showFallback(why) {
+    // 取景框換成一句話＋兩顆，不是一片黑
+    if (why === 'noPicture') $('[data-cam-fallback] .cam__fallback-say').textContent = NO_PICTURE_SAY;
     el.classList.add('cam--fallback');
     $('[data-cam-fallback]').hidden = false;
   }
 
   async function shoot() {
-    if (busy || photos.length >= max || !stream) return;
+    // 還沒有影像時不拍：截出來的是一張黑的，送去辨識只是白花一次
+    if (busy || photos.length >= max || !stream || !el.classList.contains('cam--live')) return;
     busy = true;
     try {
       el.classList.remove('cam--snap');
