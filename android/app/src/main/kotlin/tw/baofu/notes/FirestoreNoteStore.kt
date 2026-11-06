@@ -1,8 +1,10 @@
 package tw.baofu.notes
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import tw.baofu.notes.core.Doc
@@ -32,6 +34,23 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
         db.collection(path).whereEqualTo(field, value).get().await().documents.map { d ->
             linkedMapOf<String, Any?>("id" to d.id) + toCore(d.data ?: emptyMap<String, Any?>())
         }
+
+    override suspend fun listOpen(path: String): List<Doc> =
+        db.collection(path)
+            .whereEqualTo("deletedAt", null)
+            .whereEqualTo("done", false)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .get().await().documents.map(::withId)
+
+    /** 單欄位的範圍查詢（自動索引）；**不濾 `deletedAt`、不加 limit**（理由在 core 的 `NotesSync`）。 */
+    override suspend fun listUpdatedSince(path: String, since: Ts): List<Doc> =
+        db.collection(path)
+            .whereGreaterThan("updatedAt", Timestamp(since.seconds, since.nanos))
+            .orderBy("updatedAt")
+            .get().await().documents.map(::withId)
+
+    private fun withId(d: DocumentSnapshot): Doc =
+        linkedMapOf<String, Any?>("id" to d.id) + toCore(d.data ?: emptyMap<String, Any?>())
 
     override fun newId(path: String): String = db.collection(path).document().id
 

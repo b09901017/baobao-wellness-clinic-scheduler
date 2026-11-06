@@ -100,6 +100,7 @@ Google 自動替每一把建了 Android 的 OAuth 用戶端；`google-services.j
 | core | `android/core/.../Notes.kt` | `domain/notes.js` 的照抄（`validateNote`、`normalize`、`normalizePatch`、`sortNotes`、`groupLinked`、`linkedPeers`、`linkedChanges`、`copyPlan`、`linkedReach`／`linkedWords`／`linkedBadge`、`noteActions`、`dateChoices`、`copiedSay`、`openCount`） |
 | | `Names.kt` | `normalizeAlias`、`normalizeChartNo`、`chartNosOf`、`nameHas`、`chartNoHas`、`nameSuggestions(text, caret, customers, collator, currentId, limit)`（**collator 由呼叫端給**：app 用 `android.icu.text.Collator.getInstance(ULocale("zh-Hant"))`）；`WebLinks.note(origin, id)`、`WebLinks.newGive(origin)` |
 | | `NotesWriter.kt` | `data/notes.js` ＋ `repo.commit()`：`create`、`update`、`setDone`、`remove`、`removeRow`、`copyTo`、`unlink`，每一筆一則稽核；讀寫經 `NoteStore` 介面 |
+| | `NotesSync.kt` | 小工具的增量同步（她 11/6 決定的更新方式，段五收到主控轉達之後補的）：`pull(store, state)` —— 沒有游標就整份讀還沒勾的（`listOpen()`），有就只問 `updatedAt` 大於游標的（`listUpdatedSince()`，**含刪掉、勾掉的**、不加 limit），`merge()` 把勾掉、刪掉的拿掉、拿回來的加回去；游標是讀回來最大的 `updatedAt`（伺服器時間，不是手機的時鐘；還沒回到伺服器的 null 不算）。單欄位查詢用自動索引、Rules 不用改。`NotesSyncTest` 六題 |
 | | `Js.kt`、`Dates.kt` | JS 的 `trim()`／`\s`、`String()`、真假值；`isValidDate`、`shortDate`、`isoInstant`（三位毫秒）、`todayIso` |
 | app | `Backend.kt` | 接哪一個 Firebase（`-Pemulator` → `demo-scheduler`＋127.0.0.1）、開本機快取、`Backend.notes`（寫入）、`Backend.store` |
 | | `FirestoreNoteStore.kt` | `NoteStore` 接 Firestore SDK；值在這裡換；**寫入 4 秒沒回到伺服器就不等了**（`pending`，畫面講「存在這台手機上了」） |

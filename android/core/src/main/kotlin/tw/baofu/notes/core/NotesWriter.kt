@@ -12,6 +12,18 @@ interface NoteStore {
     /** `where(field, '==', value)`，**含已刪除的**、不排序；每一筆帶 `id`。網頁 `repo.listWithDeleted()`。 */
     suspend fun listWhere(path: String, field: String, value: String): List<Doc>
 
+    /**
+     * 還沒勾、還活著的（網頁 `listOpen()`：`deletedAt == null`、`done == false`、`createdAt` 新的在前，同一個複合索引）；每一筆帶 `id`。
+     * 小工具第一次同步用（[NotesSync.pull]）。
+     */
+    suspend fun listOpen(path: String): List<Doc>
+
+    /**
+     * `updatedAt > since`，**含已刪除、已勾掉的**（小工具才知道要拿掉它們）、不加 limit；每一筆帶 `id`。
+     * 單欄位的範圍查詢：用 Firestore 自動建的索引，不用補 `firestore.indexes.json`（[NotesSync]）。
+     */
+    suspend fun listUpdatedSince(path: String, since: Ts): List<Doc>
+
     /** 先拿一個還沒用過的 id（網頁 `doc(collection(db, path)).id`）。 */
     fun newId(path: String): String
 
