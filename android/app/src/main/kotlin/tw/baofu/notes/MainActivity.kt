@@ -1,5 +1,7 @@
 package tw.baofu.notes
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,12 +33,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import tw.baofu.notes.core.Dates
 import tw.baofu.notes.core.Notes
+import tw.baofu.notes.widget.NotesWidgetReceiver
+import tw.baofu.notes.widget.WidgetSync
 
 /**
  * 打開「隨手記」那一顆：登入、確認讀寫接得上。**這一頁只是骨架**（段五，issue 06）——
@@ -70,7 +76,13 @@ private fun NotesScreen(activity: MainActivity) {
 
     fun show(outcome: SignIn.Outcome) {
         when (outcome) {
-            SignIn.Outcome.Allowed -> { gate = Gate.Allowed; message = "" }
+            SignIn.Outcome.Allowed -> {
+                gate = Gate.Allowed
+                message = ""
+                // 小工具跟著換成這一位的（整份讀一次）
+                val app = activity.applicationContext
+                scope.launch { WidgetSync.pull(app, full = true) }
+            }
             is SignIn.Outcome.NotAllowed -> { gate = Gate.SignedOut; message = "這個帳號（${outcome.email ?: "沒有 email"}）沒有權限，沒有寫任何東西" }
             SignIn.Outcome.Cancelled -> { gate = Gate.SignedOut; message = "" }
             is SignIn.Outcome.Failed -> { gate = if (Backend.auth.currentUser == null) Gate.SignedOut else Gate.Checking; message = outcome.message }
@@ -103,7 +115,7 @@ private fun NotesScreen(activity: MainActivity) {
             }
             Gate.Checking -> Text("確認帳號中…")
             Gate.Allowed -> NotesPanel(
-                onSignOut = { scope.launch { SignIn.signOut(activity); gate = Gate.SignedOut } },
+                onSignOut = { scope.launch { SignIn.signOut(activity); WidgetSync.forget(activity.applicationContext); gate = Gate.SignedOut } },
                 say = { message = it },
             )
         }
@@ -113,8 +125,12 @@ private fun NotesScreen(activity: MainActivity) {
 @Composable
 private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var text by remember { mutableStateOf("") }
     var rows by remember { mutableStateOf(emptyList<Notes.Row>()) }
+
+    // 打開 app 也跟雲端對一次（小工具跟著換）
+    LaunchedEffect(Unit) { WidgetSync.pull(context.applicationContext) }
 
     // 還沒勾的（網頁 `listOpen()` 同一個查詢、同一個索引）；本機還沒送出的那幾筆也在裡面（離線照記）
     DisposableEffect(Unit) {
@@ -147,6 +163,7 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
                 try {
                     Backend.notes.create(data)
                     text = ""
+                    WidgetSync.afterLocalWrite(context.applicationContext)
                     say(if (Backend.store.pending) "存在這台手機上了，連上網路會補傳" else "記好了")
                 } catch (e: Exception) {
                     say("存不進去：${e.message}")
@@ -162,6 +179,7 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
                     scope.launch {
                         try {
                             Backend.notes.setDone(row.note["id"] as String, true)
+                            WidgetSync.afterLocalWrite(context.applicationContext)
                         } catch (e: Exception) {
                             say("勾不掉：${e.message}")
                         }
@@ -174,5 +192,12 @@ private fun ColumnScope.NotesPanel(onSignOut: () -> Unit, say: (String) -> Unit)
         }
     }
 
+    // 把小工具放到桌面：系統跳一個框問要不要放（桌面支援的話）；不支援的講怎麼自己放
+    OutlinedButton(onClick = {
+        val manager = AppWidgetManager.getInstance(context)
+        val provider = ComponentName(context, NotesWidgetReceiver::class.java)
+        if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(provider, null, null)
+        else say("長按桌面空白的地方 → 小工具 → 找「${context.getString(R.string.app_name)}」")
+    }) { Text("把小工具放到桌面") }
     OutlinedButton(onClick = onSignOut) { Text("登出") }
 }

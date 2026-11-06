@@ -5,6 +5,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import tw.baofu.notes.core.Doc
@@ -41,6 +42,17 @@ class FirestoreNoteStore(private val db: FirebaseFirestore) : NoteStore {
             .whereEqualTo("done", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .get().await().documents.map(::withId)
+
+    /**
+     * 同 [listOpen]，**只讀這台手機的快取**（不等網路）：小工具上自己寫完要馬上換掉清單時用 ——
+     * 自己剛寫的那幾筆已經在快取裡（還沒送到伺服器也在），等伺服器的話網路慢就要等好幾秒。
+     */
+    suspend fun listOpenCached(path: String): List<Doc> =
+        db.collection(path)
+            .whereEqualTo("deletedAt", null)
+            .whereEqualTo("done", false)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .get(Source.CACHE).await().documents.map(::withId)
 
     /** 單欄位的範圍查詢（自動索引）；**不濾 `deletedAt`、不加 limit**（理由在 core 的 `NotesSync`）。 */
     override suspend fun listUpdatedSince(path: String, since: Ts): List<Doc> =
