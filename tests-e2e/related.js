@@ -715,6 +715,13 @@ export const COVERAGE = {
     'tests-e2e/fixtures/ai/aboveeList-one-time.json',
   ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
+  // 複製到別天、連在一起的隨手記（notes-widget 04、05，ADR-0179）：長按 → 小月曆 → 一組三天；清單一列「共 N 天」、
+  // 日曆每一天一筆；在日曆勾一天整組一起勾（連不在這個月的）；拆開這一天；日曆編輯器只改日期不寫另外那幾天
+  '97-notes-linked-copy': [
+    'public/js/domain/notes.js', 'public/js/data/notes.js', 'public/js/ui/components/note.js',
+    'public/js/ui/components/actions.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/domain/calendar.js', 'firestore.rules',
+  ],
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
     'public/js/data/customers.js',
@@ -781,6 +788,12 @@ export const CSS_SCOPES = {
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
   // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
   notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 連在一起的隨手記（ADR-0179）：清單上那一顆「共 N 天」、「改日期」那張卡、「複製到別天」那張小月曆
+  notecount: { classes: ['notecount'], owners: ['public/js/ui/components/note.js'] },
+  datechoice: { classes: ['datechoice'], owners: ['public/js/ui/components/note.js'] },
+  copydays: { classes: ['copydays'], owners: ['public/js/ui/components/note.js'] },
+  // 長按選單抬頭底下那一排小丸（連在一起的隨手記是哪幾天）
+  actionstags: { classes: ['actions__tag', 'actions__tags'], owners: ['public/js/ui/components/actions.js'] },
   // 挑顏色那一排圓點：客戶備註、長備註那幾則的編輯、設定頁警示、行事備註（ADR-0171 的 `.swatches--event`）
   swatch: {
     classes: ['swatch', 'swatches'],

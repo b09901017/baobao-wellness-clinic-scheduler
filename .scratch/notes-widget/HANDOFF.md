@@ -12,7 +12,7 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 | 段 | issue | effort | 狀態 |
 |---|---|---|---|
 | 設計 | grilling 四輪、spec、issue 01–09、subagent 過目 | xhigh | **做完**（11/6） |
-| 一 | 04 連在一起（domain／data／Rules／ADR-0178）、05 複製到別天的畫面 | xhigh | 待開 |
+| 一 | 04 連在一起（domain／data／Rules／**ADR-0179**）、05 複製到別天的畫面 | xhigh | **做完**（11/6；04 `ebc08555`、05 見 git log；已推） |
 | 二 | 01 鍵盤（HTC 接 `chrome://inspect` 實機重現）、02 一排丸子＋首頁給營養品＋長按提示、03 打名字跳出客戶＋掛給誰搜尋、10 給小工具的兩條網址 | high | |
 | 三 | `/matt-code-review` 審網頁那一半（01–05） | xhigh | |
 | 四 | 照審查修（10）、手動驗收清單（本機模擬器走過）、PR 進 develop、CI 綠了合併；請她在 staging 主畫面那一顆點 | high | |
@@ -35,7 +35,8 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 - `public/` 有動：`git fetch` 之後用 `origin/develop` 上 `sw.js` 的 `VERSION` 再加一（11/6 develop 是 `v299`）、重跑 `npm run shell:snapshot`；同一支 PR 裡第二次動 `public/` 再加一；
   **新檔案要進 `sw.js` 的 `SHELL` 與 `tests-e2e/related.js`**（新的 spec 也要登記）
 - **平行的一輪**：試算表（worktree `sheet-push-gaps-112028`、分支 `claude/sheet-slot-notes-below`）正在改 `sheets/readonly-report.gs` 與 `tests/sheet-*.test.js`，**已經佔了 ADR-0177**。不碰它的資料夾與分支。
-  這一輪的 ADR：**0178 連在一起的隨手記、0179 原生小工具**、0180 留給鍵盤（要寫的話）；寫之前看 `docs/adr/` 與其他 worktree 有沒有人先拿走
+  這一輪的 ADR：~~0178~~ **被試算表那一輪先拿走了**（`claude/sheet-no-freeze` 的 `0178-sheet-nothing-frozen.md`）→ **0179 連在一起的隨手記（段一寫了）、0180 原生小工具**、0181 留給鍵盤（要寫的話）；
+  寫之前看 `docs/adr/` 與其他 worktree 有沒有人先拿走（`ls ../*/docs/adr | grep 018`）。**`docs/adr/README.md` 索引最後一列**：試算表那一輪合進 develop 時 0178 那一列會跟 0179 撞在同一個位置，merge 時兩列都留、照號碼排
 - **模擬器同一時間只能一組**（所有 worktree 共用 port）：起之前 `netstat -ano | findstr :5000`（與 `emulatorPortsFor` 那幾組）；有人在跑就不要停掉別人的，先問她
 - **公開 repo**：真名一律寫王小明／客戶A；commit 訊息、PR 內文推之前自己看一眼（`CLAUDE.md`「上線」）；推之前 `node --test tests/no-secrets.test.js` 要 skipped 0（這個 worktree 不建 `.local` 連結，`tests/helpers/localDir.js` 自己去主資料夾找）；
   讀 `.local` 的一律接主資料夾的過濾網 `| node <主資料夾>/.local/references/redact.mjs`
@@ -78,9 +79,18 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 
 ### 段一
 
+1. **ADR 用 0179**（0178 被試算表那一輪先拿走了，已推上去）；這一輪往後挪一號：0180 小工具、0181 鍵盤。上面「平行的一輪」那一條改了
+2. **已勾掉那幾筆的長按「刪掉」放不下了**：她的五顆（勾掉／改日期／掛給誰／改文字／複製到別天）裡沒有它。刪掉還有：隨手記那一頁每一列的垃圾桶、「清掉這 N 筆」、日曆待辦編輯器的「刪掉」。
+   **少掉的只有客戶詳情**：那一頁已勾掉的那幾列沒有垃圾桶，要刪得去隨手記那一頁 → 問她（要她決定的 3）
+3. **小月曆上今天以前的日子點不了**（段一定的：替過去的一天補一則提醒會一建好就過了；要補記昨天那一件用「記一筆」）→ 一起問她（要她決定的 3）
+4. 樣子圖的小月曆是週日起算、開關畫成滑桿；app 的月曆是週一起算、開關都是 `.choice--row` 的勾選框 → **照 app 的**（不問，寫在 05 的「做完時留下的」）
+
 ## 要她決定的
 
 1. ~~長按選單~~ → 她 11/6 回了（她已經決定的）
+3. **段一的兩件，收成一題**（建議：照現在）：
+   - 已勾掉的隨手記，長按不再有「刪掉」（放不下）；客戶詳情上要刪已勾掉的那一筆，去隨手記那一頁按垃圾桶 —— **建議照現在**；要的話客戶詳情那一塊已勾掉的那幾列也放一顆垃圾桶（跟隨手記那一頁一樣，整組一起刪）
+   - 「複製到別天」的小月曆今天以前的日子點不了 —— **建議照現在**
 2. **段二開頭**：請她把 HTC 開「USB 偵錯」接筆電（設定 → 關於手機 → 軟體資訊 → 連點「版本號碼」七下 → 開發人員選項 → USB 偵錯；接上時手機問「允許 USB 偵錯嗎」按允許）
 - ~~樣子定稿~~：主控 11/6 畫好（`mockups/final-1～3.png`、`final-mockups.html`），她回了麥克風與深色（她已經決定的）；選單那一張（final-3 的 6）照重排之後的為準
 - **在 app 記的，多久出現在小工具上**（擋段六）：主控 11/6 問她（建議：自己記的馬上；在 app 記的，打開小工具的輸入卡時、或最多 15 分鐘更新一次；要即時就加一支 Cloud Function 推通知，之後再說）
@@ -108,3 +118,29 @@ ADR 用 0178（0177 被平行的試算表那一輪拿走了）。`linkId` 這個
 做完要交：兩支各一個 commit 並推上去（`git push -u origin claude/notes-widget`；推之前看一眼 commit 訊息沒有真名、`node --test tests/no-secrets.test.js` skipped 0）、
 `Status: done`、「做完時留下的」、HANDOFF 更新（分段表狀態、中途發現、要她決定的）、段二的開場與 effort（high）寫進 HANDOFF「每一段的開場」；最後回覆簡短說做了什麼、卡在哪。
 ```
+
+### 段二（effort：high）
+
+```
+這一輪做隨手記：複製到別天（預設連在一起）、打名字跳出客戶、鍵盤蓋住輸入框、原生 Android 桌面小工具（後面幾段）。
+你是段二：做 01（鍵盤蓋住輸入框，HTC 接 chrome://inspect 實機重現）、02（今天／挑日期／掛給誰／給營養品一排＋首頁那張卡加給營養品＋長按提示）、
+03（打名字跳出客戶＋「掛給誰」可以搜尋）、10（給小工具的兩條網址）。不做 04–09。
+
+在 worktree `.claude/worktrees/notes-widget`（分支 `claude/notes-widget`，已推；段一的兩個 commit 是 04、05）。
+**第一件事**：請她把 HTC 開「USB 偵錯」接筆電（HANDOFF「要她決定的」2 有步驟）；01 要實機重現，不等她接好就先做 02、03、10。
+先讀：`.scratch/notes-widget/HANDOFF.md` 的「每一段共同的規矩」「她已經決定的」「過目抓到的」「中途發現 → 段一」；`.scratch/notes-widget/spec.md`；
+`.scratch/notes-widget/issues/01-keyboard-covers-input.md`、`02-one-chip-row-and-hint.md`、`03-name-suggestions-and-who-search.md`、`10-web-links-for-widget.md`，
+以及 04、05 的「做完時留下的」（**`note.js` 段一改過：長按三個入口共用 `note.openMenu()`、`askCustomer()` 多了第三個參數 `{ also }`、`runAction()` 的日期那幾支換成「改日期」那張卡**）；`CLAUDE.md`；`docs/agents/lessons.md`。
+
+規矩（HANDOFF 有全文）：改既有的函式、型別、畫面上的字之前照 `ripple-check` 查牽連（這個 worktree 的 CodeGraph，`codegraph sync` 後再查，跟 grep 對一次）；修完找同一個形狀的地方。
+中途發現的事不岔出去修，記進 HANDOFF「中途發現 → 段二」，段末一次問她；同時最多兩個 subagent。
+一支一個 commit：紅燈 → 綠 → `npm run verify` → commit → `Status: done` → 「做完時留下的」。`public/` 有動照規定升 `sw.js` 的 VERSION（段一停在 v302；先 `git fetch` 看 develop 有沒有更大的）並 `npm run shell:snapshot`；新檔案進 `SHELL` 與 `tests-e2e/related.js`。
+ADR：鍵盤要寫的話用 **0181**（0178 被試算表那一輪拿走、0179 是段一的連在一起、0180 留給小工具）；寫之前照樣看別的 worktree。
+模擬器同一時間只能一組（所有 worktree 共用 port），起之前先看 port 上有沒有人；HTC 接的是 staging、畫面上有真名，截圖只放 scratchpad。
+
+主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON。
+
+做完要交：每支一個 commit 並推上去（推之前看一眼 commit 訊息沒有真名、`node --test tests/no-secrets.test.js` skipped 0）、
+`Status: done`、「做完時留下的」、HANDOFF 更新（分段表、中途發現、要她決定的）、段三（審查，xhigh）的開場；最後回覆簡短說做了什麼、卡在哪。
+```
+

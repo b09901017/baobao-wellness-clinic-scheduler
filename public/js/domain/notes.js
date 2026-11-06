@@ -422,34 +422,38 @@ export function linkedBadge(row) {
  * 點了一張卡再選（`dateChoices()`）；連在一起的「拆開這一天」收在「複製到別天」那張卡的最上面。
  * 以前已勾掉那幾筆的「刪掉」也放不下了 —— 刪掉還有隨手記那一頁的垃圾桶、「清掉這 N 筆」、日曆編輯器的「刪掉」。
  *
- * 第二個參數（`{ today, onCalendar }`）呼叫端照舊傳，這一份用不到了 —— 日期那幾顆搬進 `dateChoices()`。
+ * 連在一起的（`linkedDays` ≥ 2）底下那一行小字講出會作用在幾天：勾「N 天一起」、改日期「只改這一天」、
+ * 掛給誰與改文字「N 天一起改」（她看到一樣東西、按下去就作用在那一樣東西 —— 作用在別天的要講出來）。
  *
  * @param {object} note
+ * @param {{linkedDays?: number}} [o] 這一組有幾天（含它自己；呼叫端照重讀的那一組算）。日期那幾顆搬進 `dateChoices()` 了，
+ *   `today`／`onCalendar` 呼叫端照舊傳、這一份用不到
  * @returns {{id:string, label:string, note?:string, icon?:string, tone?:string}[]}
  */
-export function noteActions(note) {
+export function noteActions(note, { linkedDays = 0 } = {}) {
   const out = [];
   const product = Boolean(note?.entitlementId);
+  const together = !product && linkedDays >= 2 ? `${linkedDays} 天一起` : null;
 
   if (note?.done) {
-    out.push({ id: 'untick', label: '拿回來，還沒做', icon: 'todo' });
+    out.push({ id: 'untick', label: '拿回來，還沒做', note: together ?? undefined, icon: 'todo' });
   } else {
     out.push({
       id: 'tick',
       label: '做完了，勾掉',
       // 營養品的提醒勾掉之前會先問「給了哪些」（`prepareToggle()`）——
       // 講出來，不然她會以為按下去就直接勾掉了。
-      note: product ? '會先問給了哪幾款' : undefined,
+      note: product ? '會先問給了哪幾款' : (together ?? undefined),
       icon: 'check',
       tone: 'primary',
     });
   }
 
-  // 有沒有日期都叫「改日期」（她的字）。現在是哪一天寫在底下那一行小字。
+  // 有沒有日期都叫「改日期」（她的字）。現在是哪一天寫在底下那一行小字；連在一起的講「只改這一天」。
   out.push({
     id: 'date',
     label: '改日期',
-    note: note?.date ?? undefined,
+    note: together ? '只改這一天' : (note?.date ?? undefined),
     icon: 'calendar',
   });
 
@@ -463,13 +467,13 @@ export function noteActions(note) {
   out.push({
     id: 'who',
     label: note?.customerId ? '改掛給誰' : '掛給誰',
-    note: note?.customerName ?? undefined,
+    note: together ? `${together}改` : (note?.customerName ?? undefined),
     icon: 'people',
   });
 
   // 「改文字」補上的是 ADR-0044 Consequences 記著的那個缺口：在這之前
   // 隨手記除了勾掉之外只有日曆上那一張編輯器改得動。
-  out.push({ id: 'edit', label: '改文字', icon: 'pencil' });
+  out.push({ id: 'edit', label: '改文字', note: together ? `${together}改` : undefined, icon: 'pencil' });
 
   // 小月曆一次點好幾天，預設連在一起（ADR-0179）。連在一起的「拆開這一天」在那張卡的最上面。
   out.push({ id: 'copy', label: '複製到別天', icon: 'copy' });

@@ -45,7 +45,7 @@ import {
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
-import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
+import { MAX_LENGTH as NOTE_TEXT_MAX, linkedPeers } from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { slotName, nameOf } from '../../domain/naming.js';
@@ -1030,13 +1030,24 @@ function openNoteCard(el, data, id, date, repaint) {
         不是死線。</p>`,
       actions: `
         <button class="btn ${current.done ? '' : 'btn--primary'}" type="button" data-tick>
-          ${current.done ? '拿回來，還沒做' : '做完了，勾掉'}</button>`,
+          ${current.done ? '拿回來，還沒做' : '做完了，勾掉'}</button>
+        ${/* 長按選單那一顆不靠長按的路（ADR-0060）；「拆開這一天」在那張卡的最上面。營養品的提醒不給複製（ADR-0179） */''}
+        ${current.entitlementId ? '' : `
+          <button class="btn" type="button" data-copy>${icon('copy', { size: 15 })}複製到別天</button>`}`,
       canEdit: true,
       onEdit: () => {
         closeCard();
         openNoteEditor(el, data, { id: current.id, backDate: date });
       },
       onMount: (card) => {
+        card.querySelector('[data-copy]')?.addEventListener('click', async () => {
+          try {
+            const changed = await note.runAction('copy', current, { ...noteDeps(), onCalendar: true });
+            if (changed) await refreshAfterAction(el, date);
+          } catch {
+            /* 已處理 */
+          }
+        });
         card.querySelector('[data-tick]')?.addEventListener('click', async () => {
           // 營養品的提醒會先問「給了哪些」（四個入口共用 `note.prepareToggle()`）。
           // 問話在 withSaveState 外面 —— 包進去的話她按了「先不要」也會跳
@@ -1302,6 +1313,10 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 連在一起的那一組（ADR-0179）：重讀、複製到別天、拆開這一天
+    listLinked: (linkId) => notesData.listLinked(linkId),
+    copyTo: (n, dates, o) => notesData.copyTo(n, dates, o),
+    unlink: (id) => notesData.unlink(id),
     // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
     loadProducts: () => config.listAll('products'),
     today: todayISO(),
@@ -1315,26 +1330,18 @@ function noteQuickActions(el, data, id, backDate) {
   const n = (data.notes ?? []).find((x) => x.id === id);
   if (!n) return;
 
-  openActions({
-    title: n.text,
-    subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
-      .filter(Boolean).join('・'),
-    items: noteActions(n, { today: todayISO(), onCalendar: true }),
-    onPick: async (action) => {
-      try {
-        const changed = await note.runAction(action, n, {
-          ...noteDeps(),
-          onEdit: () => openNoteEditor(el, data, { id: n.id, backDate }),
-          onBag: () => {
-            if (n.customerId) go(`/customers/${n.customerId}`);
-            else toast.info('這一筆沒有掛客戶，找不到是哪一包');
-          },
-        });
-        if (changed) await refreshAfterAction(el, backDate);
-      } catch {
-        /* 已處理 */
-      }
+  // 日曆只讀了畫得出來的那一段 → 連在一起的另外那幾天不一定在手上，打開選單之前重讀（`note.openMenu()`）
+  note.openMenu(n, {
+    notes: data.notes,
+    complete: false,
+    onCalendar: true,
+    deps: noteDeps(),
+    onEdit: () => openNoteEditor(el, data, { id: n.id, backDate }),
+    onBag: () => {
+      if (n.customerId) go(`/customers/${n.customerId}`);
+      else toast.info('這一筆沒有掛客戶，找不到是哪一包');
     },
+    after: () => refreshAfterAction(el, backDate),
   });
 }
 
@@ -1462,6 +1469,18 @@ function mountNoteEditor(el, data, sheet, spec) {
         if (picked && text) text.value = picked.text;
       },
     });
+  }
+
+  // 連在一起的（ADR-0179）：字與掛給誰同一組一起改，講出來（lessons 五）—— 換掉抬頭底下那一行，不多長一段常駐說明。
+  // 重讀那一組才知道還有幾天（日曆手上只有這一個月）；讀不到就不講，寫的那一刻照樣重讀
+  if (existing?.linkId) {
+    notesData.listLinked(existing.linkId)
+      .then((rows) => {
+        const peers = linkedPeers(existing, rows);
+        if (!peers.length || !sheet.el.isConnected) return;
+        sheet.setNote(`<span data-linkhint>連在一起：另外 ${peers.length} 天的字與掛給誰會一起改，日期只動這一筆。</span>`);
+      })
+      .catch(() => { /* 讀不到就不講 */ });
   }
 
   const done = () => {

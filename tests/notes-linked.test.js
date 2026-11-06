@@ -347,6 +347,18 @@ describe('長按選單（她 11/6 定的：勾掉／改日期／掛給誰／改�
     assert.ok(!ids(note({ entitlementId: 'e1', date: null })).includes('copy'));
   });
 
+  test('連在一起的：底下那一行講會作用在幾天（勾、掛給誰、改文字一起；改日期只改這一天）', () => {
+    const notes = (n) => Object.fromEntries(noteActions(n, { today: TODAY, linkedDays: 3 }).map((a) => [a.id, a.note]));
+    const open = notes(trio()[0]);
+    assert.equal(open.tick, '3 天一起');
+    assert.equal(open.date, '只改這一天');
+    assert.equal(open.who, '3 天一起改');
+    assert.equal(open.edit, '3 天一起改');
+    assert.equal(notes(trio({ done: true })[0]).untick, '3 天一起');
+    // 只有自己一天（沒連在一起）照舊
+    assert.equal(noteActions(note({ date: '2026-11-09' }), { linkedDays: 1 }).find((a) => a.id === 'date').note, '2026-11-09');
+  });
+
   test('連在一起的也是五顆（拆開這一天收在「複製到別天」那張卡裡）', () => {
     const [a] = trio();
     assert.deepEqual(ids(a), ['tick', 'date', 'who', 'edit', 'copy']);

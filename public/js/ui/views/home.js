@@ -28,7 +28,7 @@ import {
 } from '../../domain/visits.js';
 import { waitState, followupNoteOf } from '../../domain/confirmations.js';
 import {
-  sortNotes, openCount, groupByCustomer, sameOpenNote, noteActions, groupLinked,
+  sortNotes, openCount, groupByCustomer, sameOpenNote, groupLinked, linkedBadge,
   MAX_LENGTH as NOTE_TEXT_MAX,
 } from '../../domain/notes.js';
 import {
@@ -1565,7 +1565,7 @@ function notesCard(notes) {
       </div>
 
       <div class="groups" data-notes>
-        ${rows.map((r) => note.row(r.note)).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
+        ${rows.map((r) => note.row(r.note, { badge: linkedBadge(r) })).join('') || '<p class="muted" style="padding: var(--space-3)">還沒記過。客人臨時說的小要求記在這裡。</p>'}
       </div>
 
       <form data-newnote style="margin-top: var(--space-3)">
@@ -1838,6 +1838,10 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 連在一起的那一組（ADR-0179）：重讀、複製到別天、拆開這一天
+    listLinked: (linkId) => notesData.listLinked(linkId),
+    copyTo: (n, dates, o) => notesData.copyTo(n, dates, o),
+    unlink: (id) => notesData.unlink(id),
     // 舊資料的 `items[].name` 是空字串，靠主檔認回名字 ——
     // 沒有的話「給了什麼？」那張面板每一列都是空白（`issues/10`）。
     loadProducts: () => config.listAll('products'),
@@ -1850,6 +1854,7 @@ function noteDeps() {
 
 /**
  * 長按一列隨手記＝直接做（ADR-0060）。點一下勾掉的行為一個字都沒有變。
+ * 選單與選了之後做什麼走 `note.openMenu()`（三個入口共用：這裡、客戶詳情、日曆）。
  *
  * **委派掛在那一塊清單上，不是掛在 `el` 上。** `paint()` / `paintNotes()`
  * 換的是 `el.innerHTML`，`el` 本身留著 —— 掛在它上面的話每重畫一次就多一組，
@@ -1861,34 +1866,26 @@ function noteDeps() {
  * @param {HTMLElement} el 那一頁的容器
  * @param {object[]} notes 現在畫出來的那幾筆
  * @param {Function} after 寫完之後重畫哪一頁
+ * @param {{complete?: boolean}} [o] 手上那一份是不是連在一起的整組都在（`note.openMenu()`）：
+ *   首頁那張卡、隨手記那一頁是；逾期／今天／明天（那一天）不是 —— 打開選單之前照 `linkId` 重讀
  */
-function wireNoteLongPress(el, notes, after) {
+function wireNoteLongPress(el, notes, after, { complete = true } = {}) {
   wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
     const n = (notes ?? []).find((x) => x.id === btn.dataset.note);
     if (!n) return;
 
-    openActions({
-      title: n.text,
-      subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
-        .filter(Boolean).join('・'),
-      items: noteActions(n, { today: todayISO() }),
-      onPick: async (action) => {
-        try {
-          // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
-          // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
-          // 那是在解釋一個限制而不是在做事。
-          const changed = await note.runAction(action, n, {
-            ...noteDeps(),
-            onBag: () => {
-              if (n.customerId) go(`/customers/${n.customerId}`);
-              else toast.info('這一筆沒有掛客戶，找不到是哪一包');
-            },
-          });
-          if (changed) await after();
-        } catch {
-          /* 已處理 */
-        }
+    // **不傳 `onEdit`** —— 這一頁沒有自己的編輯器，`runAction()` 會用
+    // 內建的那一張小卡片。以前這裡回一句「先勾掉再記一筆新的」，
+    // 那是在解釋一個限制而不是在做事。
+    note.openMenu(n, {
+      notes,
+      complete,
+      deps: noteDeps(),
+      onBag: () => {
+        if (n.customerId) go(`/customers/${n.customerId}`);
+        else toast.info('這一筆沒有掛客戶，找不到是哪一包');
       },
+      after,
     });
   });
 }
@@ -2309,7 +2306,8 @@ function wireBucketBlocks(ctx) {
   el.querySelector('[data-done-retry]')?.addEventListener('click', again);
   wireNoteToggles(el.querySelectorAll('[data-notes] [data-note]'), ctx.notes, again);
   wireNoteToggles(el.querySelectorAll('[data-done-notes] [data-note]'), ctx.finished?.notes ?? [], again);
-  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again);
+  // 這幾頁照日子看（一天一列）：連在一起的另外那幾天不在手上 → 打開選單之前重讀
+  if (ctx.notes.length) wireNoteLongPress(el, ctx.notes, again, { complete: false });
 }
 
 /** 點一列隨手記＝勾掉或拿回來。逾期／今天／明天那一頁的未完成與已完成兩塊共用。 */
@@ -4298,7 +4296,7 @@ function paintNotes(ctx) {
     </div>
 
     <div class="notelist" data-notes>
-      ${rows.map((r) => note.row(r.note, { trash: true })).join('')
+      ${rows.map((r) => note.row(r.note, { trash: true, badge: linkedBadge(r) })).join('')
         || `<p class="muted" style="padding: var(--space-3) 0">${
           notesTab === 'done' ? '還沒有勾掉的。' : '沒有未處理的。客人臨時說的小要求記在這裡。'}</p>`}
     </div>

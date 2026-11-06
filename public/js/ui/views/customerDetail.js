@@ -23,7 +23,7 @@ import * as auditView from './audit.js';
 import * as auditData from '../../data/audit.js';
 import * as config from '../../data/config.js';
 import * as notesData from '../../data/notes.js';
-import { groupLinked, linkedBadge, noteActions, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
+import { groupLinked, linkedBadge, MAX_LENGTH as NOTE_TEXT_MAX } from '../../domain/notes.js';
 import { icon } from '../icons.js';
 import { monthNav, steppedMonth } from '../components/monthnav.js';
 import * as rules from '../../domain/customers.js';
@@ -424,22 +424,14 @@ function wire(ctx, { today }) {
   wireLongPress(el.querySelector('[data-notes]'), '[data-note]', (btn) => {
     const n = ctx.notes.find((x) => x.id === btn.dataset.note);
     if (!n) return;
-    openActions({
-      title: n.text,
-      subtitle: n.date ? shortDate(n.date) : '沒有日期',
-      items: noteActions(n, { today: todayISO() }),
-      onPick: async (action) => {
-        try {
-          // 不傳 `onEdit`：這一頁沒有自己的編輯器，`runAction()` 會用內建的那一張。
-          const changed = await note.runAction(action, n, {
-            ...noteRunDeps(ctx),
-            onBag: () => toast.info('那一包就在這一頁的「營養品」那一段'),
-          });
-          if (changed) await reload(ctx);
-        } catch {
-          /* 已處理 */
-        }
-      },
+    // 不傳 `onEdit`：這一頁沒有自己的編輯器，`runAction()` 會用內建的那一張。
+    // 這一位的隨手記全部都在手上（`listByCustomer()`）→ 連在一起的整組都在，不用重讀
+    note.openMenu(n, {
+      notes: ctx.notes,
+      customer: false,
+      deps: noteRunDeps(ctx),
+      onBag: () => toast.info('那一包就在這一頁的「營養品」那一段'),
+      after: () => reload(ctx),
     });
   });
 
@@ -1450,7 +1442,7 @@ function notesBlock(notes) {
   const rows = groupLinked(notes, todayISO());
   return `
     <div class="groups" data-notes>
-      ${rows.map((r) => note.row(r.note, { customer: false, iconSize: 12 })).join('')
+      ${rows.map((r) => note.row(r.note, { customer: false, iconSize: 12, badge: linkedBadge(r) })).join('')
         || '<p class="muted" style="padding: var(--space-3); margin: 0">還沒記過。</p>'}
     </div>
     ${/* 日期那一排包在 `.notemeta` 裡 —— 那是四個入口共用的外框
@@ -1575,6 +1567,10 @@ function noteRunDeps(ctx) {
     loadEntitlements: (cid) => data.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => data.list(),
+    // 連在一起的那一組（ADR-0179）：重讀、複製到別天、拆開這一天
+    listLinked: (linkId) => notesData.listLinked(linkId),
+    copyTo: (n, dates, o) => notesData.copyTo(n, dates, o),
+    unlink: (id) => notesData.unlink(id),
     // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
     // 這一頁已經讀好了，不多一次往返。
     loadProducts: async () => ctx.products ?? [],

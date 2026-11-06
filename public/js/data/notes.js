@@ -181,20 +181,23 @@ export function unlink(id) {
  * 營養品的提醒不會連在一起（`validateNote()`），所以 `recordDelivery()` 那一條路不用管這件事。
  *
  * **回傳寫進去的那幾欄**，理由跟 `recordDelivery()` 同一條：呼叫端要重畫的話，
- * 讀的是寫入的人回報的結果，不是自己猜的。形狀沒變（`prepareToggle()`、三份 `noteDeps()` 用著）。
+ * 讀的是寫入的人回報的結果，不是自己猜的。多一格 `linkedDays`：這一下作用在幾天（連在一起的那一組不同的日子，
+ * 含它自己；沒連在一起是 0）—— toast「勾掉了（共 N 天）」讀它（重讀的那一組，不是畫面手上那一份）。
+ * `prepareToggle()` 把它拿掉才併回那一筆，畫面手上的隨手記不會多那一格。
  *
- * @returns {Promise<{done: boolean, doneAt: string|null}>}
+ * @returns {Promise<{done: boolean, doneAt: string|null, linkedDays: number}>}
  */
 export async function setDone(id, done) {
   const changes = { done, doneAt: done ? new Date().toISOString() : null };
   const { before, peers } = await freshWithPeers(id);
   if (!peers.length) {
     await repo.update(PATH, id, changes);
-    return changes;
+    return { ...changes, linkedDays: 0 };
   }
   const writes = linkedChanges(before, changes, peers);
   if (writes.length) await writeAll(writes);
-  return changes;
+  const linkedDays = new Set([before, ...peers].map((n) => n.date).filter(Boolean)).size;
+  return { ...changes, linkedDays };
 }
 
 /**

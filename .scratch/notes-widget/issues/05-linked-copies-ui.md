@@ -1,6 +1,6 @@
 # 05：複製到別天的畫面（長按選單、小月曆、「共 N 天」）
 
-Status: todo
+Status: done
 Blocked by: 04
 
 ## 動工前先讀
@@ -42,4 +42,26 @@ Blocked by: 04
 
 ## 做完時留下的
 
-（做完補）
+段一（2026-11-06）。E2E `97-notes-linked-copy`（7 支，登記進 `related.js`）。sw.js v302（04 是 v300；v301 中途產過快照又改了 CSS，跳過）。
+
+**長按選單三個入口共用一支 `note.openMenu(n, { notes, complete, customer, onCalendar, deps, onEdit, onBag, after })`**（`ui/components/note.js`）：
+- `complete`：手上那一份是不是整組都在。首頁那張卡、隨手記那一頁、客戶詳情是（不重讀）；**日曆、逾期／今天／明天不是 → 打開選單之前 `deps.listLinked()` 重讀**（讀不到照手上那一份）
+- 連在一起的：抬頭底下一排日子（`openActions()` 新的選填 `tags: [{ label, on }]`，代表的那一天 `on`），底下那一行小字「3 天一起」「只改這一天」「3 天一起改」（`noteActions(n, { linkedDays })`）
+- 三份 `noteDeps()`（home、calendar、customerDetail 的 `noteRunDeps()`）多 `listLinked`、`copyTo`、`unlink`
+
+`runAction()`：`date` → 「改日期」那張卡（`askDateChange()`，選項只問 `dateChoices()`；「改成某天」點了才露出日期框）；`copy` → `copyAction()`（先重讀那一組 → `askCopy()` 小月曆 → `copyTo()` 或 `unlink()`，`withSaveState` 帶 `key`）；
+`edit`／`who` 的卡片抬頭講「另外 N 天會一起改」（`askText(value, { also })`、`askCustomer(load, id, { also })` —— **03 要在 `askCustomer()` 加搜尋框，簽名多了第三個參數**）；
+`today`／`undate`／`remove` 三支拿掉了（選單上沒有了）。toast：勾「勾掉了（共 N 天）」（N 是 `setDone()` 重讀那一組回報的 `linkedDays` —— **`setDone()` 回的多了這一格**，`prepareToggle()` 拿掉才併回那一筆）、改字／掛給誰「（共 N 天）」、複製「複製到 N 天：勾一天，其他天一起勾」、拆開「拆開了：11/8(日)以後自己勾」。
+
+小月曆（`askCopy()`／`copyDaysHtml()`）**另畫一份、不共用日曆的 `openDatePicker()`**：那一張點一天就跳過去、綁著日曆的 `state.view`；這一張要點好幾天、標出點不了的。
+格子照 `monthWeeks()`（週一起算，跟日曆一樣；樣子圖是週日起算，照 app 的）、長相照 `.datepick__*`。它自己那一天與同一組已經有的那幾天虛線圈、點不了；**今天以前的點不了**（主控定的，段末問她）；開關是 `.choice--row` 的勾選框（app 裡的開關都長這樣，樣子圖畫的是滑桿）。
+卡片比面板窄：格子 `min-width: 0; padding: 0`、翻月那一列左右留 6px（`.calbar__nav::after` 往外撐 6px，貼邊就是一條橫的捲軸 —— 截圖量到的）。
+
+ADR-0060 那兩條不靠長按的路：日曆點一筆待辦跳出的那張卡多一顆「複製到別天」（營養品的提醒沒有），「拆開這一天」在那張小月曆最上面。
+日曆待辦編輯器：連在一起的把抬頭底下那一行換成「連在一起：另外 N 天的字與掛給誰會一起改，日期只動這一筆。」（重讀那一組；不多長一段 `field__hint` —— `tests/fewer-words.test.js` 鎖著日曆那一支只准 1 段；也不能寫「改這一天」—— `tests/slot-first.test.js` 禁那四個字在 calendar.js）。
+
+清單一列的徽章是 `.notecount`（`note.row(n, { badge })`，字是 `linkedBadge()`），淡綠底、字 `--accent`，深色淺色都截圖看過。CSS 新的四組都登記了 `CSS_SCOPES`（`notecount`、`datechoice`、`copydays`、`actionstags`）。
+
+文件：`docs/操作手冊.md`「同一件事要好幾天提醒：複製到別天」、`docs/常見問題.md`「我勾了一筆隨手記，別天的也一起勾掉了」。
+
+**沒做的、給後面的**：逾期／今天／明天那三頁與日曆上的那一列不標「連在一起」（照 spec 每一天各一列，長按才看得到是哪幾天）；小工具（07、08）照 `groupLinked()` 一組一列、選單照 `noteActions()` 的五顆。
