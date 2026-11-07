@@ -168,6 +168,11 @@ Android 那一半（06–09）在網頁那一支合進去之後，**從新的 `o
 1. **HTC 這一次沒接 USB**：修完沒在 HTC 上走本機模擬器那一支（`-Pemulator` 是 debug 鑰匙，要先移除 release 版 → 她的登入與桌面上的小工具都要重來）。R2／R3 靠 core 的單元測試（紅燈 → 綠），其餘在 staging 由她點（清單 A9）
 2. **給 HTC 的 0.1.1 是從這條分支推上去的那一個 commit 建的**（`git status` 乾淨、還沒合進 develop）—— 驗收要在合併之前；正式版照 `STAGING.md` 從合進去的那一個 commit 建
 3. 這個 worktree 的 `public/js/ui/views.js` 與 issue 02 照舊顯示「已修改」、內容一樣（段六 8），沒動
+4. **她 11/6 在 HTC 上點到：「給營養品，給完之後會記成兩筆一樣的待辦」**（她說先記起來）。還沒查：哪個入口（小工具輸入卡的「給營養品」→ 網頁 `#/todo/notes/new/give`？還是網頁本身）、兩筆是兩份文件還是同一筆畫兩次。段末問她要不要這一支 PR 一起修
+6. **三星的正式版要等網頁那一半進 main 之後才能派**（主控 11/7 查到、我對過）：正式站跑的是 `main`（`5dc22c05`），PR #221（`6dda1024`）不在 main 上，正式站的 `firestore.rules` 還沒有 `linkId` 那幾行（`git diff origin/main origin/develop -- firestore.rules`）——
+   三星上「複製到別天」（連在一起）會被 Rules 擋，正式站的網頁也不認得連在一起的那幾筆。順序：HTC 驗收過 → #222 合進 develop → **她說要上正式** → 正式站「設定 → 匯出備份」（放 `.local/references/`）→ develop 進 main（#221＋#222 一起）、Rules 部署完 → 才派正式版、裝三星。進 main 要她另外說
+7. **三星那個帳號**：email 她給了（只在對話裡，不寫進任何檔案）。派正式版時用 `appdistribution:testers:add` 加進正式站專案的群組；那個帳號在不在排課系統白名單上先讀正式站確認，不在就問她（不自己加）
+5. **HTC 上沒有 App Tester**（段七 A0 的邀請信那一步沒做）：0.1.1 是筆電 `adb install -r` 裝的（派送到 App Distribution 的同一個檔案、同一把鑰匙，登入與小工具都留著）。A8「從 App Tester 更新」沒走到；三星裝正式版時走邀請信那一條
 
 ## 要她決定的
 
