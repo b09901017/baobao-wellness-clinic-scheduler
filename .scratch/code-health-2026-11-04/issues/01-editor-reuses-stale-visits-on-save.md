@@ -1,6 +1,6 @@
 # 來訪編輯器存檔時沿用打開那一刻的來訪 → 額度少算、同一天兩筆
 
-Status: open（2026-11-04 只記錄，她說之後再改）
+Status: done（2026-11-05 修在 `.scratch/small-fixes-2026-11-05/issues/01-*`，PR #203 合進 develop `f5fb7b0a`；還沒上 main）
 來源：`../REPORT.md` #1
 動工前先讀：`public/js/ui/views/visitEditor.js` 的 `refreshCustomerVisits()`（`45dd973` 的 `:1643`）、`submit()`、`mergedPayload()`、
 `cancelOneSlot()`；`public/js/data/visits.js` 的 `save()`、`countOps()`；ADR-0158、ADR-0083；`docs/agents/lessons.md` 第二節
