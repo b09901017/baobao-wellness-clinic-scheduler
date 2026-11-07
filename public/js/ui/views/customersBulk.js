@@ -23,7 +23,7 @@
 import * as data from '../../data/customers.js';
 import * as config from '../../data/config.js';
 import {
-  parseNames, newRow, isAdjusted, duplicatesOf, quantityFor,
+  parseNames, newRow, isAdjusted, duplicatesOf, duplicateSay, quantityFor,
   extrasFor, customerFor, summarizeRoster, validateRoster, rosterWarnings, chartNoClashes,
 } from '../../domain/bulkCustomers.js';
 import { todayISO } from '../../domain/dates.js';
@@ -233,7 +233,7 @@ function rosterRow(row, dup, chartSay = '') {
       <span class="roster__main">
         <span class="roster__name">${esc(row.name)}</span>
         ${isAdjusted(row) ? `<span class="roster__note">${esc(adjustedLabel(row))}</span>` : ''}
-        ${dup ? `<span class="roster__warn">${icon('alert', { size: 13 })}${esc(dupText(dup))}</span>` : ''}
+        ${dup ? `<span class="roster__warn">${icon('alert', { size: 13 })}${esc(duplicateSay(dup))}</span>` : ''}
         <span class="roster__warn" data-chartwarn="${esc(row.key)}"${chartSay ? '' : ' hidden'}>${chartWarnHtml(chartSay)}</span>
       </span>
       <input class="roster__chart" type="text" inputmode="numeric" autocomplete="off" data-chart="${esc(row.key)}"
@@ -257,13 +257,6 @@ function adjustedLabel(row) {
   // 「8萬健檢 1 次」「夜態美 2 份」—— 論次還是論份只寫在 `buy.unitOf()`
   for (const x of row.extras ?? []) parts.push(`加購 ${buy.summaryLine(x)}`);
   return parts.join('・');
-}
-
-function dupText(dup) {
-  const parts = [];
-  if (dup.existing) parts.push(`已經有 ${dup.existing} 位叫這個名字`);
-  if (dup.inList) parts.push('這張名單裡重複了');
-  return `${parts.join('，')} —— 確認不是同一個人`;
 }
 
 // ---------- 會建立什麼 ----------

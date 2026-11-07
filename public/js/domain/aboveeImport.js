@@ -2368,10 +2368,33 @@ export function summarizeAbovee(items = [], absent = []) {
     changes: count(offersChange),
     // 收起來的那幾列（`pastStillOpen()`）另外數，不算進「要你看」—— 抬頭的數字要跟攤開的那一組一樣
     attention: count((i) => needsAttention(i) && !pastStillOpen(i)) + (absent ?? []).length,
+    // 照片上這個名字 app 裡沒有（列上標「app 裡沒有」）：不在「要你看」裡，以前抬頭一個字都不講 ——
+    // 每一列都是這種時抬頭寫「照片上沒有讀到預約」（backlog 20）
+    notInApp: count((i) => !i.cancelled && i.kind === 'unknown' && i.who?.how === 'none'),
     pastOpen: count((i) => needsAttention(i) && pastStillOpen(i)),
     cancelled: count((i) => i.cancelled),
     checked: count((i) => i.checked),
   };
+}
+
+/**
+ * 確認層最上面那一行（`summarizeAbovee()` 的數字＋這一次已經記好的段數）。**照實講**：
+ * 「照片上沒有讀到預約」只在一列都沒有時講 —— 底下列著東西、抬頭卻說沒讀到，她會以為照片拍壞了。
+ * 已取消的平常不講（淡掉的那幾列一眼看得出來），只有整張都是取消的才講。
+ */
+export function aboveeSummaryLine(s, { saved = 0 } = {}) {
+  const bits = [
+    saved ? `記好了 ${saved} 段` : '',
+    s.new ? `新的 ${s.new} 段` : '',
+    s.changes ? `要改 ${s.changes} 段` : '',
+    s.recorded ? `已經記了 ${s.recorded} 段` : '',
+    s.attention ? `要你看 ${s.attention} 段` : '',
+    s.notInApp ? `app 裡沒有 ${s.notInApp} 段` : '',
+    s.pastOpen ? `過了還沒結案 ${s.pastOpen} 段` : '',
+  ].filter(Boolean);
+  if (bits.length) return bits.join('・');
+  if (s.cancelled) return `已取消 ${s.cancelled} 段`;
+  return '照片上沒有讀到預約';
 }
 
 // ---------- app 有、這次照片上沒有（ADR-0129）----------

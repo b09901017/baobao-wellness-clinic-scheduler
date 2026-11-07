@@ -22,7 +22,9 @@ import {
   rebookSlot, slotSay, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences } from '../../domain/consequences.js';
+import {
+  bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences, followupBookingLines,
+} from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote, oneTimeExamChoices, isFollowupCourse } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -1750,6 +1752,14 @@ async function submit(ctx, draft) {
       customerVisits: ctx.customerVisits,
       entitlements: ctx.entitlements,
     });
+    // 「約二返」那一張會不會收掉（或長出來）**拿存檔真的在跑的那一支試算**（`followupBookingLines()`，壓表同一條）。
+    // 以前這一條沒算：存一場二返時確認框不講那一次健檢的「約二返」會收掉（backlog 19；改扣法與取消那兩條有）
+    const chainSaid = customer?.id ? followupBookingLines({
+      customer: { id: customer.id, name: customer.name ?? null },
+      visits: [...(customerVisits ?? []).filter((v) => !toSave.id || v.id !== toSave.id), toSave],
+      chain: await visitsData.chainInputs(customer.id, coursesById, [...(customerVisits ?? []), toSave]),
+      coursesById,
+    }) : [];
     const asked = {
       title: said.title,
       consequences: [
@@ -1763,6 +1773,7 @@ async function submit(ctx, draft) {
         ...(said.toBook.length && said.free.length
           ? [`${said.free.map((i) => slotName(draft.slots[i], all, 'short')).join('、')} 不用壓表，會一起記下來`]
           : []),
+        ...chainSaid,
         ...said.lines,
       ],
       // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給

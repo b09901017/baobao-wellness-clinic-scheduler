@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeDate, aboveeDatesIn, aboveeStart, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
+  aboveeDate, aboveeDatesIn, aboveeStart, aboveeSummaryLine, mergeAboveePhotos, mismatchSay, needsAttention, newRowSay, picksOf, planAbovee, queueMarksAfter, readAbovee, resolveItem, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { INITIAL_STATUS } from '../public/js/domain/visits.js';
 import { SEED } from '../public/js/domain/seed.js';
@@ -132,7 +132,7 @@ describe('每一列分成四種', () => {
 
   test('新的 5 段、已經記了 3 段（其中 2 段要補上診間）、已取消的 2 列淡掉沒勾', () => {
     // 07：9/12、9/15 那兩段 ILIB app 上沒有診間、照片上有 →「要改的」那一塊補上（`changes`），不再算進「已經記了」
-    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 1, changes: 2, attention: 0, pastOpen: 0, cancelled: 2, checked: 5 });
+    assert.deepEqual(summarizeAbovee(items), { total: 10, new: 5, recorded: 1, changes: 2, attention: 0, notInApp: 0, pastOpen: 0, cancelled: 2, checked: 5 });
     assert.deepEqual([5, 6].map((i) => [byLine(i).diffs.every((d) => !d.app), byLine(i).adopt]), [[true, true], [true, true]]);
     assert.deepEqual([2, 7].map((i) => [byLine(i).cancelled, byLine(i).checked]), [[true, false], [true, false]]);
     assert.deepEqual([4, 5, 6].map((i) => byLine(i).kind), ['recorded', 'recorded', 'recorded']);
@@ -482,5 +482,33 @@ describe('07 分流與品項', () => {
       { ...right, rows: [['', '李大同', '']] }], c).items[0];
     assert.equal(fu.doctorId, 'staff-dr-li');
     assert.equal(fu.therapistId, null);
+  });
+});
+
+describe('抬頭那一行照實講（aboveeSummaryLine，backlog 20）', () => {
+  // 以前每一列都是 app 裡沒有的人時，抬頭寫「照片上沒有讀到預約」—— 底下明明列著那幾列
+  const stranger = (n) => ({ key: `u${n}`, kind: 'unknown', who: { how: 'none' }, checked: false, cancelled: false });
+
+  test('每一列都是 app 裡沒有的人 → 「app 裡沒有 N 段」，不說沒讀到', () => {
+    const s = summarizeAbovee([stranger(1), stranger(2)]);
+    assert.equal(s.notInApp, 2);
+    assert.equal(s.attention, 0, '它們不在「要你看」裡（點開那一列就看得到兩條路）');
+    assert.equal(aboveeSummaryLine(s), 'app 裡沒有 2 段');
+  });
+
+  test('取消掉的那一列不算進「app 裡沒有」；整張都是取消的 → 講已取消幾段', () => {
+    const s = summarizeAbovee([{ ...stranger(1), cancelled: true }]);
+    assert.equal(s.notInApp, 0);
+    assert.equal(aboveeSummaryLine(s), '已取消 1 段');
+  });
+
+  test('一列都沒有 → 才是「照片上沒有讀到預約」', () => {
+    assert.equal(aboveeSummaryLine(summarizeAbovee([])), '照片上沒有讀到預約');
+  });
+
+  test('混著新的 → 照舊的順序接在後面；記好了的段排第一個', () => {
+    const fresh = { key: 'n1', kind: 'new', cancelled: false, checked: true };
+    const s = summarizeAbovee([fresh, stranger(1)]);
+    assert.equal(aboveeSummaryLine(s, { saved: 3 }), '記好了 3 段・新的 1 段・app 裡沒有 1 段');
   });
 });
