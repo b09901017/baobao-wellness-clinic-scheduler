@@ -240,7 +240,7 @@
 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |
 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
 | [0172](./0172-a-one-time-guest-is-a-customer-off-every-list.md) | 一次性客人：不在任何名單上的客戶，他的段標成一次性；健檢那一串用一對只在算的時候存在的額度 | 2026-11-05 | 現行 |
-| [0173](./0173-camera-shows-only-a-real-picture-and-sign-in-loads-google-on-tap.md) | 拍照有影像才算開好（沒有就退回系統相機）；開機登入不先載 Google 的那一塊（iPad／手機／Safari 分頁改走轉頁登入） | 2026-11-05 | 現行 |
+| [0173](./0173-camera-shows-only-a-real-picture-and-sign-in-loads-google-on-tap.md) | 拍照有影像才算開好（沒有就退回系統相機）；開機登入不先載 Google 的那一塊（iPad／手機／Safari 分頁改走轉頁登入） | 2026-11-05 | 部分被推翻 → ADR-0182（拍照那一半） |
 | [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |
 | [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) | 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 2026-11-05 | 部分被推翻 → ADR-0176 |
 | [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) | 試算表的版面第四輪：欄不凍結、上下那幾塊整頁寬、數字四欄全白＋一條窄空白欄、號碼接在名字後面、營養品前面有購買日 | 2026-11-05 | 部分被推翻 → ADR-0178 |
@@ -249,3 +249,4 @@
 | [0179](./0179-linked-notes-one-doc-per-day.md) | 複製到別天、連在一起的隨手記：每一天一筆、共用一個 `linkId`；勾、改字、改掛給誰一起變，改日期、刪掉只這一筆 | 2026-11-06 | 現行 |
 | [0180](./0180-notes-widget-is-a-native-android-app.md) | 隨手記的桌面小工具是另一支原生 Android app（兩個版本接 staging／正式站），直接讀寫同一個 Firestore；隨手記的規則多一份 Kotlin 的，用共用情境檔 `tests/fixtures/notes-parity.json` 盯著兩份一樣 | 2026-11-06 | 現行 |
 | [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |
+| [0182](./0182-camera-stays-black-with-the-system-camera-below.md) | 拍照畫面出不來就照舊黑著、不換頁（底下那排照樣按得到系統相機）；快門不拍黑的 | 2026-11-08 | 現行 |

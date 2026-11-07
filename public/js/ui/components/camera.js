@@ -24,46 +24,6 @@ const LANDSCAPE = new Set(['aboveeList']);
 /** 這幾種原因是「整個停下來」：再送下一張只是一樣被擋，而且上限那幾種還會多記一次被擋。 */
 const STOP_ALL = new Set(['offline', 'paused', 'monthCap', 'dailyLimit', 'notAllowed', 'verify']);
 
-/**
- * 要相機的兩次（ADR-0173）：先要 4K（字小的單子清楚一點）；那一次幾秒都沒有影像，就換一組不指定解析度的再要一次。
- * 猜的是 iPad 主畫面那一顆在 4K 的要求下拿不到畫面 —— 猜錯也不壞，只是多等幾秒才退回系統相機。
- */
-const CAMERA_ASKS = [
-  { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
-  { facingMode: { ideal: 'environment' } },
-];
-
-/** 一次要相機之後最多等幾毫秒等第一格影像。 */
-export const PICTURE_WAIT_MS = 3000;
-
-/** 相機給了、畫面一直出不來時退回的那一句（被拒、沒有相機的那一句寫在畫面上）。 */
-export const NO_PICTURE_SAY = '相機開了，但畫面一直出不來。改用系統相機拍，或從相簿選。';
-
-/**
- * 影像真的出來了沒：有寬高、而且時間在走（＝真的在播）。
- * 不問 `requestVideoFrameCallback`：停著的影片也可能交出第一格，那會把「播放被擋」當成開好了。
- *
- * @param {HTMLVideoElement} v
- * @param {number} ms 等多久就算沒有
- * @returns {Promise<boolean>}
- */
-function hasPicture(v, ms) {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (ok) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      clearInterval(poll);
-      resolve(ok);
-    };
-    const timer = setTimeout(() => finish(false), ms);
-    const poll = setInterval(() => {
-      if (v.readyState >= 2 && v.videoWidth > 0 && v.currentTime > 0) finish(true);
-    }, 100);
-  });
-}
-
 let current = null;
 
 /**
@@ -107,11 +67,9 @@ export function openCamera({ kind, max = 10, onDone }) {
       <div class="cam__fallback" data-cam-fallback hidden>
         <p class="cam__fallback-say">這裡用不了相機。改用系統相機拍，或從相簿選。</p>
         <div class="cam__fallback-actions">
-          <button class="cam__big" type="button" data-cam-tapplay hidden>${icon('camera', { size: 24 })}<span>點這裡開取景</span></button>
           <button class="cam__big" type="button" data-cam-system>${icon('camera', { size: 24 })}<span>系統相機</span></button>
           <button class="cam__big" type="button" data-cam-album>${icon('images', { size: 24 })}<span>相簿</span></button>
         </div>
-        <p class="cam__fallback-why" data-cam-why hidden></p>
       </div>
       <div class="cam__flash" data-cam-flash></div>
     </div>
@@ -157,108 +115,36 @@ export function openCamera({ kind, max = 10, onDone }) {
 
   // ---------- 取景 ----------
 
-  // **有影像才算開好**（ADR-0173）。以前 `await video.play()` 回了才顯示：她 iPad 主畫面那一顆有問權限、
-  // 也允許了，畫面卻一直黑、沒有字 —— 同一個網址在 Safari 分頁好好的。等的那一下沒有逾時，所以也不退回系統相機
-  // （而系統相機在那一台是好的）。現在 play() 叫了就好，看的是真的有一格影像；幾秒都沒有就換一組再試，還是沒有就退回。
   async function startStream() {
     if (!navigator.mediaDevices?.getUserMedia) return showFallback();
-    for (const wants of CAMERA_ASKS) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: wants });
-      } catch {
-        // 被拒、沒有相機：再要一次也一樣
-        return showFallback();
-      }
-      if (closed) { stopStream(); return undefined; }
-      // 靜音、不全螢幕：自己再設一次 —— 只靠 HTML 屬性的話，有些版本的 iOS 不當成「可以自己播」
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = stream;
-      startPlay();
-      // eslint-disable-next-line no-await-in-loop
-      const live = await hasPicture(video, PICTURE_WAIT_MS);
-      if (closed) { stopStream(); return undefined; }
-      if (live) {
-        el.classList.add('cam--live');
-        return undefined;
-      }
-      // 最後一次不關：留著給「點這裡開取景」在她按下去的那一刻播（ADR-0173 補）
-      if (wants !== CAMERA_ASKS.at(-1)) {
-        stopStream();
-        video.srcObject = null;
-      }
-    }
-    return showFallback('noPicture');
-  }
-
-  // 播放那一下的結果，畫在退回那一頁最下面一小行（她 iPad 主畫面那一顆 11/7：「相機開了，但畫面一直出不來」—— 這台電腦看不到 iPad 裡面，
-  // 只能請她把那一行截圖）
-  let playSay = '還沒播';
-  function startPlay() {
-    playSay = '播放中…';
-    let p;
     try {
-      p = video.play();
-    } catch (err) {
-      playSay = `播放被擋：${err?.name ?? '不明'}`;
-      return;
-    }
-    p?.then(() => { playSay = '播放開始了'; }, (err) => { playSay = `播放被擋：${err?.name ?? '不明'}`; });
-  }
-
-  /** 退回那一頁最下面那一小行：相機給了什麼、影片走到哪一步（沒有任何照片內容）。 */
-  function whyLine() {
-    const track = stream?.getVideoTracks?.()[0];
-    const set = track?.getSettings?.() ?? {};
-    const home = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
-    return [
-      home ? '主畫面' : '瀏覽器',
-      track ? `相機 ${track.readyState}${track.muted ? '・靜止' : ''}${track.enabled ? '' : '・關著'} ${set.width ?? '?'}×${set.height ?? '?'}` : '相機 沒有',
-      `影片 ${video.readyState}／${video.videoWidth}×${video.videoHeight}／${video.paused ? '停著' : '在播'}`,
-      playSay,
-    ].join('・');
-  }
-
-  // 「點這裡開取景」：在她按下去的那一刻播（iOS 主畫面模式可能只准手指按下去的那一刻開始播）
-  async function tapPlay() {
-    if (!stream) return;
-    say('');
-    startPlay();
-    const live = await hasPicture(video, PICTURE_WAIT_MS);
-    if (closed) return;
-    if (live) {
-      el.classList.remove('cam--fallback');
-      $('[data-cam-fallback]').hidden = true;
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      });
+      if (closed) { stream.getTracks().forEach((t) => t.stop()); return undefined; }
+      video.srcObject = stream;
+      await video.play().catch(() => {});
       el.classList.add('cam--live');
-      return;
+      return undefined;
+    } catch {
+      return showFallback();
     }
-    $('[data-cam-why]').textContent = whyLine();
-    say('還是出不來，改用系統相機拍');
   }
 
-  function stopStream() {
-    stream?.getTracks().forEach((t) => t.stop());
-    stream = null;
-  }
-
-  /** @param {'noPicture'} [why] 沒給＝被拒、沒有相機、不是 https */
-  function showFallback(why) {
-    // 取景框換成一句話＋兩顆，不是一片黑
-    if (why === 'noPicture') {
-      $('[data-cam-fallback] .cam__fallback-say').textContent = NO_PICTURE_SAY;
-      $('[data-cam-tapplay]').hidden = !stream;
-      const whyEl = $('[data-cam-why]');
-      whyEl.textContent = whyLine();
-      whyEl.hidden = false;
-    }
+  function showFallback() {
+    // 被拒、沒有相機、不是 https：取景框換成一句話＋兩顆，不是一片黑
     el.classList.add('cam--fallback');
     $('[data-cam-fallback]').hidden = false;
   }
 
   async function shoot() {
-    // 還沒有影像時不拍：截出來的是一張黑的，送去辨識只是白花一次
-    if (busy || photos.length >= max || !stream || !el.classList.contains('cam--live')) return;
+    if (busy || photos.length >= max || !stream) return;
+    // 畫面還沒出來時不拍（ADR-0182）：截出來的是一張黑的，送去辨識只是白花一次。她 iPad 主畫面那一顆就是這樣 —— 黑著，右邊的系統相機照樣拍得起來
+    if (!el.classList.contains('cam--live')) {
+      say('畫面還沒出來，改按右邊的「系統相機」拍');
+      return;
+    }
     busy = true;
     try {
       el.classList.remove('cam--snap');
@@ -436,7 +322,6 @@ export function openCamera({ kind, max = 10, onDone }) {
     if (!t || t.disabled) return;
     if (t.matches('[data-cam-close]')) close();
     else if (t.matches('[data-cam-shutter]')) shoot();
-    else if (t.matches('[data-cam-tapplay]')) tapPlay();
     else if (t.matches('[data-cam-album]')) $('[data-cam-album-input]').click();
     else if (t.matches('[data-cam-system]')) $('[data-cam-system-input]').click();
     else if (t.matches('[data-cam-send]')) {
