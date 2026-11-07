@@ -9,7 +9,7 @@
 | 一 | 01 拿掉「別的課當體驗」、02 列上印人與診間 | high | done（caaca04c、66e610dc；`sw.js` 現在 **v221**） |
 | 二 | 03 ADR-0170＋紅字短標記、04 「辨識結果／發現問題 N」切換、05 文件 | xhigh | done（03 adc3e59d、04 4306dfb3、05 8b3518ff；`sw.js` 現在 **v223**） |
 | 三 | `/matt-code-review` 審這一輪全部 | xhigh | done（`REVIEW.md`：要修 R1～R8、要她決定 1 題） |
-| 四 | 照審查修、手動驗收（模擬器）、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | 修完（R1～R8＋順手，`sw.js` 現在 **v228**）；PR 見「中途發現 → 段四」 |
+| 四 | 照審查修、手動驗收（模擬器）、開 PR 進 `develop`、照 CLAUDE.md 合併 | medium | done（R1～R8＋順手，`sw.js` **v228**）；PR #190 合進 develop（`11ac42e1`），11/3 晚 PR #192 上 main（`19427dfa`） |
 
 ## 每一段共同的規矩
 

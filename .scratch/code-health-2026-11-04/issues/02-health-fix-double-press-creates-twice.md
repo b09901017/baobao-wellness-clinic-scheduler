@@ -1,6 +1,6 @@
 # 資料健檢的修正沒有防連按，「補上二返額度」「補警示詞」會多建一筆
 
-Status: open（2026-11-04 只記錄）
+Status: done（2026-11-05 修在 `.scratch/small-fixes-2026-11-05/issues/02-*`，PR #203 合進 develop `f5fb7b0a`；還沒上 main）
 來源：`../REPORT.md` #2
 動工前先讀：`public/js/ui/views/health.js` 的 `applyAndReload()`、`fixOne()`、`fixAll()`；`public/js/data/health.js` 的 `applyFixes()`、
 `opFor()`（`addFollowup`、`addAlert`，對照 `addCourse`／`addEquipment` 用固定 id 的理由）；`tests/save-guards.test.js`；lessons 第三節
