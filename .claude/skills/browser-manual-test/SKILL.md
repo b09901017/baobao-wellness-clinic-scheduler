@@ -27,6 +27,7 @@ description: >
    **別整頁讀客戶清單／壓表牆**（`get_page_text` 在 `#/customers`、`#/schedule` 會把全部真名倒進來）—— 用 JS 只取要的那幾個元素。
 2. **會寫入的步驟只動假名的測試資料。** 要客戶就新增「測試客戶甲」之類名字明顯是假的，電話 `09000000xx`、病歷號 `9000000x`。
    不改、不勾、不刪任何真的客戶與他們的資料。每寫一筆都記下來（做了什麼、在哪），測完收掉（軟刪除）並寫進報告。
+   **每次要寫入之前先確認網址**：`location.host === 'wellness-clinic-staging.web.app'`（分頁可能被導到別處；正式站是 `wellness-clinic-scheduler.web.app`，一個字都不碰）。
 
 ## 開工順序
 
@@ -34,7 +35,7 @@ description: >
 2. 載入瀏覽器工具（如果是 deferred）並讀 `anthropic-skills:built-in-browser`。
 3. `mcp__Claude_Browser__preview_start` 帶 `url: https://wellness-clinic-staging.web.app` 開起來（網址見 `docs/STAGING.md`）。
 4. `tabs_context` 看面板是不是「hidden」。**要她按 Ctrl+Shift+B 叫出面板、在面板裡登入 staging，等她說好再動。** 登入是她的，不要代按。
-5. 確認 `sw.js` 的版本是 PR 說的那一版：`fetch('/sw.js')` 看 `VERSION`，`caches.keys()` 看 `shell-vNNN`。對不上就 reload（畫面最上面「有新版本・點一下更新」那顆在內建瀏覽器裡常是 0×0，直接 reload）。
+5. 確認跑的是 PR 說的那一版（做法見下面「一開始先做的事」）。
 6. 開 `.scratch/<這次的名字>/REPORT.md`，**每過一條就寫進去**（context 壓縮時才不會丟）。
 
 ## 在內建瀏覽器裡怎麼操作（量過的）
@@ -133,7 +134,7 @@ Sonnet、effort low～medium：這件事是照清單點、讀畫面、記下結�
 規矩：
 
 1. **這種手動瀏覽器測試是「subagent 同時最多兩個」那條長期規矩的例外**（她 2026-11-07 同意，由主控 session 轉述）：獨立的鏈**能分幾個平行就分幾個**。理由：這種測試用便宜又精準的模型（`model: "haiku"` 或 `"sonnet"`）、低 effort，不會花很多額度在思考；原本的規矩怕的是每個都用大模型長時間想。**subagent 一定要指定便宜的模型**；用大模型的話仍然兩個一批。很短的鏈自己做，不要為了分而分。
-2. **一個 subagent 控制一個瀏覽器分頁**：`tabs_create` 拿 `tabId`，之後**每個**瀏覽器工具都帶 `tabId`（不帶就打到「目前那一頁」，兩個人會互相踩）。登入是共用的（同一個 profile），分頁開出來就是登入好的。
+2. **一個 subagent 控制一個瀏覽器分頁**：`tabs_create` 拿 `tabId`，之後**每個**瀏覽器工具都帶 `tabId`（不帶就打到「目前那一頁」，兩個人會互相踩）。登入應該是共用的（同一個 profile）—— **沒驗證過**，開出來若是登入頁就停下來請她登入，不要代登。另外 subagent 手上有沒有 `mcp__Claude_Browser__*` 工具也沒驗證過，第一次分工先開一個試一下。每個分頁要各自貼 `$c`、`$feed` 那幾支小幫手。
 3. **每條鏈各用一位新增的測試客人，名字帶鏈的代號**（例「測試甲-營養品」「測試乙-健檢」；假名、電話 `09000000xx`、病歷號 `9000000x`）。兩個 subagent 不要動同一位，免得互相蓋掉。測試客人要「完全符合那個情境」（要測營養品提醒就建一位帶營養品的，要測約二返就建一位買了健檢的），不要拿既有的客人湊。
 4. subagent 的 brief 要寫清楚：哪個 `tabId`、哪條鏈、哪位測試客人、**真名與寫入的規矩**（本檔最前面兩條原文貼進去）、做完回報的格式、**收尾要收掉自己建的**。主 session 負責合併報告。
 5. 拍照辨識（叫 Gemini）集中給一個人做，不要兩個人同時送。
@@ -148,15 +149,13 @@ Sonnet、effort low～medium：這件事是照清單點、讀畫面、記下結�
 
 | 問題 | 做法 |
 |---|---|
-| 日期欄 | 她的經驗是用 `form_input` 填；我這次用 `el.value='2026-11-12'` ＋派 `input`／`change` 也行。**`form_input` 的 ref 在頁面重畫後會過期**，失敗就退回 JS |
-| 長按 | JS 派 `pointerdown`、等 900 毫秒、派 `pointerup` |
+| 日期欄 | 她的經驗是用 `form_input` 填；我這次用上面表裡的 JS 寫法也行。**`form_input` 的 ref 在頁面重畫後會過期**，失敗就退回 JS |
 | 原生對話框（`confirm`／`alert`、檔案選擇器）按不到 | 這個 app 的確認框都是自己畫的（`.dialog`），用 `$c('按鈕字')` 點；檔案選擇不開原生視窗，直接塞 `<input type=file>` 的 `files`（見拍照那節） |
 | 登入過期 | 畫面突然變登入頁、或寫入一直轉圈：停下來請她在面板裡重新登入，不要代登 |
-| 背景分頁的計時不準 | 面板隱藏（`tabs_context` 說 hidden）或分頁在背景時 `setTimeout` 被拖慢，toast 久久不消、`wait` 不準。要看時間相關的行為先請她把面板叫出來、把那個分頁 `tabs_select` 到前面 |
+| 背景分頁的計時不準（我的推測，沒量過） | 面板隱藏（`tabs_context` 說 hidden）或分頁在背景時 `setTimeout` 被拖慢，toast 久久不消、`wait` 不準。要看時間相關的行為先請她把面板叫出來、把那個分頁 `tabs_select` 到前面 |
 | 畫面還沒載完就點 | 先 `wait` 3 秒；客戶清單、名單類的頁面是**載入後才重畫**，太早點會點到剛出現的真客戶（我誤開過一次真客戶的編輯器）。點之前用 JS 確認目標元素存在 |
-| `ref` 點擊座標偏 | `ref` 給的是 CSS 像素，截圖座標框大約 1.25 倍；點不準就用 JS `click()` |
 | 面板／抽屜太矮、按鈕在畫面外 | `javascript_tool` 的 `click()`；或 `scroll_to` |
-| 同一個頁面重載後 `window.$c`、`$feed` 消失 | 重貼 |
+| 重載後 `window.$c`、`$feed`、`paper` 消失；**每個分頁各自一份** | 重貼 |
 | 分頁卡住 | `tabs_context` 看狀態、`navigate` 重開；`computer` 截圖逾時就改用文字工具 |
 
 ## 這個 skill 的來歷
