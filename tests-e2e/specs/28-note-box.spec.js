@@ -105,3 +105,22 @@ test('N2b 沒打字就收起來：那一行一個像素都不佔', async ({ app,
     '沒字的時候那一行不畫（她：不然感覺會很占版面）',
   ).toBeHidden();
 });
+
+// 上 main 前最後健檢 B（2026-11-07，`.scratch/final-check-2026-11-07`）：那一句也放進隨手記，而去重是寫之前讀 ——
+// 連按兩下時兩趟都讀到「還沒有」。`withSaveState()` 帶 `key` 讓第二下接到同一趟（`tests/save-guards.test.js` 那一條豁免拿掉了）
+test('N3 記一句連按兩下「記」：隨手記只長一筆', async ({ app, page }) => {
+  await app.seed(seedPending());
+  await app.signIn('/todo/confirm');
+  await expect(page.locator('#view')).toContainText('客戶A');
+  await page.locator('[data-slotnote-toggle="fnote-cust-a"]').click();
+  const box = page.locator('[data-followup="cust-a"]');
+  await expect(box).toBeVisible();
+  await box.locator('input[name="text"]').fill('禮拜一再問問');
+  await box.locator('button[type="submit"]').dblclick();
+  await app.saved();
+  const mine = async () => (await app.readAll('notes')).filter((n) => n.text === '禮拜一再問問' && !n.deletedAt).length;
+  await expect.poll(mine, { timeout: 10_000 }).toBeGreaterThan(0);
+  // 第二下（如果有）也寫完了才數：等那一頁照存完的樣子重畫好
+  await app.settled();
+  expect(await mine(), '連按兩下只該有一筆').toBe(1);
+});

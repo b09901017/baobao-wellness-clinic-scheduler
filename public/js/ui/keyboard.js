@@ -9,6 +9,7 @@
 // 版面縮成一半時，底部導覽列也跟著站到鍵盤上面、吃掉一截 —— 打字的時候她用不到它，所以收起來。
 //
 // 判斷「鍵盤開著」：**焦點在一格會叫出鍵盤的欄位裡，而且版面比這個寬度量過最高的矮了一截**。
+// 「量過最高的」照寬度各記一份（`nextKeyboard()`）：打字時轉方向，轉過去那一刻的高度是扣掉鍵盤的那一截，不能當成最高的。
 // iPad 與 iPhone 的 Safari 不縮版面（也不認 `interactive-widget`）→ 永遠不成立，那邊一個像素都不動 —— 不會讓開兩次。
 // 桌機沒有螢幕鍵盤 → 一樣不成立。
 //
@@ -35,6 +36,32 @@ export function keyboardOpen({ tallest, height, focused }) {
   return typesText(focused) && tallest - height >= KEYBOARD_MIN_PX;
 }
 
+/**
+ * 量高度的那一份往下走一步。純函式（測試照著轉方向走一遍）。
+ *
+ * - 「量過最高的」照寬度各記一份：轉回原本的方向沿用那時候量過的
+ * - 轉到還沒量過的方向、而那一刻鍵盤開著、還在打字 → 現在的高度是扣掉鍵盤的那一截（上 main 前最後健檢 C，2026-11-07：
+ *   以前拿它當最高的，判成鍵盤沒開，底部導覽列站回鍵盤上面）。先照舊算開著（`lowest`），
+ *   等它長回來一截（鍵盤收了）或不在打字了，再從那一刻起照一般的量
+ *
+ * @param {{width: number, tallestBy: Map<number, number>, lowest: number|null, open: boolean}} s
+ * @param {{width: number, height: number, focused: Element|null}} now
+ */
+export function nextKeyboard(s, { width, height, focused }) {
+  const tallestBy = new Map(s.tallestBy);
+  const typing = typesText(focused);
+  let lowest = width !== s.width
+    ? (!tallestBy.has(width) && s.open && typing ? height : null)
+    : s.lowest;
+  if (lowest !== null) {
+    lowest = Math.min(lowest, height);
+    if (typing && height - lowest < KEYBOARD_MIN_PX) return { width, tallestBy, lowest, open: true };
+  }
+  const tallest = Math.max(tallestBy.get(width) ?? height, height);
+  tallestBy.set(width, tallest);
+  return { width, tallestBy, lowest: null, open: keyboardOpen({ tallest, height, focused }) };
+}
+
 let started = false;
 
 /** 開始盯。**只掛一次**（殼可能畫第二次，ADR-0167；這一支掛在 `window` 上）。 */
@@ -42,18 +69,16 @@ export function watchKeyboard() {
   if (started || typeof window === 'undefined') return;
   started = true;
   const root = document.documentElement;
-  let width = window.innerWidth;
-  let tallest = window.innerHeight;
+  let state = {
+    width: window.innerWidth,
+    tallestBy: new Map([[window.innerWidth, window.innerHeight]]),
+    lowest: null,
+    open: false,
+  };
 
   const check = () => {
-    // 轉了方向：重新量最高的那一個
-    if (window.innerWidth !== width) {
-      width = window.innerWidth;
-      tallest = window.innerHeight;
-    }
-    tallest = Math.max(tallest, window.innerHeight);
-    const open = keyboardOpen({ tallest, height: window.innerHeight, focused: document.activeElement });
-    if (open) root.dataset.keyboard = '';
+    state = nextKeyboard(state, { width: window.innerWidth, height: window.innerHeight, focused: document.activeElement });
+    if (state.open) root.dataset.keyboard = '';
     else delete root.dataset.keyboard;
   };
 

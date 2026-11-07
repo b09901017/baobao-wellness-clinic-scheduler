@@ -750,7 +750,7 @@ export async function runAction(action, note, deps) {
 
   // 「改日期」一張卡：改成今天／改成某天／拿掉日期（她 11/6，ADR-0179）。連在一起的也只改這一天
   if (action === 'date') {
-    const picked = await askDateChange(note, { today, onCalendar, linked: peers.length > 0 });
+    const picked = await askDateChange(note, { today, onCalendar, reach: linkedReach(note, peers) });
     if (!picked) return false;
     if (picked.date === (note.date ?? null)) return false;
     const success = picked.date === null
@@ -987,7 +987,7 @@ export function askDate(value, copy = {}) {
  *
  * @returns {Promise<{date: string|null}|null>} null = 她按了取消／點外面；`date: null` = 拿掉日期
  */
-function askDateChange(note, { today, onCalendar = false, linked = false } = {}) {
+function askDateChange(note, { today, onCalendar = false, reach = null } = {}) {
   const choices = dateChoices(note, { today, onCalendar });
   return new Promise((resolve) => {
     let settled = false;
@@ -998,7 +998,8 @@ function askDateChange(note, { today, onCalendar = false, linked = false } = {})
       resolve(v);
     };
 
-    const sub = [note.date ? `現在是 ${shortDate(note.date)}` : '現在沒有日期', linked ? '只改這一天' : null]
+    // 連在一起的那一句跟選單同一支（`linkedWords()`）：兩筆改到同一天時是「只改這一筆」，不寫死「這一天」（上 main 前最後健檢 D）
+    const sub = [note.date ? `現在是 ${shortDate(note.date)}` : '現在沒有日期', linkedWords(reach).date]
       .filter(Boolean).join('・');
 
     openCard({

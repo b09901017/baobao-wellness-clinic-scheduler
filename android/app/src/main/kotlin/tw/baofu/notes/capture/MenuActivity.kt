@@ -135,7 +135,7 @@ class MenuActivity : FloatingActivity() {
                     val reach = Notes.linkedReach(n, peers)
                     when (screen) {
                         Screen.MENU -> MenuCard(n, peers, reach) { action -> onAction(action, n, reach) { screen = it } }
-                        Screen.DATE -> DateCard(n, peers.isNotEmpty(), today)
+                        Screen.DATE -> DateCard(n, reach, today)
                         Screen.WHO -> WhoCard(n, reach)
                         Screen.EDIT -> EditCard(n, reach)
                         Screen.COPY -> CopyCard(n, peers, group ?: listOf(n), today)
@@ -229,11 +229,12 @@ class MenuActivity : FloatingActivity() {
     // ---------- 改日期 ----------
 
     @Composable
-    private fun DateCard(n: Doc, linked: Boolean, today: String) {
+    private fun DateCard(n: Doc, reach: Notes.Reach?, today: String) {
         val p = LocalPalette.current
         val id = Js.str(n["id"])
         val current = n["date"]?.let { Js.str(it) }?.takeIf { it.isNotEmpty() }
-        val sub = listOfNotNull(current?.let { "現在是 ${Dates.shortDate(it)}" } ?: "現在沒有日期", if (linked) "只改這一天" else null).joinToString("・")
+        // 連在一起的那一句跟選單同一支（`Notes.linkedWords()`）：兩筆改到同一天時是「只改這一筆」（上 main 前最後健檢 D）
+        val sub = listOfNotNull(current?.let { "現在是 ${Dates.shortDate(it)}" } ?: "現在沒有日期", Notes.linkedWords(reach).date).joinToString("・")
 
         fun change(to: String?) {
             if (to == current) return finish()

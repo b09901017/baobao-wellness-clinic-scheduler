@@ -374,7 +374,18 @@ describe('誰現在有東西可以給（givableBags）', () => {
       entitlementsBy: { c1: [bag({ id: 'e1' })] },
       notes: [{ id: 'n1', entitlementId: 'e1', done: false, date: '2026-09-03' }],
     });
-    assert.match(out[0].bags[0].hint, /2026-09-03 已經約了/);
+    // 日期照清單的寫法（`shortDate()`），不印 ISO（上 main 前最後健檢 E，2026-11-07）
+    assert.match(out[0].bags[0].hint, /9\/3\(.\) 已經約了/);
+    assert.doesNotMatch(out[0].bags[0].hint, /2026-09-03/);
+  });
+
+  test('那一包的提醒沒有日期（買的時候自動長的那一筆常常沒有）：照樣講已經有一筆 —— 選了是改那一筆，不是長第二筆', () => {
+    const out = givableBags({
+      customers,
+      entitlementsBy: { c1: [bag({ id: 'e1' })] },
+      notes: [{ id: 'n1', entitlementId: 'e1', done: false, date: null }],
+    });
+    assert.match(out[0].bags[0].hint, /已經有一筆提醒/);
   });
 
   test('還差哪幾款要寫出來 —— 「還差什麼」正是她要回去補的東西', () => {

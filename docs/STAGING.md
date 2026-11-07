@@ -169,6 +169,7 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
   外加 Storage 上療程單的照片
 - **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔（加 `--master` 的話主檔照現在的種子重來，其餘照舊不清）
 - 正式專案一律拒絕，沒有放行的旗標
+- **清完之後 HTC 上的「隨手記（測試）」登出再登入一次**：清空是真刪，小工具只問「之後改過的」（ADR-0180），真刪的那幾筆它問不到、會一直留在桌面上；登出再登入就整份重讀（還原之後同一件事，見「五、還原演練」）
 
 **staging 的畫面上有真名。** 在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶；
 會寫入資料的驗收步驟改在本機模擬器走（第六節）。
@@ -557,7 +558,8 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一、`npm run shell:snapshot` 跑了嗎**
       （`tests/shell-version.test.js` 擋著：程式檔先用手機裡的，忘了加一她的手機會永遠停在舊版，ADR-0167）
-- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**。**沒升版、只改了 `sheets/readonly-report.gs` 也要重貼**
+- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**。**沒升版、只改了 `sheets/readonly-report.gs` 也要重貼**；
+      **2026-11-05 起那一份 Apps Script 還要加「Google Sheets API」服務**（在部署新版本之前；步驟在 `sheets/README.md`「升版之後」）—— 沒加照樣推得上去，只是慢
       （2026-11-05 批次讀寫與「比較舊的那一包不畫」，ADR-0174）—— 沒重貼照樣推得上去，只是跑的是舊的那一份
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
 - [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來

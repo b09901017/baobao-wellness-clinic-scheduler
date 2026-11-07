@@ -25,6 +25,8 @@
 //
 // 所以隨手記是**提醒**，額度是**紀錄**。兩者靠 `note.entitlementId` 連著。
 
+import { shortDate } from './dates.js';
+
 /** 這一筆額度是不是營養品。`entitlements.js` 的 `isProduct()` 是同一個判斷。 */
 const isProductEntitlement = (e) => e?.type === 'product';
 
@@ -383,7 +385,9 @@ export function givableBags({ customers = [], entitlementsBy = {}, notes = [], m
           entitlement: e,
           label: e.label || productLabel(e, '營養品', master) || '營養品',
           // 還差哪幾款是她真的要看的 —— 「還差什麼」正是她要回去補的東西。
-          hint: [left && `還沒給：${left}`, note?.date && `${note.date} 已經約了`]
+          // 已經有提醒的照講：有日期寫清單那種日期，沒日期（買的時候自動長的那一筆常常沒有）也講「已經有一筆」——
+          // 選了它是改那一筆，不是長第二筆（`createOrMove()`；上 main 前最後健檢 E，2026-11-07）
+          hint: [left && `還沒給：${left}`, note && (note.date ? `${shortDate(note.date)} 已經約了` : '已經有一筆提醒')]
             .filter(Boolean).join('・'),
           note,
         };
