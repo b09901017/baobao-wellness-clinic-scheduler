@@ -9608,6 +9608,21 @@ body.has-cam {
   gap: var(--space-3);
 }
 
+/* 退回那一頁最下面一小行：相機給了什麼、影片走到哪一步（ADR-0173 補：請她截圖給我們看） */
+.cam__fallback-why {
+  max-width: 28em;
+  margin: 0 auto;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--camera-dim);
+  overflow-wrap: anywhere;
+}
+
+.cam__fallback-why[hidden],
+.cam__big[hidden] {
+  display: none;
+}
+
 .cam__big {
   display: grid;
   justify-items: center;

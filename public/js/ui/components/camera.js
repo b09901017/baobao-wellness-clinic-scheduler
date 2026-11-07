@@ -40,8 +40,8 @@ export const PICTURE_WAIT_MS = 3000;
 export const NO_PICTURE_SAY = '相機開了，但畫面一直出不來。改用系統相機拍，或從相簿選。';
 
 /**
- * 影像真的出來了沒：瀏覽器交出一格（`requestVideoFrameCallback`），或時間在走而且有寬高。
- * 兩條都問 —— 前者在影像還是透明的時候不一定叫，後者在 `play()` 卡住的時候不會成立。
+ * 影像真的出來了沒：有寬高、而且時間在走（＝真的在播）。
+ * 不問 `requestVideoFrameCallback`：停著的影片也可能交出第一格，那會把「播放被擋」當成開好了。
  *
  * @param {HTMLVideoElement} v
  * @param {number} ms 等多久就算沒有
@@ -61,7 +61,6 @@ function hasPicture(v, ms) {
     const poll = setInterval(() => {
       if (v.readyState >= 2 && v.videoWidth > 0 && v.currentTime > 0) finish(true);
     }, 100);
-    if (typeof v.requestVideoFrameCallback === 'function') v.requestVideoFrameCallback(() => finish(true));
   });
 }
 
@@ -108,9 +107,11 @@ export function openCamera({ kind, max = 10, onDone }) {
       <div class="cam__fallback" data-cam-fallback hidden>
         <p class="cam__fallback-say">這裡用不了相機。改用系統相機拍，或從相簿選。</p>
         <div class="cam__fallback-actions">
+          <button class="cam__big" type="button" data-cam-tapplay hidden>${icon('camera', { size: 24 })}<span>點這裡開取景</span></button>
           <button class="cam__big" type="button" data-cam-system>${icon('camera', { size: 24 })}<span>系統相機</span></button>
           <button class="cam__big" type="button" data-cam-album>${icon('images', { size: 24 })}<span>相簿</span></button>
         </div>
+        <p class="cam__fallback-why" data-cam-why hidden></p>
       </div>
       <div class="cam__flash" data-cam-flash></div>
     </div>
@@ -170,8 +171,11 @@ export function openCamera({ kind, max = 10, onDone }) {
         return showFallback();
       }
       if (closed) { stopStream(); return undefined; }
+      // 靜音、不全螢幕：自己再設一次 —— 只靠 HTML 屬性的話，有些版本的 iOS 不當成「可以自己播」
+      video.muted = true;
+      video.playsInline = true;
       video.srcObject = stream;
-      video.play().catch(() => {});
+      startPlay();
       // eslint-disable-next-line no-await-in-loop
       const live = await hasPicture(video, PICTURE_WAIT_MS);
       if (closed) { stopStream(); return undefined; }
@@ -179,10 +183,58 @@ export function openCamera({ kind, max = 10, onDone }) {
         el.classList.add('cam--live');
         return undefined;
       }
-      stopStream();
-      video.srcObject = null;
+      // 最後一次不關：留著給「點這裡開取景」在她按下去的那一刻播（ADR-0173 補）
+      if (wants !== CAMERA_ASKS.at(-1)) {
+        stopStream();
+        video.srcObject = null;
+      }
     }
     return showFallback('noPicture');
+  }
+
+  // 播放那一下的結果，畫在退回那一頁最下面一小行（她 iPad 主畫面那一顆 11/7：「相機開了，但畫面一直出不來」—— 這台電腦看不到 iPad 裡面，
+  // 只能請她把那一行截圖）
+  let playSay = '還沒播';
+  function startPlay() {
+    playSay = '播放中…';
+    let p;
+    try {
+      p = video.play();
+    } catch (err) {
+      playSay = `播放被擋：${err?.name ?? '不明'}`;
+      return;
+    }
+    p?.then(() => { playSay = '播放開始了'; }, (err) => { playSay = `播放被擋：${err?.name ?? '不明'}`; });
+  }
+
+  /** 退回那一頁最下面那一小行：相機給了什麼、影片走到哪一步（沒有任何照片內容）。 */
+  function whyLine() {
+    const track = stream?.getVideoTracks?.()[0];
+    const set = track?.getSettings?.() ?? {};
+    const home = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
+    return [
+      home ? '主畫面' : '瀏覽器',
+      track ? `相機 ${track.readyState}${track.muted ? '・靜止' : ''}${track.enabled ? '' : '・關著'} ${set.width ?? '?'}×${set.height ?? '?'}` : '相機 沒有',
+      `影片 ${video.readyState}／${video.videoWidth}×${video.videoHeight}／${video.paused ? '停著' : '在播'}`,
+      playSay,
+    ].join('・');
+  }
+
+  // 「點這裡開取景」：在她按下去的那一刻播（iOS 主畫面模式可能只准手指按下去的那一刻開始播）
+  async function tapPlay() {
+    if (!stream) return;
+    say('');
+    startPlay();
+    const live = await hasPicture(video, PICTURE_WAIT_MS);
+    if (closed) return;
+    if (live) {
+      el.classList.remove('cam--fallback');
+      $('[data-cam-fallback]').hidden = true;
+      el.classList.add('cam--live');
+      return;
+    }
+    $('[data-cam-why]').textContent = whyLine();
+    say('還是出不來，改用系統相機拍');
   }
 
   function stopStream() {
@@ -193,7 +245,13 @@ export function openCamera({ kind, max = 10, onDone }) {
   /** @param {'noPicture'} [why] 沒給＝被拒、沒有相機、不是 https */
   function showFallback(why) {
     // 取景框換成一句話＋兩顆，不是一片黑
-    if (why === 'noPicture') $('[data-cam-fallback] .cam__fallback-say').textContent = NO_PICTURE_SAY;
+    if (why === 'noPicture') {
+      $('[data-cam-fallback] .cam__fallback-say').textContent = NO_PICTURE_SAY;
+      $('[data-cam-tapplay]').hidden = !stream;
+      const whyEl = $('[data-cam-why]');
+      whyEl.textContent = whyLine();
+      whyEl.hidden = false;
+    }
     el.classList.add('cam--fallback');
     $('[data-cam-fallback]').hidden = false;
   }
@@ -378,6 +436,7 @@ export function openCamera({ kind, max = 10, onDone }) {
     if (!t || t.disabled) return;
     if (t.matches('[data-cam-close]')) close();
     else if (t.matches('[data-cam-shutter]')) shoot();
+    else if (t.matches('[data-cam-tapplay]')) tapPlay();
     else if (t.matches('[data-cam-album]')) $('[data-cam-album-input]').click();
     else if (t.matches('[data-cam-system]')) $('[data-cam-system-input]').click();
     else if (t.matches('[data-cam-send]')) {
