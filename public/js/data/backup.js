@@ -13,6 +13,7 @@
 
 import * as repo from './repo.js';
 import * as config from './config.js';
+import * as aiUsage from './aiUsage.js';
 import { MASTER_TYPES } from '../domain/masterData.js';
 
 /**
@@ -29,11 +30,12 @@ export const BACKUP_VERSION = 2;
  */
 export async function exportAll({ includeAudit = false } = {}) {
   const [
-    master, settings, customers, entitlements, availability, visits, tasks, batches,
+    master, settings, ai, customers, entitlements, availability, visits, tasks, batches,
     notes, events, formInvites, formResponses, playbooks, treatmentSheets,
   ] = await Promise.all([
     exportMaster(),
     config.getSettings(),
+    aiUsage.readConfig(),
     repo.listWithDeleted('customers'),
     repo.listGroup('entitlements', { includeDeleted: true }),
     repo.listGroup('availability', { includeDeleted: true }),
@@ -48,11 +50,16 @@ export async function exportAll({ includeAudit = false } = {}) {
     repo.listGroup('treatmentSheets', { includeDeleted: true }),
   ]);
 
+  // `config/ai`（每月上限與暫停，ADR-0100）：一份文件，跟 settings 一樣另外寫回去（11/4 健檢 #6）。
+  // 從沒設過就沒有那一份（＝預設的上限、沒暫停）→ null
+  const aiConfig = Object.keys(ai ?? {}).length ? ai : null;
+
   const data = {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     includesDeleted: true,
     settings,
+    aiConfig,
     config: master,
     customers,
     // 子集合攤平存，每筆帶 customerId（listGroup 給的是 parentId），

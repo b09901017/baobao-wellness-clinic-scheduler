@@ -184,6 +184,9 @@ export function checkCoverage(backup) {
   const known = new Set([
     ...SECTIONS.map((s) => s.key),
     'version', 'exportedAt', 'includesDeleted', 'counts', 'settings', 'config', 'audit',
+    // config/ai：一份文件，跟 settings 一樣另外寫（**不放進 SECTIONS** —— 那樣 `--wipe` 會把 config 底下
+    // 不在備份裡的每一份、含 config/app 那一份設定，標成已刪除）
+    'aiConfig',
   ]);
   return Object.keys(backup).filter((k) => !known.has(k));
 }
@@ -195,6 +198,9 @@ export function checkShape(backup) {
   }
   if (!backup.includesDeleted) {
     problems.push('這份備份不含已刪除的資料 —— 還原之後救不回誤刪的東西');
+  }
+  if (backup.aiConfig != null && (typeof backup.aiConfig !== 'object' || Array.isArray(backup.aiConfig))) {
+    problems.push('aiConfig 不是一份文件（config/ai 那一份應該是物件或 null）');
   }
   for (const section of SECTIONS) {
     if (backup[section.key] != null && !Array.isArray(backup[section.key])) {
@@ -363,6 +369,7 @@ async function main() {
   const masterCount = Object.values(backup.config ?? {}).reduce((n, r) => n + r.length, 0);
   if (masterCount) console.log(`  ${'config（主檔）'.padEnd(14)} ${masterCount}`);
   if (args.audit) console.log(`  ${'audit'.padEnd(16)} ${(backup.audit ?? []).length}`);
+  if (backup.aiConfig) console.log(`  ${'config/ai'.padEnd(16)} 1（AI 的每月上限與暫停）`);
   console.log('');
 
   if (!willWrite) {
@@ -382,6 +389,11 @@ async function main() {
   if (backup.settings) {
     await db.doc('config/app').set(reviveValue(backup.settings, 'settings'), { merge: true });
     console.log('  設定值 config/app 寫好了');
+  }
+  // AI 的每月上限與暫停（備份檔第一次帶它是 2026-11-07；更早的備份沒有這一格 → 不動現在那一份）
+  if (backup.aiConfig) {
+    await db.doc('config/ai').set(reviveValue(backup.aiConfig, 'aiConfig'), { merge: true });
+    console.log('  AI 設定 config/ai 寫好了');
   }
 
   await writeAll(db, plan, { dryRun: false });

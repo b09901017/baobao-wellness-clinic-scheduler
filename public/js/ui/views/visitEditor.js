@@ -22,7 +22,9 @@ import {
   rebookSlot, slotSay, equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { countsWithDraft, schedulable } from '../../domain/entitlements.js';
-import { bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences } from '../../domain/consequences.js';
+import {
+  bookingConsequences, cancelConsequences, chargeSwitchConsequences, rebookConsequences, followupBookingLines,
+} from '../../domain/consequences.js';
 import { pairsOf, examChoicesFor, examChoiceNote, oneTimeExamChoices, isFollowupCourse } from '../../domain/followups.js';
 import {
   isNthSlot, nthOf, nthLabel, nextNthFor, examChoicesForNth, courseIdForNth,
@@ -817,7 +819,7 @@ function guestRow(ctx, slot, i, { name, value, notMine, course, nthExams }) {
  * 一次都接不上時那一句講出來要她做什麼（會改變寫入結果，不收進 `tip()`）。
  */
 function guestExamField(ctx, draft, slot, i, { nth, notMine }) {
-  // 還沒選課（`courseId` 是 null）時不畫：`isFollowupCourse(null)` 是 true（不是健檢的課 `followupCourseId` 都是 null）——
+  // 還沒選課（`courseId` 是 null）時不畫（`isFollowupCourse(null)` 以前是 true，2026-11-07 起那一支自己擋了，這裡照樣先問）——
   // 段六手動驗收抓到的：一次性客人剛開的那一段就跳出「app 裡沒有接得上的健檢」
   if (nth || notMine || !slot.courseId || !isOneTimeSlot(slot) || !isFollowupCourse(slot.courseId, ctx.all.courses)) return '';
   const choices = oneTimeExamChoices({
@@ -1688,6 +1690,12 @@ async function submit(ctx, draft) {
     return;
   }
 
+  // 新加了段的那一條，「壓好了嗎」那一道要講「約二返」會不會收掉（backlog 19）—— 要那位客戶的額度與任務。
+  // **在第一道之前讀**：讀在兩道中間的話，第一道一收、第二道要等一趟讀取才出來，中間空著一下
+  const bookingChain = !rebooked && hasNewSlots(ctx, draft) && customer?.id
+    ? await visitsData.chainInputs(customer.id, coursesByIdOf(all), [...(customerVisits ?? []), toSave])
+    : null;
+
   // **第一道：這幾段先看一下。** 超過次數、還沒選治療師那一類。
   // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
   // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
@@ -1750,6 +1758,15 @@ async function submit(ctx, draft) {
       customerVisits: ctx.customerVisits,
       entitlements: ctx.entitlements,
     });
+    // 「約二返」那一張會不會收掉（或長出來）**拿存檔真的在跑的那一支試算**（`followupBookingLines()`，壓表同一條）。
+    // 以前這一條沒算：存一場二返時確認框不講那一次健檢的「約二返」會收掉（backlog 19；改扣法與取消那兩條有）
+    // （那兩份在第一道之前就讀好了：`bookingChain`）
+    const chainSaid = customer?.id ? followupBookingLines({
+      customer: { id: customer.id, name: customer.name ?? null },
+      visits: [...(customerVisits ?? []).filter((v) => !toSave.id || v.id !== toSave.id), toSave],
+      chain: bookingChain,
+      coursesById,
+    }) : [];
     const asked = {
       title: said.title,
       consequences: [
@@ -1763,6 +1780,7 @@ async function submit(ctx, draft) {
         ...(said.toBook.length && said.free.length
           ? [`${said.free.map((i) => slotName(draft.slots[i], all, 'short')).join('、')} 不用壓表，會一起記下來`]
           : []),
+        ...chainSaid,
         ...said.lines,
       ],
       // 新加的每一段都不用壓時（HRV，ADR-0126）抬頭與這一顆的字一起換，都由 domain 給

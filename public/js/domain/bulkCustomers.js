@@ -17,7 +17,7 @@
 import { expandPlan, isProduct, validateEntitlement } from './entitlements.js';
 import { toCustomerFields } from './customerMarks.js';
 import { isValidDate } from './dates.js';
-import { fieldWarnings } from './customers.js';
+import { fieldWarnings, isOneTime, GUEST_SAME_NAME } from './customers.js';
 
 const trimmed = (v) => String(v ?? '').trim();
 
@@ -79,9 +79,12 @@ export function isAdjusted(row) {
  * **只提示不阻擋**（ADR-0002）—— 真的有兩位王小明是會發生的，
  * 而系統分不出「打錯了」跟「真的有兩位」。
  *
+ * **同名的一次性客人另外數**（`guests`，ADR-0172；上 main 前最後健檢 F）：這一頁建的是一般客戶，
+ * 跟新增客戶那一頁（`fieldWarnings()`）一樣 —— 他不算「已經有 N 位」，那一句換成指路去轉（`duplicateSay()`）。
+ *
  * @param {object[]} rows
  * @param {object[]} existing 現有客戶
- * @returns {Map<string, {inList:number, existing:number}>} key → 重複狀況
+ * @returns {Map<string, {inList:number, existing:number, guests:number}>} key → 重複狀況
  */
 export function duplicatesOf(rows = [], existing = []) {
   const byName = new Map();
@@ -92,11 +95,13 @@ export function duplicatesOf(rows = [], existing = []) {
   }
 
   const existingCount = new Map();
+  const guestCount = new Map();
   for (const c of existing) {
     if (c?.deletedAt) continue;
     const name = trimmed(c.name);
     if (!name) continue;
-    existingCount.set(name, (existingCount.get(name) ?? 0) + 1);
+    const counts = isOneTime(c) ? guestCount : existingCount;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
   }
 
   const out = new Map();
@@ -105,9 +110,24 @@ export function duplicatesOf(rows = [], existing = []) {
     if (!name) continue;
     const inList = (byName.get(name) ?? 1) - 1;
     const already = existingCount.get(name) ?? 0;
-    if (inList || already) out.set(row.key, { inList, existing: already });
+    const guests = guestCount.get(name) ?? 0;
+    if (inList || already || guests) out.set(row.key, { inList, existing: already, guests });
   }
   return out;
+}
+
+/**
+ * 名單上那一列旁邊的那一句（`duplicatesOf()` 的一格）。有同名的一次性客人時接 `GUEST_SAME_NAME`，
+ * 跟新增客戶那一頁同一句。
+ */
+export function duplicateSay(dup) {
+  if (!dup) return '';
+  const parts = [];
+  if (dup.existing) parts.push(`已經有 ${dup.existing} 位叫這個名字`);
+  if (dup.inList) parts.push('這張名單裡重複了');
+  const said = parts.length ? [`${parts.join('，')} —— 確認不是同一個人`] : [];
+  if (dup.guests) said.push(GUEST_SAME_NAME);
+  return said.join(' ');
 }
 
 /**

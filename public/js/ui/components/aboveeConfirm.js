@@ -33,7 +33,7 @@ import {
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays, problemsPage, rowGlance, rowTag, seenAssigns,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
-  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
+  statusColumnSay, summarizeAbovee, aboveeSummaryLine, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
   guestExamChoices, recordGuestOnPhoto,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
@@ -256,15 +256,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function paintSummary(gone = absentNow()) {
     const s = summarizeAbovee(items.filter((i) => !savedKeys.has(i.key)), gone.slots);
-    const bits = [
-      savedCount ? `記好了 ${savedCount} 段` : '',
-      s.new ? `新的 ${s.new} 段` : '',
-      s.changes ? `要改 ${s.changes} 段` : '',
-      s.recorded ? `已經記了 ${s.recorded} 段` : '',
-      s.attention ? `要你看 ${s.attention} 段` : '',
-      s.pastOpen ? `過了還沒結案 ${s.pastOpen} 段` : '',
-    ].filter(Boolean);
-    root.querySelector('[data-abl-sum]').textContent = bits.join('・') || '照片上沒有讀到預約';
+    root.querySelector('[data-abl-sum]').textContent = aboveeSummaryLine(s, { saved: savedCount });
   }
 
   /** 「發現問題」那一頁列哪幾件、N 是多少（`problemsPage()`，ADR-0170）—— 那一顆上的數字與那一頁畫的讀同一份 */

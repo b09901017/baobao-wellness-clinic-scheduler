@@ -546,11 +546,35 @@ export function wireDrag(drawer, onDismissed, { backdrop = null } = {}) {
     const up = () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
+      const dragged = moved;
       onEnd();
+      if (dragged) swallowNextClick();
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   });
+
+  /**
+   * **滑鼠拖過、放開的那一下不算點**（backlog 21）：按下去在面板上、放開在灰底上時，Chrome 把那一個 click
+   * 派給兩者共同的祖先 —— 就是灰底，而點灰底是「關掉」。底下那一個掛在面板上的攔不到它（目標不在面板裡），
+   * 所以在 window 的 capture 先吞掉。只吞緊接著的那一下：click 跟 mouseup 同一輪派完，下一輪就收手。
+   * 手指拖不會有那一個 click（touch 拖過不合成 click），照舊。
+   */
+  function swallowNextClick() {
+    let timer = 0;
+    const done = () => {
+      window.removeEventListener('click', eat, true);
+      clearTimeout(timer);
+      moved = false;
+    };
+    const eat = (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      done();
+    };
+    window.addEventListener('click', eat, true);
+    timer = setTimeout(done, 0);
+  }
 
   // 拖過就不算「點了那顆按鈕」—— 否則往上拖完手一放，面板當場關掉
   drawer.addEventListener(

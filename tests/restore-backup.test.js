@@ -172,6 +172,29 @@ describe('備份檔的形狀檢查', () => {
 // 這一段是整支測試最重要的部分
 // ---------------------------------------------------------------------------
 
+describe('config/ai（每月上限與暫停）也在備份裡（11/4 健檢 #6）', () => {
+  // 它是一份文件不是集合，跟 settings（config/app）一樣另外寫 ——
+  // **不可以放進 SECTIONS**：那樣 plan 裡會有 `config` 這個路徑，`--wipe` 會把 config 底下不在備份裡的
+  // 每一份（含 config/app 那一份設定）標成已刪除
+  const RESTORE_SRC = readFileSync(new URL('../scripts/restore-backup.mjs', import.meta.url), 'utf8');
+
+  test('backup.js 匯出 aiConfig（讀 config/ai）', () => {
+    assert.match(BACKUP_SRC, /aiConfig,/);
+    assert.match(BACKUP_SRC, /aiUsage\.readConfig\(\)/);
+  });
+
+  test('還原腳本認得 aiConfig、寫回 config/ai；SECTIONS 沒有 config 這個路徑', () => {
+    assert.deepEqual(checkCoverage(backup({ aiConfig: { monthlyCapUsd: 10 } })), []);
+    assert.match(RESTORE_SRC, /db\.doc\('config\/ai'\)\.set\(/);
+    assert.ok(!SECTIONS.some((s) => s.path({ customerId: 'x' }) === 'config'), 'SECTIONS 不可以有 config');
+  });
+
+  test('aiConfig 不是物件要講出來', () => {
+    assert.ok(checkShape(backup({ aiConfig: [] })).some((p) => /aiConfig/.test(p)));
+    assert.deepEqual(checkShape(backup({ aiConfig: null })), [], '沒有那一份（從沒設過）＝ null');
+  });
+});
+
 describe('SECTIONS 要跟 data/backup.js 對得上', () => {
   /**
    * `exportAll()` 實際上匯出了哪幾個集合。

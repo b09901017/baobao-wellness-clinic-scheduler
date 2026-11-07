@@ -122,6 +122,17 @@ describe('firebase.json：程式檔每次都先問伺服器', () => {
   });
 });
 
+describe('deploy.yml：Rules 與索引先上、Hosting 最後（11/4 健檢 #6）', () => {
+  // 反過來的話，新的程式先上線、讀寫的集合或查詢在 Rules／索引補上之前那一兩分鐘被擋（或查詢失敗）
+  test('Firestore Rules 與索引、Storage Rules 都排在 Hosting 前面', () => {
+    const at = (name) => DEPLOY.indexOf(`- name: ${name}`);
+    const hosting = at('部署 Hosting');
+    assert.ok(hosting > 0, '找不到「部署 Hosting」那一步');
+    assert.ok(at('部署 Firestore Rules 與索引') > 0 && at('部署 Firestore Rules 與索引') < hosting, 'Firestore Rules 與索引要在 Hosting 之前');
+    assert.ok(at('部署 Storage Rules') > 0 && at('部署 Storage Rules') < hosting, 'Storage Rules 要在 Hosting 之前');
+  });
+});
+
 describe('deploy.yml：同一個環境的部署排隊，不互相蓋', () => {
   /** 最上層（沒有縮排）的某一段，到下一個最上層的鍵為止。 */
   const topLevel = (key) => {

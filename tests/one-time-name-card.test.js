@@ -12,6 +12,7 @@ import {
   inCustomerList, fieldWarnings, warnings, oneTimeCustomer, GUEST_SAME_NAME, CUSTOMER_LISTS, isOneTime, toMyCustomer,
 } from '../public/js/domain/customers.js';
 import { toMyCustomerConsequences } from '../public/js/domain/consequences.js';
+import { duplicatesOf, duplicateSay } from '../public/js/domain/bulkCustomers.js';
 import { SEED } from '../public/js/domain/seed.js';
 
 const coursesById = Object.fromEntries(SEED.courses.map((c) => [c.id, c]));
@@ -87,6 +88,42 @@ describe('名字卡與新增客戶的提醒（fieldWarnings）', () => {
     const w = fieldWarnings({ name: '王小明' }, existing);
     assert.equal(w.name, '已經有 1 位客戶也叫「王小明」，確認不是同一個人嗎？');
     assert.equal(w.contact, '沒有電話也沒有 LINE，之後問時間會找不到人');
+  });
+});
+
+describe('批次建立打到一次性客人的名字（duplicatesOf／duplicateSay，上 main 前最後健檢 F）', () => {
+  // 批次建立建的是一般客戶：跟新增客戶那一頁一樣，同名的一次性客人分開數、講指路去轉的那一句
+  const rows = (...names) => names.map((name, i) => ({ key: `k${i}`, name }));
+
+  test('只有同名的一次性客人 → 不算「已經有 1 位」，講 GUEST_SAME_NAME', () => {
+    const dup = duplicatesOf(rows('客戶A'), [regular, guest]).get('k0');
+    assert.deepEqual(dup, { inList: 0, existing: 0, guests: 1 });
+    assert.equal(duplicateSay(dup), GUEST_SAME_NAME);
+  });
+
+  test('一般客戶與一次性客人都同名 → 兩句都講', () => {
+    const dup = duplicatesOf(rows('客戶A'), [regular, guest, { id: 'c4', name: '客戶A' }]).get('k0');
+    assert.deepEqual(dup, { inList: 0, existing: 1, guests: 1 });
+    const say = duplicateSay(dup);
+    assert.match(say, /已經有 1 位叫這個名字/);
+    assert.ok(say.endsWith(GUEST_SAME_NAME), say);
+  });
+
+  test('轉成我的客戶之後就是一般客戶 → 照舊「已經有 1 位」', () => {
+    const dup = duplicatesOf(rows('客戶A'), [converted]).get('k0');
+    assert.deepEqual(dup, { inList: 0, existing: 1, guests: 0 });
+    assert.equal(duplicateSay(dup), '已經有 1 位叫這個名字 —— 確認不是同一個人');
+  });
+
+  test('跟一般客戶同名、名單裡重複 → 跟以前一模一樣', () => {
+    const dup = duplicatesOf(rows('王小明', '王小明'), [regular]).get('k0');
+    assert.equal(duplicateSay(dup), '已經有 1 位叫這個名字，這張名單裡重複了 —— 確認不是同一個人');
+  });
+
+  test('畫面走 duplicateSay，不自己拼', () => {
+    const src = readFileSync(fromRoot('public/js/ui/views/customersBulk.js'), 'utf8');
+    assert.match(src, /duplicateSay\(/);
+    assert.doesNotMatch(src, /位叫這個名字/);
   });
 });
 

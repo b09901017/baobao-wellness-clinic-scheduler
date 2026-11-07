@@ -556,6 +556,8 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 每一次合進 `main` 都要看的（2026-09-01 的舊版在 `.scratch/PRODUCTION_AUDIT.md` §3.4，那一份不再更新）：
 
+- [ ] **開進 `main` 的那一支 PR 上，「全量 E2E」六份都綠了嗎** —— PR 一開就自己跑（`e2e-full.yml` 的 `pull_request: branches: [main]`），
+      不用另外按；它不是必要檢查，紅著也合得下去，所以合之前自己看一眼。要重跑：`gh workflow run e2e-full.yml --ref develop`
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一、`npm run shell:snapshot` 跑了嗎**
       （`tests/shell-version.test.js` 擋著：程式檔先用手機裡的，忘了加一她的手機會永遠停在舊版，ADR-0167）
 - [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**。**沒升版、只改了 `sheets/readonly-report.gs` 也要重貼**；
