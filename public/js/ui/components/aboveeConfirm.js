@@ -26,14 +26,15 @@ import * as tasksData from '../../data/tasks.js';
 import * as config from '../../data/config.js';
 import * as customersData from '../../data/customers.js';
 import { chartNoWrites } from '../../domain/identify.js';
-import { examChoiceNote } from '../../domain/followups.js';
+import { examChoiceNote, isFollowupCourse } from '../../domain/followups.js';
 import { aboveeConsequences } from '../../domain/consequences.js';
 import {
   aboveeLoadRange, absentFromPhoto, briefWarnings, changeLines, customersOnPhoto, goneButtonSay, diffSay, examChoices, mergedLine,
   markRepeat, mismatchSay, missedSay, needsAttention, nearSay, newRowSay, offersChange, optionValueOf, partialSay, pastStillOpen, photoDayPlan,
   photoRowSays, problemsPage, rowGlance, rowTag, seenAssigns,
   pickMinutes, pickOption, picksOf, planToWrite, pressedDays, queueMarksAfter, readAbovee, recordBar, recordBarSay, recordedSay, refreshCloseBlocks, repeatSay, resolveItem,
-  statusColumnSay, summarizeAbovee, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
+  statusColumnSay, summarizeAbovee, aboveeSummaryLine, refreshNoExam, wantsWrite, photoChartNos, writePhotoPlan, whatIfChecked,
+  guestExamChoices, recordGuestOnPhoto,
 } from '../../domain/aboveeImport.js';
 import { aliasWrites } from '../../domain/abovee.js';
 import {
@@ -41,9 +42,10 @@ import {
   equipmentChoicesFor, minuteChoicesFor,
 } from '../../domain/visits.js';
 import { slotFromPicks } from '../../domain/slotDraft.js';
-import { slotOptionsFor, foldOpen } from '../../domain/slotOptions.js';
+import { slotOptionsFor, foldOpen, guestOptions } from '../../domain/slotOptions.js';
 import { MAX_NTH, MIN_NTH, SECOND, examChoicesForNth, nthLabel } from '../../domain/nthFollowup.js';
-import { searchCustomers } from '../../domain/customers.js';
+import { searchCustomers, isOneTime, oneTimeCustomer } from '../../domain/customers.js';
+import { mountGuestForm } from './guestForm.js';
 import {
   THERAPIST_ROLE, ivChoicesFor, orderedRoomSlots, picksDoctor, doctorChoicesFor, staffWithRole, GIFT_KINDS, giftLabel,
 } from '../../domain/masterData.js';
@@ -62,6 +64,9 @@ const TAGS = {
   new: '新的', recorded: '已經記了', mismatch: '對不上', unknown: '認不得', saved: '記好了', cancelled: '已取消', change: '要改',
 };
 
+/** 一次性客人名字後面那個小灰字（ADR-0172 第 5 題：「換一位」的搜尋結果標）。樣子是 app.css 的 `.guestmark`，日曆新增那一份同一個 */
+const GUEST_MARK = ' <span class="guestmark">一次性</span>';
+
 /** 要拿去 `chartNoWrites()` 的那幾列：認人那一次的結果、照片上的號碼、現在是誰。 */
 const chartNoRows = (list) => list.map((i) => ({ who: i.who, chartNo: i.row?.chartNo, customerId: i.customerId }));
 
@@ -70,7 +75,8 @@ const WHY_UNKNOWN = {
   numberOnly: '病歷號對上了，名字不一樣 —— 是這一位嗎？',
   conflict: '名字跟病歷號指到不同的人，選一位',
   ambiguous: '同名的有好幾位，選一位',
-  none: 'app 裡沒有照片上這個名字 —— 打名字找找看；真的沒有就先去新增客戶',
+  // ADR-0172 第 4 題：不是她的客人（一次性員工券那種）也記得進來 —— 她按了才建名字卡，不靠預約來源猜
+  none: 'app 裡沒有照片上這個名字 —— 打名字找找看；不是你的客人就記成一次性客人',
 };
 
 /**
@@ -135,6 +141,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   const showAllRooms = new Set();
   /** 每一列「換一位」打開了沒、框裡打了什麼（列的 key → 字）。不放在列上 —— 那一份是要交給 domain 的 */
   const finding = new Map();
+  /** 「記成一次性客人」的名字卡表單開著的那幾列（ADR-0172 第 4 題）。同 `finding`：畫面的狀態，不放在列上 */
+  const guestForming = new Set();
   /** 已經讀到**全部**來訪的那幾位（`loadHistory()`）。讀過就不再讀；存檔前那一次重讀是另一回事 */
   const whole = new Set();
 
@@ -248,15 +256,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
 
   function paintSummary(gone = absentNow()) {
     const s = summarizeAbovee(items.filter((i) => !savedKeys.has(i.key)), gone.slots);
-    const bits = [
-      savedCount ? `記好了 ${savedCount} 段` : '',
-      s.new ? `新的 ${s.new} 段` : '',
-      s.changes ? `要改 ${s.changes} 段` : '',
-      s.recorded ? `已經記了 ${s.recorded} 段` : '',
-      s.attention ? `要你看 ${s.attention} 段` : '',
-      s.pastOpen ? `過了還沒結案 ${s.pastOpen} 段` : '',
-    ].filter(Boolean);
-    root.querySelector('[data-abl-sum]').textContent = bits.join('・') || '照片上沒有讀到預約';
+    root.querySelector('[data-abl-sum]').textContent = aboveeSummaryLine(s, { saved: savedCount });
   }
 
   /** 「發現問題」那一頁列哪幾件、N 是多少（`problemsPage()`，ADR-0170）—— 那一顆上的數字與那一頁畫的讀同一份 */
@@ -289,6 +289,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       ${view === 'problems' ? problemsHtml(p, page, gone) : resultHtml(p)}`;
     paintSummary(gone);
     paintBar(p);
+    mountGuestForms();
   }
 
   /** 照片底下那一個切換（ADR-0170）。樣子照首頁的「總覽／依客戶」；0 件時「發現問題」灰掉 ＝ 檢查過了、沒事 */
@@ -465,6 +466,60 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     paintSeg(page.count);
     paintSummary(gone);
     paintBar(p);
+    mountGuestForms();
+  }
+
+  /**
+   * 「記成一次性客人」那幾列的名字卡表單（ADR-0172 第 4 題）：05 的快速表單（名字、病歷號帶照片上的字、電話），**這一支不寫資料庫** ——
+   * 存是按下去那一下 `createGuest()` 做的。列每重畫一次就是一個空的 `[data-abl-guestform]`，這裡把表單掛回去。
+   */
+  function mountGuestForms() {
+    for (const host of root.querySelectorAll('[data-abl-guestform]')) {
+      if (host.childElementCount) continue;
+      const key = host.dataset.ablGuestform;
+      const item = items.find((i) => i.key === key);
+      if (!item) continue;
+      mountGuestForm(host, {
+        card: { name: item.row?.name ?? '', chartNo: item.row?.chartNo ?? '' },
+        existing: ctx.customers,
+        quick: true,
+        submitLabel: '建立名字卡',
+        onCancel: () => { guestForming.delete(key); repaintRow(key); },
+        onSubmit: ({ card }) => createGuest(key, card),
+      });
+    }
+  }
+
+  /**
+   * 建名字卡（走建客戶同一條寫入，同日曆新增的 `newGuest()`）→ 照片上認不得、同一個名字的那幾列重認一次（`recordGuestOnPhoto()`），
+   * 同一位的二返接他的健檢、「先去約健檢」那一句與簽不簽得成跟著重算。剛建好的人一段來訪都沒有：他的全部來訪就是空的。
+   */
+  async function createGuest(key, card) {
+    let id;
+    try {
+      id = await toast.withSaveState(
+        () => customersData.createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] }),
+        // 連點兩下就是兩張同名的名字卡。**不給復原**：按了名字卡被收掉、照片上那幾列還指著他、照樣存得進去 ——
+        // 建錯了去名字卡那一頁刪（還沒記任何一段時刪得掉，`deleteBlockers()`）
+        { success: '已建立名字卡', key: 'customer:create-guest', undoable: false },
+      );
+    } catch {
+      return; /* withSaveState 已顯示錯誤與重試 */
+    }
+    if (closed) return;
+    const customer = { id, ...oneTimeCustomer(card), active: true };
+    ctx = {
+      ...ctx,
+      customers: [...ctx.customers, customer],
+      entitlementsBy: { ...ctx.entitlementsBy, [id]: [] },
+      visitsBy: { ...ctx.visitsBy, [id]: [] },
+    };
+    whole.add(id);
+    guestForming.delete(key);
+    items = recordGuestOnPhoto(items, customer, ctx, { key });
+    refreshNoExam(items, ctx).forEach((x, j) => { items[j] = x; });
+    refreshCloseBlocks(items, ctx).forEach((x, j) => { items[j] = x; });
+    paintBody();
   }
 
   /**
@@ -652,9 +707,15 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </div>`;
     }
     if (item.kind === 'unknown') {
+      // app 裡沒有這個名字：多一條路「記成一次性客人」（ADR-0172 第 4 題）—— 她按了才建，照片上的名字＋病歷號帶進表單
+      const guest = item.who.how !== 'none' ? ''
+        : guestForming.has(item.key)
+          ? `<div class="abl-row__guestform" data-abl-guestform="${esc(item.key)}"></div>`
+          : '<button class="btn btn--sm" type="button" data-abl-guest>記成一次性客人</button>';
       return `<div class="abl-row__detail">${seen}
         <p class="abl-row__say">${esc(WHY_UNKNOWN[item.who.how] ?? '')}</p>
         ${who}
+        ${guest}
       </div>`;
     }
 
@@ -668,7 +729,19 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     // **用完的額度也列** —— Abovee 上已經約了，那一段是既成事實；選了照舊有「會超過次數」的提醒
     const options = optionsFor(item);
     const value = optionValueOf(item);
-    if (!options.length) {
+    const guestCustomer = isOneTime(ctx.customers.find((c) => c.id === item.customerId));
+    if (guestCustomer) {
+      // 一次性客人（ADR-0172 第 4 題）：全部的課、先分類再項目（來訪編輯器同一份 `guestOptions()`、畫法 `coursesHtml()`），不扣任何東西
+      if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
+      rows.push(`
+        <div class="abl-row__pick">
+          <span class="abl-row__picklabel">要做什麼</span>
+          ${giftFold.coursesHtml({
+            options, value, key: item.key, cls: 'abl-row__chips', sm: true,
+            chip: (o) => chipHtml({ value: o.entitlementId, label: o.label, on: o.entitlementId === value, attr: 'data-abl-opt' }),
+          })}
+        </div>`);
+    } else if (!options.length) {
       rows.push('<p class="abl-row__say">這位客戶身上沒有可以排的額度，主檔上也沒有可以當體驗的課 —— 先去加購再回來記。</p>');
     } else {
       if (!item.course) rows.push('<p class="abl-row__say">照片上的課程那一格認不出來，選這一段要做什麼。</p>');
@@ -682,7 +755,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
             cls: 'abl-row__chips', sm: true,
             chip: (o) => chipHtml({
               value: o.entitlementId, label: o.label,
-              sub: o.isNth || o.isGift || o.isNotMine ? '不扣次數' : `剩 ${o.remaining}`,
+              sub: o.isNth || o.isGift || o.isNotMine || o.isOneTimeSecond ? '不扣次數' : `剩 ${o.remaining}`,
               on: o.entitlementId === value, attr: 'data-abl-opt',
             }),
           })}
@@ -719,6 +792,16 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       rows.push(notMineNthRow(item));
     } else if (item.isNth && course) {
       rows.push(...nthRows(item));
+    } else if (item.guestCourseId && isFollowupCourse(item.guestCourseId, ctx.master.courses)) {
+      // 一次性的二返（ADR-0172）：接他的一次性健檢，連同這一張照片上勾著的（`guestExamChoices()`，按得下去的規則同 ADR-0145）。
+      // 一次都接不上：那一句在列底下（`newRowSay()` 的 `notMineHint`），這裡標題旁邊一顆 ?
+      const exams = guestExamChoices(item.customerId, item.guestCourseId, ctx, items, item);
+      rows.push(exams.length
+        ? chipRow('接哪一次健檢', exams.map((x) => ({
+          value: x.visitId, label: shortDate(x.date), sub: examChoiceNote(x),
+          on: item.followupForVisitId === x.visitId, attr: 'data-abl-exam', off: !x.pickable,
+        })))
+        : chipRow('接哪一次健檢', [], tip('還沒有一次性的健檢可以接')));
     } else {
       // 連同這一張照片上勾著的健檢一起列（ADR-0145：健檢和二返都是新的，當下就接得上）
       const exams = examChoices(item.customerId, ent, ctx, items, item);
@@ -818,7 +901,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
   function chipHtml(c) {
     return `${c.brk ? '<span class="chips__break"></span>' : ''}
       <button class="chip chip--sm abl-chip" type="button" ${c.attr}="${esc(c.value)}" aria-pressed="${Boolean(c.on)}"
-              ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`;
+              ${c.off ? 'disabled' : ''}>${esc(c.label)}${c.guest ? GUEST_MARK : ''}${c.sub ? `<span class="chip__note">${esc(c.sub)}</span>` : ''}</button>`;
   }
 
   /**
@@ -832,7 +915,7 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         <div class="abl-row__pick">
           <span class="abl-row__picklabel">是誰</span>
           <span class="abl-row__chips">
-            <span class="abl-row__whonow">${esc(customer.name)}</span>
+            <span class="abl-row__whonow">${esc(customer.name)}${isOneTime(customer) ? GUEST_MARK : ''}</span>
             <button class="chip chip--sm chip--more" type="button" data-abl-find>換一位</button>
           </span>
         </div>`;
@@ -849,7 +932,10 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       </div>`;
   }
 
-  /** 候選（認人給的）＋ 她打字找到的（`searchCustomers()`）。找不到才講「先去新增客戶」—— 這一層不建客戶。 */
+  /**
+   * 候選（認人給的）＋ 她打字找到的（`searchCustomers()`）。一次性客人標「一次性」（ADR-0172 第 5 題）。
+   * 找不到才講兩條路：先去新增客戶、或（app 裡沒有照片上這個名字的那一列）記成一次性客人 —— 這一層只建名字卡（`createGuest()`），不建客戶。
+   */
   function whoChips(item) {
     const query = String(finding.get(item.key) ?? '').trim();
     const seenIds = new Set();
@@ -858,10 +944,12 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       .slice(0, 8);
     if (!pool.length) {
       return query
-        ? `<span class="abl-row__say">找不到「${esc(query)}」—— app 裡真的沒有的話，先去新增客戶再回來拍。</span>`
+        ? `<span class="abl-row__say">找不到「${esc(query)}」—— 是你的客人就先去新增客戶再回來拍；不是的話記成一次性客人。</span>`
         : '';
     }
-    return pool.map((c) => chipHtml({ value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who' })).join('');
+    return pool.map((c) => chipHtml({
+      value: c.id, label: c.name, on: item.customerId === c.id, attr: 'data-abl-who', guest: isOneTime(c),
+    })).join('');
   }
 
   /**
@@ -870,6 +958,20 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
    */
   function optionsFor(item) {
     if (!item.customerId) return [];
+    const customer = ctx.customers.find((c) => c.id === item.customerId);
+    if (isOneTime(customer)) {
+      // 一次性客人（ADR-0172 第 4 題）：全部的課，「其他 ▸」裡「＋ n返」（有接得上的健檢時）與「健檢不是我排的」
+      const course = ctx.master.courses.find((c) => c.id === (item.guestCourseId ?? item.course?.courseId)) ?? null;
+      return guestOptions(ctx.master.courses, {
+        keep: item.guestCourseId ? course : null,
+        notMineKeep: null,
+        nthExams: examChoicesForNth({
+          entitlements: ctx.entitlementsBy[item.customerId] ?? [],
+          coursesById: Object.fromEntries(ctx.master.courses.map((c) => [c.id, c])),
+          visits: ctx.visitsBy[item.customerId] ?? [],
+        }),
+      });
+    }
     return slotOptionsFor({
       entitlements: ctx.entitlementsBy[item.customerId] ?? [],
       visits: ctx.visitsBy[item.customerId] ?? [],
@@ -1019,6 +1121,13 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
       return;
     }
     if (t.dataset.ablWho) { pickWho(key, t.dataset.ablWho); return; }
+    // 「記成一次性客人」（ADR-0172 第 4 題）：先打開名字卡的快速表單，按「建立名字卡」才建（`createGuest()`）
+    if (t.matches('[data-abl-guest]')) {
+      guestForming.add(key);
+      repaintRow(key);
+      rowEl(key)?.querySelector('[data-gf-form] input[name="name"]')?.focus();
+      return;
+    }
     if (t.dataset.ablOpt) { set(pickOption(item, t.dataset.ablOpt, ctx, items)); return; }
     if (t.dataset.ablNth) { set({ ...item, nth: Number(t.dataset.ablNth) }); return; }
     // 「健檢不是我排的」那一列的第幾返（ADR-0169）：只換返數，標記、醫師、時長照舊
@@ -1157,7 +1266,9 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
     const known = [...new Set(p.writes.map((w) => w.visit.id).filter(Boolean))];
     const [tasksByVisit, chainBy] = await Promise.all([
       Promise.all(known.map(async (id) => [id, await tasksData.listByVisitForSync(id).catch(() => [])])).then(Object.fromEntries),
-      Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById)])).then(Object.fromEntries),
+      // 這一位的來訪連這一次要記的一起給：一次性客人沒有額度，有一次性的段才讀那兩份（ADR-0172，03）
+      Promise.all(people.map(async (id) => [id, await visitsData.chainInputs(id, coursesById,
+        [...(ctx.visitsBy?.[id] ?? []), ...(p.after?.[id] ?? [])])])).then(Object.fromEntries),
     ]);
     if (closed) return;
     for (const id of people) {

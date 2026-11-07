@@ -140,6 +140,11 @@ export function openCamera({ kind, max = 10, onDone }) {
 
   async function shoot() {
     if (busy || photos.length >= max || !stream) return;
+    // 畫面還沒出來時不拍（ADR-0182）：截出來的是一張黑的，送去辨識只是白花一次。她 iPad 主畫面那一顆就是這樣 —— 黑著，右邊的系統相機照樣拍得起來
+    if (!el.classList.contains('cam--live')) {
+      say('畫面還沒出來，改按右邊的「系統相機」拍');
+      return;
+    }
     busy = true;
     try {
       el.classList.remove('cam--snap');

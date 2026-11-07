@@ -341,6 +341,16 @@ describe('R8 隨手記（validNote）', () => {
     await assertSucceeds(setDoc(doc(allowed, 'notes', 'n5'), n({ date: null })));
     await assertFails(setDoc(doc(allowed, 'notes', 'n6'), n({ date: 20260903 })));
   });
+
+  test('R8.4 連在一起的 linkId（ADR-0179）：沒有、null、不太長的字串；營養品的提醒不能連', async () => {
+    await assertSucceeds(setDoc(doc(allowed, 'notes', 'n7'), n({ linkId: 'n7' })));
+    await assertSucceeds(setDoc(doc(allowed, 'notes', 'n8'), n({ linkId: null })));
+    await assertFails(setDoc(doc(allowed, 'notes', 'n9'), n({ linkId: 7 })));
+    await assertFails(setDoc(doc(allowed, 'notes', 'n10'), n({ linkId: '' })));
+    await assertFails(setDoc(doc(allowed, 'notes', 'n11'), n({ linkId: 'x'.repeat(65) })));
+    await assertSucceeds(setDoc(doc(allowed, 'notes', 'n12'), n({ linkId: null, entitlementId: 'e1' })));
+    await assertFails(setDoc(doc(allowed, 'notes', 'n13'), n({ linkId: 'n13', entitlementId: 'e1' })));
+  });
 });
 
 // ---------- 備忘錄：只擋型別與大小，逐節的內容在前端 ----------

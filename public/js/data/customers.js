@@ -205,9 +205,11 @@ export async function addEntitlements(customerId, dataList = [], opts = {}) {
  * 改一筆額度。改到健檢或二返（例如二返的次數 1 → 2）時，健檢那條鏈同一個 commit 重算（ADR-0159）——
  * 超用的那一次，補了額度「約二返」當場就在待辦上，不用等下一次存來訪。
  */
-export async function updateEntitlement(customerId, id, changes) {
+export async function updateEntitlement(customerId, id, changes, { ifUpdatedAt } = {}) {
   const chain = await chainOf(customerId, (list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
-  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes }, ...(chain?.ops ?? [])]);
+  // `ifUpdatedAt`：呼叫端那一份是哪一刻讀的，別處改過就丟 `StaleWriteError`、不寫（`repo.commit()`）。沒給就不比
+  const guard = ifUpdatedAt === undefined ? {} : { ifUpdatedAt };
+  await repo.commit([{ op: 'update', path: entPath(customerId), id, changes, ...guard }, ...(chain?.ops ?? [])]);
   return chainSaid(chain);
 }
 

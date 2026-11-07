@@ -89,8 +89,11 @@ const hourOf = (s) => {
   return m ? Number(m[1]) + Number(m[2]) / 60 : null;
 };
 const partOf = (h) => (h == null ? null : h < 12 ? '上午' : h < 18 ? '下午' : '晚上');
-const today = new Date().toISOString().slice(0, 10);
-const yearAgo = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+// 台灣的日期（11/4 健檢 #6，lessons 第七節）：`toISOString()` 是 UTC，台灣 00:00–08:00 會早一天；
+// 不靠這台電腦的時區（雲端 VM 是 UTC），跟 `merge.mjs` 一樣寫死 Asia/Taipei
+const taipeiDay = (ms) => new Date(ms).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+const today = taipeiDay(Date.now());
+const yearAgo = taipeiDay(Date.now() - 365 * 864e5);
 
 const names = JSON.parse(readFileSync(join(folder, '過程', '名單.json'), 'utf8'));
 const out = [];

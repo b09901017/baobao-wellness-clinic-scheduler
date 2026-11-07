@@ -13,9 +13,13 @@ import * as customersData from './customers.js';
 import * as visitsData from './visits.js';
 import * as tasksData from './tasks.js';
 import * as repo from './repo.js';
+import * as auditData from './audit.js';
 import { syncBundle } from '../domain/sheetReport.js';
 import { todayISO } from '../domain/dates.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import {
+  retryDelay, wantsRetry, keepsPending, dataAtOf, pushBody,
+} from '../domain/sheetPushTiming.js';
 
 /**
  * 寫入之後等多久才推。
@@ -38,6 +42,12 @@ const ERROR_KEY = 'sheetSync.lastError';
 const SKIPPED_KEY = 'sheetSync.lastSkipped';
 
 let timer = null;
+/** 排著的那一次什麼時候到（`setTimeout` 問不出還剩多久）。沒有排就是 null。 */
+let dueAt = null;
+/** 這一輪連續失敗幾次。成功或有新的寫入就歸零（`domain/sheetPushTiming.js` 的 `retryDelay()`）。 */
+let failures = 0;
+/** 打開 app 時離線：開機那一次推等網路回來再推（不然它讀到快取、留下一句「上次沒推」，而她什麼都沒寫）。 */
+let bootPending = false;
 /** 路上那一份：`{ at, promise }`，`at` 是它開始打包時的 `version`。 */
 let inFlight = null;
 /**
@@ -105,10 +115,15 @@ export const PARTIAL_READ_SAY = '網路不穩，讀到的不是全部的資料 �
  * **讀到快取（或確定離線）就丟 `IncompleteReadError`**（before-golive-2026-10-19 中途發現 2，ADR-0158 同一個形狀）：
  * Firestore 開著本機快取，網路不穩時讀回來的是快取裡剛好有的那幾筆 —— 拿它推上去，試算表上的次數少算，
  * 而畫面上看起來推好了。`run()` 接住它、這一趟不推、留著待推標記。
+ *
+ * **回 `{ bundle, dataAt }`**（ADR-0174）：`dataAt` 是稽核紀錄最新那一則的伺服器時間，**先讀它、再讀資料** ——
+ * 資料只會比那個時間新、不會舊，所以「這一包至少包含了 `dataAt` 以前的每一次寫入」成立。`.gs` 拿它比新舊，
+ * 兩台同時推時比較舊的那一包不畫。那一讀也算進上面那一套（讀到快取就不推）。
  */
 export async function buildBundle() {
   const today = todayISO();
   const since = repo.cacheReads();
+  const [latest] = await auditData.listRecent(1);
   const [customers, entitlementsBy, visits, tasks, master] = await Promise.all([
     customersData.list(),
     customersData.entitlementsByCustomer(),
@@ -130,7 +145,7 @@ export async function buildBundle() {
   const tasksBy = {};
   for (const t of tasks) (tasksBy[t.customerId] ??= []).push(t);
 
-  return syncBundle({
+  const bundle = syncBundle({
     customers,
     entitlementsBy,
     visitsBy,
@@ -139,6 +154,7 @@ export async function buildBundle() {
     master,
     generatedAt: new Date().toLocaleString('zh-TW'),
   });
+  return { bundle, dataAt: dataAtOf(latest) };
 }
 
 /**
@@ -151,7 +167,7 @@ export async function buildBundle() {
  * 路上那一份是一般的推送時，等它回來再推一份整份重畫的；反過來，一般的推送可以搭整份重畫那一份的便車。
  *
  * @param {{force?: boolean}} [o]
- * @returns {Promise<{ok: boolean, off?: boolean, partial?: boolean, error?: string,
+ * @returns {Promise<{ok: boolean, off?: boolean, partial?: boolean, error?: string, stale?: boolean,
  *                    at?: string, sheets?: number|null, kept?: number|null, skipped?: string[]}>}
  */
 export function push({ force = false } = {}) {
@@ -160,7 +176,11 @@ export function push({ force = false } = {}) {
   // 以前直接回 inFlight，而它成功之後還把待推標記清掉 —— 後來那筆要等下一次寫入才上得去。
   if (inFlight) return inFlight.promise.then(() => push({ force }));
   const at = version;
-  const promise = run(at, { force }).finally(() => { inFlight = null; });
+  // **每一趟跑完都問要不要重試**（`afterRun()`）—— 設定頁「立刻推一次」失敗也算，不是只有計時器那一條路
+  const promise = run(at, { force }).then(afterRun, (err) => {
+    afterRun(undefined);
+    throw err;
+  }).finally(() => { inFlight = null; });
   inFlight = { at, force, promise };
   return promise;
 }
@@ -171,9 +191,9 @@ async function run(packedAt, { force = false } = {}) {
   if (!isConfigured(settings)) return { ok: false, off: true, error: '還沒設定試算表的網址與密鑰' };
 
   const { url, token } = settings.sheetSync;
-  let bundle;
+  let built;
   try {
-    bundle = await buildBundle();
+    built = await buildBundle();
   } catch (err) {
     // 讀到的不是全部（中途發現 2）：這一趟不推。待推標記與那一句照留 —— 下一次寫入或下一次開 app 再推
     if (err?.name === 'IncompleteReadError') return { ...noteFailure(err.message, { partial: true }), partial: true };
@@ -187,7 +207,7 @@ async function run(packedAt, { force = false } = {}) {
       // 刻意用 text/plain：換成 application/json 會觸發 CORS 預檢，
       // 而 Apps Script 的網頁應用程式不回應 OPTIONS，預檢一送就整個失敗。
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(force ? { token, bundle, force: true } : { token, bundle }),
+      body: JSON.stringify(pushBody({ token, bundle: built.bundle, dataAt: built.dataAt, force })),
       redirect: 'follow',
     });
   } catch (err) {
@@ -209,6 +229,14 @@ async function run(packedAt, { force = false } = {}) {
   if (!reply.ok) return noteFailure(reply.error ?? '試算表說失敗，但沒說為什麼');
 
   const at = new Date().toISOString();
+  if (reply.stale) {
+    // 另一台剛推了比較新的（ADR-0174）：試算表上已經是更新的那一份，這一包沒畫 —— 算成功。
+    // 「有幾張沒更新」不動：那是畫的那一次說的，這一次沒有畫
+    write(LAST_KEY, at);
+    if (version === packedAt) write(DIRTY_KEY, null);
+    write(ERROR_KEY, null);
+    return { ok: true, at, stale: true, sheets: 0, kept: null, skipped: [] };
+  }
   // `.gs` 的 resetSheet() 認不出來、所以沒有清空重畫的那幾張。那條守衛做出來
   // 就是為了講話的：那幾位的次數還是上一次的，而畫面上看起來跟推好了一模一樣。
   const skipped = Array.isArray(reply.skipped) ? reply.skipped : [];
@@ -221,27 +249,76 @@ async function run(packedAt, { force = false } = {}) {
   return { ok: true, at, sheets: reply.sheets ?? null, kept: reply.kept ?? null, skipped };
 }
 
-/** 安靜 QUIET_MS 之後推一次。連續存十幾筆只會換來一次推送。 */
-export function schedule() {
-  version += 1;
-  write(DIRTY_KEY, '1');
+/**
+ * 推失敗了就排下一次（1 分、5 分、15 分，之後停 —— `.scratch/sheet-push-gaps/issues/01`）。
+ * 以前失敗只留痕跡，要等她下一次存檔或冷開機才再推。**不加 `version`**：它只記寫入。
+ */
+function afterRun(result) {
+  if (!wantsRetry(result)) {
+    if (result?.ok) failures = 0;
+    return result;
+  }
+  const ms = retryDelay(failures);
+  failures += 1;
+  if (ms !== null) kick(ms);
+  return result;
+}
+
+/** 計時器一律從這裡排：記下什麼時候到，`kick()` 才問得出排著的那一次早不早。 */
+function arm(ms) {
   clearTimeout(timer);
+  dueAt = Date.now() + ms;
   timer = setTimeout(() => {
+    timer = null;
+    dueAt = null;
     // push() 失敗時回的是 `{ ok: false, error }`，不是 throw —— 以前這裡
     // 只有一個 `.catch(() => {})`，所以那個回傳值從頭到尾沒有人讀，
     // 密鑰錯了、格式版本不對、`.gs` 丟例外，畫面上全都長得一模一樣。
     // 現在痕跡由 run() 自己留，這裡只要接住真的意外。
     push().catch((err) => noteFailure(`推送時出了意外：${err.message}`));
-  }, QUIET_MS);
+  }, ms);
 }
 
 /**
- * 開機時掛上去：以後每次寫入成功就排一次推送，並且把上次沒推成功的補掉。
+ * 在 `ms` 之內推一次（重試、回到 app、網路回來、打開 app）。**已經排了更早的就不動**，
+ * 不然回到 app 切來切去會把排好的那一次一直往後延。不加 `version`、不立待推標記 —— 那兩樣只有寫入會動。
+ */
+function kick(ms = QUIET_MS) {
+  if (keepsPending({ dueAt, now: Date.now(), ms })) return;
+  arm(ms);
+}
+
+/** 安靜 QUIET_MS 之後推一次。連續存十幾筆只會換來一次推送（每次寫入都重設，不走 `kick()`）。 */
+export function schedule() {
+  version += 1;
+  write(DIRTY_KEY, '1');
+  failures = 0;
+  arm(QUIET_MS);
+}
+
+/**
+ * 開機時掛上去：以後每次寫入成功就排一次推送。
+ *
+ * **打開 app 不管有沒有待推標記都推一次**（10 秒後，`.scratch/sheet-push-gaps/issues/01`）：
+ * 兩種寫入不會留下待推標記 —— 確認身分之前那一兩秒的寫入（這一支還沒掛上），與離線時存了、還沒連上網就關掉 app 的那一筆
+ *（`repo.commit()` 的 promise 永遠沒回來）。推的那一刻讀的是全部，那兩筆一定在裡面；另一台推失敗的也一起補上。
+ * 打開時離線就等網路回來再推（`bootPending`）。回到 app、網路回來時有待推的也推（手機鎖屏時計時器被暫停、推到一半被打斷）。
  *
  * **同步失敗永遠不會讓寫入看起來失敗** —— 資料在 Firestore 裡是安全的，
  * 試算表只是報表（SPEC 第 4.8 節）。推不出去就留著待推標記，安靜地下次再試。
+ *
+ * 只會被叫一次（`app.js` 的 `sheetSyncWired`），所以底下兩個監聽不會掛兩次。
  */
 export function wire() {
   repo.onCommitted(schedule);
-  if (isDirty()) schedule();
+  if (globalThis.navigator?.onLine === false) bootPending = true;
+  else kick();
+  globalThis.addEventListener?.('online', () => {
+    if (!bootPending && !isDirty()) return;
+    bootPending = false;
+    kick();
+  });
+  globalThis.document?.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isDirty()) kick();
+  });
 }

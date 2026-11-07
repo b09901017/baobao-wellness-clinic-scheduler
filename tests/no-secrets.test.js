@@ -28,10 +28,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 import { fromRoot } from './helpers/paths.js';
 import { realNames } from './helpers/realNames.js';
+import { findLocalDir } from './helpers/localDir.js';
 
 const ROOT = fromRoot();
 
@@ -124,6 +125,8 @@ const NOT_A_NAME = new Set([
   //「小標題上的0723這種」「希望呈現2026年」「因為光是2026年」「點擊目前寫2026年」。
   // 同上面那幾條的理由。
   '我寫', '然後我寫', '其中', '然後有關', '標題上的', '希望呈現', '因為光是', '光是', '擊目前寫',
+  // 2026-11-05 她講試算表抬頭的原話：「不用病歷號 1234，直接寫1234就好」（.scratch/sheet-push-gaps/issues/08）。同上面那幾條的理由。
+  '直接寫',
   // 舊表 B2 購買名稱裡的「（尾款欠20萬）」（`tests/legacy-new-shapes.test.js`）。
   // 金額緊接在「欠」後面是她真的寫法，那一支測的就是這種字 —— 同上面那幾條的理由。
   '尾款欠',
@@ -153,6 +156,9 @@ const NOT_A_NAME = new Set([
   // 2026-10-19 上線前補的那一輪：`toLocaleString('zh-TW')` 印的產生時間是「2026/10/19 上午10:00:00」，
   // 試算表那一側的測試照抄這個格式（`tests/sheet-fingerprint.test.js`）。時段詞不可能是人名
   '上午', '下午',
+  // 2026-11-05 一次性客人那一輪（`.scratch/one-time-guests/`、ADR-0172）：她的原話「像是10月對帳的時候」
+  //「例如10月健檢中發現的客戶A 二返 失約」。連接詞不可能是人名 —— 同上面那幾條的理由。
+  '像是', '例如',
 ]);
 
 test('沒有任何被追蹤的檔案帶著「姓名黏著病歷編號」的字串', () => {
@@ -199,8 +205,9 @@ test('別名表裡的真名沒有出現在任何被追蹤的檔案裡', (t) => {
   // **兩個位置都試。** `.local/references/` 是現在的（skill 那一側寫在那裡），
   // `.local/` 是舊的 —— 2026-09-16 之前這裡只看舊的那一個，於是這條測試在她
   // 那台機器上**一直是跳過的**，而 2026-09-08 那次外洩正是它該擋的那一種。
-  const dir = [`${ROOT}.local/references/`, `${ROOT}.local/`]
-    .find((d) => existsSync(`${d}aliases.json`));
+  // **在 git worktree 裡再去主資料夾找**（`helpers/localDir.js`）：worktree 沒有 `.local/`，
+  // 2026-11-05 這條在 worktree 裡就是安靜地跳過的。
+  const dir = findLocalDir(ROOT, 'aliases.json');
 
   if (!dir) {
     // **這是三條裡唯一擋得住 2026-09-08 那種外洩的**（名字沒有黏著數字，

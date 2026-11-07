@@ -122,6 +122,9 @@ const FIELD_LABELS = {
   startTime: '開始時間',
   endTime: '結束時間',
   text: '內容',
+  // 連在一起的隨手記（ADR-0179）。**不進 `QUIET_IN_SENTENCE`**：複製時原本那一筆是一則只改這一格的修改，
+  // 句子不講它的話一格都不剩，退回「修改隨手記」—— 底下有兩句專門講它（連到別天、拆開）
+  linkId: '連在一起',
   // 療程單（ADR-0105）。`courseIds` 跟備忘錄共用底下那一格
   ivProductIds: '營養點滴品項',
   rows: '簽了的列',
@@ -141,6 +144,8 @@ const FIELD_LABELS = {
   customerName: '客戶',
   // 她改得到、2026-10-07 以前印英文的那幾格（issue 14）。字照設定頁那一格寫。
   partners: '合作機構',
+  // ADR-0172：建名字卡（是）、轉成我的客戶（是 → 否）。段上的那一格走整筆 `slots` 的比對
+  oneTime: '一次性客人',
   tier: '幾萬的',
   membershipMonths: '會籍（月）',
   preferredRoomIds: '常用診間',
@@ -599,6 +604,17 @@ const SENTENCES = [
       text: bits(
         `待辦${quoted(d.text) ?? ''}`,
         f[0].after ? `改到 ${when(f[0].after)}` : '從日曆拿掉',
+      ),
+    }),
+  },
+  // 連在一起（ADR-0179）。複製時原本那一筆補上 `linkId`（另外那幾天各是一則「新增待辦 11/8「x」」）；
+  // 拆開這一天把它清掉。**講得出是哪一筆待辦** —— 不是「修改隨手記」
+  {
+    when: (e, f) => coll(e) === 'notes' && f.length === 1 && f[0].key === 'linkId',
+    say: (e, f, d) => ({
+      text: bits(
+        `待辦${quoted(d.text) ?? ''}`,
+        f[0].after ? '連到別天' : `${d.date ? `${when(d.date)} ` : ''}拆開`,
       ),
     }),
   },

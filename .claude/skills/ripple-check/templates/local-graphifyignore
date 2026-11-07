@@ -1,0 +1,29 @@
+# 這個私人資料夾裡哪幾份進 graphify 的圖。範本來自客廳 skills/ripple-check/templates/local-graphifyignore；
+# 複製成 .local/.graphifyignore 再照專案改（公開 repo 的 .graphifyignore 只寫「先擋住、交給這一份」）。
+#
+# 規矩：資料不進圖，「有什麼、什麼時候讀、使用者決定了什麼」進圖 —— 一個真實值都沒有的才放（名字、號碼、金額、帳號）。
+# 圖只在本機（graphify-out/ 被 .gitignore 擋著），但查圖的結果會印在終端機上，而 graphify 讀檔不經過專案的過濾網。
+# 放回一份之前、更新圖之前：node .claude/skills/ripple-check/scripts/private-graph-check.mjs
+# 寫法是 gitignore，前面加 / 是從這個資料夾算起：先全部擋，再一份一份放回；放回資料夾裡的檔，要先放回那個資料夾。
+
+/*
+
+# 目錄、設計參考
+!/README.md
+!/research/
+
+# 知識庫（使用者現行的決定、跟她工作的方式）
+# !/知識庫/
+
+# 放真實資料的資料夾：只放它的目錄（README.md），資料本身不放
+# !/references/
+# /references/*
+# !/references/README.md
+
+# Claude 的記憶：挑跟大局有關、檢查網沒抓到名字的，一份一行
+# !/claude-memory/
+# /claude-memory/*
+# !/claude-memory/<記憶>.md
+
+# 產生資料的程式
+# !/<產生資料的程式>

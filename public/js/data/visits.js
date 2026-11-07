@@ -21,6 +21,7 @@ import {
 } from '../domain/followups.js';
 import { todayISO, addDays } from '../domain/dates.js';
 import { IncompleteReadError, readsIncomplete, readSource } from '../domain/incompleteRead.js';
+import { assertNoOneTimeIds, hasOneTimeSlots } from '../domain/oneTimeChain.js';
 
 const PATH = 'visits';
 const TASK_PATH = 'tasks';
@@ -40,22 +41,6 @@ export const get = (id) => repo.getOne(PATH, id);
 
 /** customerId → 最近一次讀全部來訪的來源（`'server'`／`'cache'`）。這一台還沒讀過的沒有這一格 */
 const visitsRead = new Map();
-
-/** 從伺服器讀回來的那幾份陣列本身（`isWholeList()`）。抄過、濾過的不在裡面 —— 那種當成不知道 */
-const wholeLists = new WeakSet();
-
-/**
- * 手上這一份**就是**一次從伺服器讀回來的全部來訪嗎（同一個陣列，沒抄過）。
- * 打開時讀一次就沿用的畫面（來訪編輯器）拿它決定按下去要不要重讀：是的話不用（確認框不晚一拍），
- * 不是（讀到的是快取、或不知道）才重讀（ADR-0158）。
- */
-export const isWholeList = (list) => Array.isArray(list) && wholeLists.has(list);
-
-/**
- * 這一台最近一次讀這位客戶的全部來訪，是從伺服器來的嗎 —— `save()` 問的就是這一格。打開時讀一次就沿用的畫面要連它一起問：
- * 只看陣列（`isWholeList()`）的話，同一位被別處從快取讀過一次之後，按幾次都存不進去（段四審查）
- */
-export const lastReadWhole = (customerId) => visitsRead.get(customerId) === 'server';
 
 const offlineNow = () => globalThis.navigator?.onLine === false;
 
@@ -81,7 +66,6 @@ async function readCustomer(customerId) {
     order: ['date', 'desc'],
   });
   visitsRead.set(customerId, readSource(fromCache));
-  if (!fromCache) wholeLists.add(rows);
   return rows;
 }
 
@@ -467,14 +451,18 @@ export async function chainAfterEntitlements(customerId, change, { name = null }
  * 確認框要試算健檢那條鏈時讀的那兩份：這位客戶的額度、任務（連清掉的，ADR-0106）——
  * 跟存檔時 `followupOps()` 讀的是同一份（ADR-0070）。**沒有健檢配二返就回 `null`**，不多讀任務；讀不到也是 `null`（少講幾句，不擋）。
  * 用的是 `consequences.js` 的 `cancelConsequences({ chain })` 與 `followupBookingLines()`。
+ *
+ * `visits`：呼叫端手上這位客戶的來訪（**要傳**）。一次性客人沒有額度，健檢那一串用一對只在算的時候才有的額度（ADR-0172 決定三）——
+ * 沒有真的一對、而這幾筆裡有一次性的段時照樣讀任務（03）；不然一次性客人在每一道確認框上都一句鏈上的話都不講。
+ * 回的額度照舊是真的那幾筆，那一對由算的那一支自己套。
  */
-export async function chainInputs(customerId, coursesById = {}) {
+export async function chainInputs(customerId, coursesById = {}, visits = []) {
   if (!customerId || !Object.values(coursesById).some((c) => c?.followupCourseId)) return null;
   // 讀到快取的也當讀不到（ADR-0158）：少講幾句，不講錯的 —— 真的存的那一下會擋
   const since = repo.cacheReads();
   try {
     const entitlements = await customersData.listEntitlements(customerId);
-    if (!pairsOf(entitlements, coursesById).some((p) => p.followup)) return null;
+    if (!pairsOf(entitlements, coursesById).some((p) => p.followup) && !hasOneTimeSlots(visits)) return null;
     const tasks = await tasksData.listByCustomerForSync(customerId);
     if (readsIncomplete({ offline: offlineNow(), sources: [readSource(cachedSince(since))] })) return null;
     return { entitlements, tasks };
@@ -760,6 +748,9 @@ function toOps({ create = [], update = [], remove = [] }) {
 }
 
 function countOps(customerId, touched, visitsAfter) {
+  // **存檔那一道防線**（ADR-0172 決定三）：一次性客人的那一對額度只在算健檢那一串的時候存在 —— 投影過的那一份被拿來存，
+  // 這裡就會去改一筆不存在的額度。`save()`、`remove()`、`restore()` 都經過這一支；丟錯、不悄悄清掉
+  assertNoOneTimeIds([...touched.filter(Boolean), ...(visitsAfter ?? [])]);
   const ids = touchedEntitlementIds(...touched.filter(Boolean));
   const recounted = recount(ids, visitsAfter);
   const at = new Date().toISOString();

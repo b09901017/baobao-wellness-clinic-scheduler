@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小工具挑選畫面的預覽（09，android:previewLayout；Android 12+）：
+     只是樣子 —— 標題、＋、灰的麥克風、三列假的隨手記。真的小工具是 NotesWidget（Glance）畫的 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_preview_bg"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_preview_title"
+            android:textColor="#FF241F1A"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_marginEnd="10dp"
+            android:src="@drawable/ic_mic"
+            android:tint="#FF9A9086"
+            android:contentDescription="@null" />
+        <ImageView
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:src="@drawable/ic_plus"
+            android:tint="#FF2F5D4C"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <TextView style="@style/WidgetPreviewRow" android:text="@string/widget_preview_row1" />
+    <TextView style="@style/WidgetPreviewRow" android:text="@string/widget_preview_row2" />
+    <TextView style="@style/WidgetPreviewRow" android:text="@string/widget_preview_row3" />
+</LinearLayout>

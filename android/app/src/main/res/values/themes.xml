@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      浮在桌面上的那一層（08：輸入卡、點一筆的選單）：透明、全螢幕、沒有標題。
+      後面調暗與模糊在程式裡開（FloatingActivity：FLAG_DIM_BEHIND、Android 12+ blurBehindRadius）。
+    -->
+    <style name="Theme.Notes.Floating" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- 小工具挑選畫面的預覽那幾列（09，layout/widget_preview.xml） -->
+    <style name="WidgetPreviewRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:drawableStart">@drawable/ic_box</item>
+        <item name="android:drawablePadding">8dp</item>
+        <item name="android:drawableTint">#FF6B6157</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">#FF241F1A</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+</resources>

@@ -50,8 +50,16 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     return app.ss.getSheetByName('客戶A');
   };
   const column = (sheet) => Array.from({ length: 90 }, (_, i) => sheet.at(`A${i + 1}`));
-  const everything = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
-    (_, c) => sheet.at(`${String.fromCharCode(65 + c)}${r + 1}`)).join('|')).join('\n');
+  // 值＋每一格的備註（第三輪 11 起，有額度的段的記一句寫在那一格的附註裡）。
+  // **矩陣底下、日期那一欄疊的那一份不算**（.scratch/sheet-push-gaps/issues/15：每一句記一句刻意多疊一份、塗 `NOTE_FILLS`）——
+  // 這裡數的是「它自己那一個地方」（額度那一格的附註、或來訪紀錄那一行），疊的那一份另外數（`stacked()`）
+  const FILLS = new Set(loadAppsScript().context.NOTE_FILLS);
+  const cellsOf = (sheet) => Array.from({ length: 90 }, (_, r) => Array.from({ length: 12 },
+    (_, c) => `${String.fromCharCode(65 + c)}${r + 1}`)).flat();
+  const everything = (sheet) => cellsOf(sheet)
+    .filter((a1) => !FILLS.has(sheet.backgrounds.get(a1)))
+    .map((a1) => `${sheet.at(a1)}${sheet.noteAt(a1)}`).join('|');
+  const stacked = (sheet) => cellsOf(sheet).filter((a1) => FILLS.has(sheet.backgrounds.get(a1))).map((a1) => [a1, sheet.at(a1)]);
 
   test('格式 6 的包裹整包拒收 —— 她沒重貼 .gs 的話要講出來', () => {
     const { post } = loadAppsScript();
@@ -75,9 +83,14 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     const [first, second] = b.sheets[0].log[0].items;
     assert.equal(first.note, null, '有額度的那一段在來訪紀錄不帶記一句');
     assert.equal(second.note, 'HRV 報告');
-    const text = everything(render(b));
-    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度底下那一格）');
+    const sheet = render(b);
+    const text = everything(sheet);
+    assert.equal(text.split('她說下午比較好').length - 1, 1, '只印一次（額度那一格的附註）');
     assert.equal(text.split('HRV 報告').length - 1, 1);
+    // 再加日期底下疊的那一份（issues/15）：那一天（G 欄）由上往下 —— 有額度的那一句、再來功醫門診那一句（app 產生的整包從頭畫一次）
+    assert.deepEqual(stacked(sheet).map(([a1, v]) => [a1.replace(/\d+$/, ''), v]), [['G', '她說下午比較好'], ['G', 'HRV 報告']]);
+    const [[top], [next]] = stacked(sheet);
+    assert.equal(Number(next.slice(1)), Number(top.slice(1)) + 1, '同一欄上下挨著');
   });
 
   test('沒記的不多印東西', () => {
@@ -114,9 +127,10 @@ describe('格式 7：沒有額度的段的記一句印在來訪紀錄', () => {
     const at = column(sheet).indexOf('三返（不算次數）') + 1;
     assert.ok(at > 0, '那一列要畫出來');
     assert.equal(at, column(sheet).indexOf('ILIB(60)') + 2, '接在額度列的下一列');
-    assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '✓']);
+    // F 是數字四欄與日期中間那一條空白欄（.scratch/sheet-push-gaps/issues/14），日期從 G 起
+    assert.deepEqual(['B', 'C', 'D', 'E', 'F', 'G'].map((c) => sheet.at(`${c}${at}`)), ['—', 1, 0, '—', '', '✓']);
     assert.notEqual(sheet.backgrounds.get(`E${at}`), '#FFCDD2', '一槓不是 0');
-    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
+    assert.match(String(sheet.at('A3')), /合計　應有 12　已完成 1　已排未上 0　剩餘 11/, '合計只算額度那一列');
     assert.equal(everything(sheet).split('報告看完了').length - 1, 1);
   });
 
@@ -258,15 +272,18 @@ describe('渲染', () => {
     assert.equal(sheet.at('C6'), data.rows[0].done);
     assert.equal(sheet.at('D6'), data.rows[0].booked);
     assert.equal(sheet.at('E6'), data.rows[0].remaining);
-    assert.equal(sheet.at('F6'), '✓2', '同一天同一份額度用兩次要看得出來');
+    assert.equal(sheet.at('F6'), '', 'F 是空白欄（issues/14）');
+    assert.equal(sheet.at('G6'), '✓2', '同一天同一份額度用兩次要看得出來');
   });
 
-  test('日期欄照 syncBundle 的順序排在第 F 欄以後', () => {
+  // 2026-11-05 晚起剩餘與日期中間多一條空白欄（F），日期從 G 起（.scratch/sheet-push-gaps/issues/14）
+  test('日期欄照 syncBundle 的順序排在第 G 欄以後（F 是空白欄）', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
     const labels = bundle().sheets[0].dateLabels;
-    assert.equal(sheet.at('F5'), labels[0]);
-    assert.equal(sheet.at('G5'), labels[1]);
+    assert.equal(sheet.at('F5'), '');
+    assert.equal(sheet.at('G5'), labels[0]);
+    assert.equal(sheet.at('H5'), labels[1]);
   });
 
   test('備註區放回她手寫的那一段，底下接來訪紀錄', () => {
@@ -282,15 +299,14 @@ describe('渲染', () => {
     assert.match(text, /時間不詳/, '匯入的來訪沒有時間，要寫時間不詳不是留白（ADR-0011）');
   });
 
-  test('表頭與備註區有合併儲存格、有凍結列、有欄寬', () => {
+  test('表頭與備註區有合併儲存格、沒有凍結、有欄寬', () => {
     const { ss } = render();
     const sheet = ss.getSheetByName('客戶A');
-    // FINISHED 在 K 欄，所以表至少寬到 M 欄，第一列要橫跨整張
-    assert.ok(sheet.merges.includes('A1:M1'), `第一列要橫跨整張表，實際：${sheet.merges.join(' ')}`);
-    assert.equal(sheet.frozenRows, 5);
-    // **不凍結欄**。表頭三列橫跨整張表，凍結欄的線會穿過那些合併儲存格，
-    // Google 會直接丟例外（issues/01）。要往右捲還看得到療程項目那一欄的話，
-    // 得先把表頭改成不合併 —— 那是另一個決定，不要偷偷加回來。
+    // 2026-11-05 晚起欄不凍結、第一列又是整頁寬（.scratch/sheet-push-gaps/issues/14，ADR-0176）——
+    // 凍結欄的話凍結線會穿過它（.scratch/first-real-import/issues/01），所以兩件一起看
+    assert.ok(sheet.merges.includes('A1:M1'), `第一列整頁寬，實際：${sheet.merges.join(' ')}`);
+    // 2026-11-06 起列也不凍結（.scratch/sheet-push-gaps/issues/16，ADR-0178：她「就都不要有凍結，太割裂了」）
+    assert.equal(sheet.frozenRows, 0);
     assert.equal(sheet.frozenCols, 0);
     assert.ok(sheet.widths.size > 0);
     assert.ok(sheet.fonts.size > 0, '字體要設，不然中英數字寬不一致');
@@ -375,11 +391,11 @@ describe('渲染', () => {
     assert.equal(app.post({ token: 'secret', bundle: withFollowup }).ok, true);
     const sheet = app.ss.getSheetByName('客戶A');
 
-    // 日期欄 8/1、8/5、8/12 → F、G、H。健檢在 8/5 那一欄，所以註記要在 G 欄。
+    // 日期欄 8/1、8/5、8/12 → G、H、I（F 是空白欄，issues/14）。健檢在 8/5 那一欄，所以註記要在 H 欄。
     // 用完整字串找，不要用「開頭是二返」—— 矩陣裡本來就有一列叫「二返」。
     const hit = [...sheet.cells.entries()].find(([, v]) => v === '8/12 二返');
     assert.ok(hit, `二返註記要寫出來，實際有的：${[...sheet.cells.values()].join('｜')}`);
-    assert.match(hit[0], /^G/, `要落在健檢那一欄（G），實際：${hit[0]}`);
+    assert.match(hit[0], /^H/, `要落在健檢那一欄（H），實際：${hit[0]}`);
   });
 
   test('不是我們產生的同名分頁不清空，而且要回報跳過了誰', () => {
@@ -476,36 +492,25 @@ describe('營養品那一區', () => {
     return app.ss.getSheetByName('客戶A');
   };
 
-  test('抬頭與五個欄位標題照 syncBundle 送過去的排', () => {
-    const sheet = render(withProducts());
-    const top = productRowOf(sheet);
-    assert.ok(top > 0, '找不到「營養品」那一段');
-    assert.deepEqual(
-      ['A', 'B', 'C', 'D', 'E'].map((c) => sheet.at(`${c}${top + 1}`)),
-      ['品名', '金額', '幾個月', '哪幾種', '給了沒'],
-    );
-  });
-
-  test('每一格的值跟 syncBundle 送過去的一模一樣 —— .gs 一個字都不重算', () => {
+  // 2026-11-05 起一筆一行（.scratch/sheet-push-gaps/issues/12）：以前是一張五欄的表（品名、金額、幾個月、哪幾種、給了沒）
+  test('一筆一行：品名　金額・幾個月・哪幾種　——　給了沒；那張五欄的表不見了', () => {
     const b = withProducts();
     const sheet = render(b);
     const top = productRowOf(sheet);
+    assert.ok(top > 0, '找不到「營養品」那一段');
     const sent = b.sheets[0].products[0];
-
-    assert.equal(sheet.at(`A${top + 2}`), sent.label);
-    assert.equal(sheet.at(`B${top + 2}`), sent.amount);
-    assert.equal(sheet.at(`C${top + 2}`), sent.months);
-    assert.equal(sheet.at(`D${top + 2}`), sent.items.join('、'));
-    assert.match(String(sheet.at(`E${top + 2}`)), /還差 速膳淨$/);
+    assert.equal(sheet.at(`A${top + 1}`), `夜態美＋速膳淨　12,000 元・${sent.months} 個月・夜態美、速膳淨　——　8/20　${sent.delivery}`);
+    assert.equal(sheet.at(`B${top + 1}`), '', '一行合併成一格，不再分欄');
+    assert.ok(![...sheet.cells.values()].includes('品名'), '欄位標題那一列不見了');
   });
 
   // 同一份報表因為走哪條路而長得不同，她會以為其中一條壞了
   //（`domain/sheetReport.js` 的檔頭）。以前「手動貼上」印 `8/20`、
   // 「自動推送」印 `2026-08-20`。
-  test('「給了沒」那一格，手動貼上與自動推送印出同一串字', () => {
+  test('「給了沒」那一段，手動貼上與自動推送印出同一串字', () => {
     const b = withProducts();
     const sheet = render(b);
-    const pushed = String(sheet.at(`E${productRowOf(sheet) + 2}`));
+    const pushed = String(sheet.at(`A${productRowOf(sheet) + 1}`));
 
     const pasted = customerReport({
       customer: { id: 'c1', name: '客戶A' },
@@ -517,11 +522,11 @@ describe('營養品那一區', () => {
       visits: [],
     }).rows.find((r) => r[0] === '夜態美＋速膳淨');
 
-    assert.equal(pushed, pasted[4]);
-    assert.match(pushed, /^8\/20　/, '日期照她舊表的寫法，不是 ISO');
+    assert.ok(pushed.endsWith(`　——　${pasted[4]}`), `${pushed} ／ ${pasted[4]}`);
+    assert.match(pasted[4], /^8\/20　/, '日期照她舊表的寫法，不是 ISO');
   });
 
-  test('還沒給完的那一列標起來，給完的不標', () => {
+  test('還沒給完的那一行標起來，給完的不標', () => {
     const sheet = render(withProducts([{
       id: 'p2', type: 'product', label: '膠原', totalQty: 1, amountTwd: 3000,
       items: [{ productId: 'x3', name: '膠原' }],
@@ -529,9 +534,10 @@ describe('營養品那一區', () => {
     }]));
     const top = productRowOf(sheet);
     // 借「已排未上」那個琥珀色，不開新色（同 ADR-0039 的判斷）
-    assert.ok(sheet.backgrounds.get(`A${top + 2}`), '沒給完的那一列要有底色');
+    assert.equal(sheet.backgrounds.get(`A${top + 1}`), '#FFF2CC', '沒給完的那一行要有底色');
+    assert.equal(sheet.backgrounds.get(`E${top + 1}`), '#FFF2CC', '整行（到剩餘那一欄）');
     assert.equal(
-      sheet.backgrounds.get(`A${top + 3}`) ?? null, null, '都給了的那一列不要標',
+      sheet.backgrounds.get(`A${top + 2}`) ?? null, null, '都給了的那一行不要標',
     );
   });
 
@@ -554,7 +560,7 @@ describe('營養品那一區', () => {
 
     assert.deepEqual(b.sheets[0].rows.map((r) => r.label), ['復能'], '矩陣只有排得進來訪的');
     assert.equal(b.sheets[0].totals.total, 12, '合計不含營養品的月數');
-    assert.equal(String(sheet.at('C2')).includes('應有 12'), true);
+    assert.equal(String(sheet.at('A3')).includes('應有 12'), true);
   });
 
   // 營養品那一區底下還有備註、來訪紀錄、TODO／FINISHED —— renderProducts()
@@ -571,7 +577,7 @@ describe('營養品那一區', () => {
       assert.ok(labels.includes(want), `營養品底下少了「${want}」：${labels.join(' / ')}`);
     }
     assert.ok(
-      labels.indexOf('備註') > labels.indexOf('品名'),
+      labels.indexOf('備註') > labels.indexOf('營養品'),
       '備註要排在營養品那一區底下',
     );
   });
@@ -824,10 +830,10 @@ describe('「剩餘」那一格：0 與負數紅，一槓與空白不紅', () =>
     for (const label of ['功醫門診（體驗）', '空字串', 'null']) assert.notEqual(of(label).bg, LOW, label);
   });
 
-  test('合計那一行照舊（它是一句字，不上色）；格式沒有升', () => {
+  test('合計那一行照舊（它是一句字，不上色；第三輪 09 起在第 3 列）；格式沒有升', () => {
     const { sheet } = colours();
-    assert.match(String(sheet.at('C2')), /剩餘 -?\d+/);
-    assert.notEqual(sheet.backgrounds.get('C2'), LOW);
+    assert.match(String(sheet.at('A3')), /剩餘 -?\d+/);
+    assert.notEqual(sheet.backgrounds.get('A3'), LOW);
     assert.equal(SYNC_FORMAT, 8);
   });
 });

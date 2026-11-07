@@ -16,10 +16,13 @@ import { MARK_COLORS } from './customerMarks.js';
 /**
  * 兩種，差別是實質的：休假那幾天她根本不在，任何來訪都排不進去；
  * 行事備註只是那個時段有事，其餘時間照樣排得了。
+ *
+ * `sameAs`：六色（`EVENT_COLOR_OPTIONS`）裡跟這一類本來的顏色重複的那一色 ——
+ * 編輯器的第一顆就是那一類本來的顏色，所以那一色不再列一次（`colourChoices()`，ADR-0171）。
  */
 export const CATEGORIES = [
-  { id: 'personal', label: '行事備註', kind: 'kind-personal' },
-  { id: 'leave', label: '休假', kind: 'kind-leave' },
+  { id: 'personal', label: '行事備註', kind: 'kind-personal', sameAs: 'violet' },
+  { id: 'leave', label: '休假', kind: 'kind-leave', sameAs: 'blue' },
 ];
 
 export const DEFAULT_CATEGORY = 'personal';
@@ -51,6 +54,19 @@ export function kindClass(id) {
 export const EVENT_COLOR_OPTIONS = MARK_COLORS.map(({ id, label }) => ({ id, label }));
 
 export const EVENT_COLORS = EVENT_COLOR_OPTIONS.map((c) => c.id);
+
+/**
+ * 編輯器上第一顆（那一類本來的顏色，存 `null`）後面要列哪幾色。
+ *
+ * 跟那一類重複的那一色不列（行事備註不列紫、休假不列藍）—— 同一個顏色出現兩次，
+ * 就是她 2026-11-05 問的「不理解」（ADR-0171，推翻 ADR-0040 的空心圈）。
+ * **這一筆現在存的就是那一色時照樣列**：不列的話她打開一筆以前挑紫的，畫面上看起來像沒挑。
+ * 不認得的類別照行事備註（同 `kindClass()` 的退路）。
+ */
+export function colourChoices(category, current = null) {
+  const same = (BY_ID[category] ?? BY_ID[DEFAULT_CATEGORY]).sameAs;
+  return EVENT_COLOR_OPTIONS.filter((c) => c.id !== same || c.id === current);
+}
 
 /**
  * 這筆行事備註要用哪一組顏色的 class。

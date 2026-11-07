@@ -109,6 +109,8 @@ test('S1 立刻推一次／整份重畫：送的包每一頁有指紋與病歷�
   });
   await app.seed(sheetSeed());
   await app.signIn('/settings/report');
+  // 打開 app 10 秒後會自己推一次（sheet-push-gaps 01）—— 等它推完，底下的 `posts.at(-1)` 才是按鈕送的那一包
+  await expect.poll(() => posts.length, { timeout: 20_000 }).toBe(1);
 
   await page.locator('[data-sync-now]').click();
   await expect(page.locator('#toast')).toContainText('2 張分頁都沒變（只改了產生時間）');
@@ -134,13 +136,15 @@ test('S2 離線時按立刻推一次：這一趟不推（一個請求都沒有�
   await app.seed(sheetSeed());
   await app.signIn('/settings/report');
   await app.settled();
+  // 打開 app 那一次（sheet-push-gaps 01）先推完，底下才數得到「離線那一趟一個請求都沒有」
+  await expect.poll(() => posts.length, { timeout: 20_000 }).toBe(1);
 
   await page.context().setOffline(true);
   await page.locator('[data-sync-now]').click();
   await expect(page.locator('#toast')).toContainText('這一趟先不推');
   await expect(page.locator('#view')).toContainText('上次沒推');
   await expect(page.locator('#view')).not.toContainText('被拒絕');
-  expect(posts).toHaveLength(0);
+  expect(posts).toHaveLength(1);
   await page.context().setOffline(false);
 });
 

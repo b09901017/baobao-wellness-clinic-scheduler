@@ -65,6 +65,9 @@ export const IGNORED = [
   '.gitattributes', 'skills-lock.json',
   // 查牽連的工具（CodeGraph、graphify）要掃哪些檔，app 一個字都不讀
   'codegraph.json', '.graphifyignore', '.codegraph/',
+  // Android 的隨手記小工具（ADR-0180）：另一支 app，網頁一個字都不讀；它照抄的規則由 tests/notes-parity.test.js
+  // 與 .github/workflows/android.yml 盯著，不靠 E2E
+  'android/',
 ];
 
 /**
@@ -672,6 +675,80 @@ export const COVERAGE = {
     'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
     'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
   ],
+  // 來訪編輯器按儲存那一刻重讀這位客戶的全部來訪（small-fixes-2026-11-05 01，11/4 健檢 #1）
+  '88-editor-rereads-on-save': [
+    'public/js/ui/views/visitEditor.js', 'public/js/data/visits.js',
+  ],
+  // 重算次數：算完之後那一筆額度被別處改過就不寫（small-fixes-2026-11-05 03，11/4 健檢 #3）
+  '90-recount-stale': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/ui/views/customerDetail.js',
+    'public/js/data/customers.js',
+  ],
+  // 營養品「記交付」寫之前重讀那一筆額度（small-fixes-2026-11-05 04，11/4 健檢 #4）
+  '89-delivery-once': [
+    'public/js/data/notes.js', 'public/js/ui/views/customerDetail.js', 'public/js/domain/products.js',
+  ],
+  // 隨手記「挑日期」那一顆本身就是日期框、點得到、選了就記上（small-fixes-2026-11-05 05）：四個入口都走一次
+  '91-note-date-one-tap': [
+    'public/js/ui/components/note.js', 'public/css/app.css', 'public/js/ui/views/home.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/ui/views/calendar.js',
+  ],
+  // 行事備註的顏色：第一顆是實心的預設色、重複的那一色不列、休假每顆斜線（small-fixes-2026-11-05 07，ADR-0171）
+  '92-event-colour-swatches': [
+    'public/js/ui/views/eventEditor.js', 'public/js/domain/events.js', 'public/css/app.css',
+  ],
+  // 一次性客人：客戶清單最底下那一排、名字卡那一頁、轉成我的客戶、刪除、新增客戶同名那一句（one-time-guests 05，ADR-0172）
+  '94-one-time-guest-card': [
+    'public/js/ui/views/customers.js', 'public/js/ui/views/customerDetail.js', 'public/js/ui/components/guestForm.js',
+    'public/js/domain/customers.js', 'public/js/domain/consequences.js', 'public/js/data/customers.js',
+    'public/js/ui/components/customerForm.js', 'public/css/app.css',
+  ],
+  // 一次性客人：日曆新增「＋ 新增一次性客人」、來訪編輯器的「做什麼」、讀取卡片的「一次性」、「約二返」去日曆排、轉成客戶之後的「二返（一次性那一次）」（one-time-guests 06）
+  '95-one-time-guest-booking': [
+    'public/js/ui/views/calendar.js', 'public/js/ui/views/visitEditor.js', 'public/js/ui/views/home.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotOptions.js',
+    'public/js/domain/slotDraft.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/followups.js',
+    'public/js/domain/customers.js', 'public/js/ui/views/customerDetail.js', 'public/css/app.css',
+  ],
+  // 一次性客人：拍 Abovee「記成一次性客人」、一次性客人那一列、換一位標「一次性」（one-time-guests 07）
+  '96-one-time-abovee': [
+    'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/js/domain/slotOptions.js',
+    'public/js/ui/components/guestForm.js', 'public/js/ui/components/giftFold.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/followups.js', 'public/js/domain/oneTimeChain.js', 'public/js/domain/customers.js',
+    'tests-e2e/fixtures/ai/aboveeList-one-time.json',
+  ],
+  // 複製到別天、連在一起的隨手記（notes-widget 04、05，ADR-0179）：長按 → 小月曆 → 一組三天；清單一列「共 N 天」、
+  // 日曆每一天一筆；在日曆勾一天整組一起勾（連不在這個月的）；拆開這一天；日曆編輯器只改日期不寫另外那幾天
+  '97-notes-linked-copy': [
+    'public/js/domain/notes.js', 'public/js/data/notes.js', 'public/js/ui/components/note.js',
+    'public/js/ui/components/actions.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/ui/views/customerDetail.js', 'public/js/domain/calendar.js', 'firestore.rules',
+  ],
+  // 記一筆那一排（notes-widget 02、03）：四顆排一排、首頁那張卡給營養品、長按提示；打名字跳出客戶、掛給誰搜尋
+  '98-note-capture-row': [
+    'public/js/ui/components/note.js', 'public/js/ui/views/home.js', 'public/js/ui/views/calendar.js',
+    'public/js/domain/customers.js', 'public/css/app.css',
+  ],
+  // 給 Android 小工具的兩條網址（notes-widget 10）：開某一筆（營養品的提醒先問給了哪幾款）、開記一筆並展開給營養品；冷開機與 app 開著時
+  '99-notes-widget-links': [
+    'public/js/ui/views.js', 'public/js/ui/views/home.js', 'public/js/ui/components/note.js', 'public/js/ui/router.js',
+  ],
+  // 鍵盤開著的時候（notes-widget 01，ADR-0181）：版面跟著鍵盤縮、打字時收起底部導覽列
+  '100-keyboard-layout': [
+    'public/js/ui/keyboard.js', 'public/index.html', 'public/js/app.js', 'public/css/app.css',
+  ],
+  // 上 main 前第二堆（final-check-2026-11-07）：批次建立打到一次性客人的名字、日曆新增二返時講「約二返」會收起來、
+  // 拍 Abovee 每一列都是 app 裡沒有的人時的抬頭、桌機用滑鼠把面板拖到灰底上放開不關
+  '101-pre-main-five': [
+    'public/js/domain/bulkCustomers.js', 'public/js/ui/views/customersBulk.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/domain/consequences.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js',
+    'tests-e2e/fixtures/ai/aboveeList-strangers.json', 'public/js/ui/components/sheet.js',
+  ],
+  // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
+  '93-health-fix-once': [
+    'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',
+    'public/js/data/customers.js',
+  ],
 };
 
 /**
@@ -685,6 +762,8 @@ export const COVERAGE = {
  * 右邊每一條都要至少挑得到一支（`tests/e2e-related.test.js` 盯著）。
  */
 export const FOLLOWS = {
+  // 試算表推送什麼時候再推（失敗重試、回到 app、打開 app）：只有 sheetSync.js import 它
+  'public/js/domain/sheetPushTiming.js': ['public/js/data/sheetSync.js'],
   // 底下那一條滑掉的門檻與 12 秒（staging-polish 05）：只有 toast.js import 它
   'public/js/ui/toastSwipe.js': ['public/js/ui/toast.js'],
   'public/js/data/audit.js': [
@@ -697,6 +776,8 @@ export const FOLLOWS = {
     'public/js/ui/views/schedule.js', 'public/js/ui/views/trash.js',
   ],
   'public/js/domain/lineText.js': ['public/js/ui/views/playbook.js'],
+  // 一次性客人的那一對額度（ADR-0172）：健檢那一串（followups.js）、n返（nthFollowup.js）進來先套它
+  'public/js/domain/oneTimeChain.js': ['public/js/domain/followups.js', 'public/js/domain/nthFollowup.js'],
   // 圖示只在兩個地方被讀：`manifest.webmanifest`（裝到主畫面）與 `index.html` 的 `<link rel="icon">`。
   // 後者是共用底座，但它載不到圖示的症狀是一句 console error —— `00-smoke`（CORE）本來就在抓那個
   'public/icons/': ['public/manifest.webmanifest'],
@@ -728,6 +809,30 @@ export const CSS_SCOPES = {
   tsl: { classes: ['tsl'], owners: ['public/js/ui/components/sheetConfirm.js'] },
   // 「送的／體驗…」收起來的那一段（壓表、來訪編輯器、拍 Abovee 共用）
   giftfold: { classes: ['giftfold'], owners: ['public/js/ui/components/giftFold.js'] },
+  // 隨手記那個選填的日期欄（首頁、泡泡、客戶詳情、日曆的待辦編輯器共用 `note.js` 的 `field()`）
+  notedate: { classes: ['notedate'], owners: ['public/js/ui/components/note.js'] },
+  // 記一筆那一排（notes-widget 02）：今天／挑日期／掛給誰／給營養品排一排的那一層與兩塊選填的丸子
+  notemeta: {
+    classes: ['notemeta', 'notewho', 'notegive', 'notesuggest'],
+    owners: [
+      'public/js/ui/components/note.js', 'public/js/ui/views/home.js',
+      'public/js/ui/views/calendar.js', 'public/js/ui/views/customerDetail.js',
+    ],
+  },
+  // 連在一起的隨手記（ADR-0179）：清單上那一顆「共 N 天」、「改日期」那張卡、「複製到別天」那張小月曆
+  notecount: { classes: ['notecount'], owners: ['public/js/ui/components/note.js'] },
+  datechoice: { classes: ['datechoice'], owners: ['public/js/ui/components/note.js'] },
+  copydays: { classes: ['copydays'], owners: ['public/js/ui/components/note.js'] },
+  // 長按選單抬頭底下那一排小丸（連在一起的隨手記是哪幾天）
+  actionstags: { classes: ['actions__tag', 'actions__tags'], owners: ['public/js/ui/components/actions.js'] },
+  // 挑顏色那一排圓點：客戶備註、長備註那幾則的編輯、設定頁警示、行事備註（ADR-0171 的 `.swatches--event`）
+  swatch: {
+    classes: ['swatch', 'swatches'],
+    owners: [
+      'public/js/ui/components/marks.js', 'public/js/ui/components/notesEditor.js',
+      'public/js/ui/views/masterList.js', 'public/js/ui/views/eventEditor.js',
+    ],
+  },
 };
 
 const hits = (file, paths) => paths.some((p) => file === p || file.startsWith(p));
@@ -768,8 +873,8 @@ export function pick(files = []) {
       continue;
     }
 
-    // 改到 spec 自己就跑它自己。
-    const own = file.match(/^tests-e2e\/specs\/(\d\d-[^.]+)\./);
+    // 改到 spec 自己就跑它自己。編號是三位數的（`100-keyboard-layout`）也要認得 —— 以前只認兩位數，那一支被當成沒登記、退回全跑
+    const own = file.match(/^tests-e2e\/specs\/(\d+-[^.]+)\./);
     if (own) { specs.add(own[1]); continue; }
 
     // Rules 的測試、start-emulators 之類的，不影響 app 行為。

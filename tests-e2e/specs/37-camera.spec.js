@@ -10,6 +10,7 @@
 //   6. 張數上限講得出來
 //   7. 手機解不開整張的 1 億像素照片 → 解碼時就縮，照樣轉正送出（after-golive 01）
 //   8. 手機橫放時取景框撐滿、快門在右邊那一欄（after-golive 02）
+//   9. 相機給了、畫面一直出不來（她 iPad 主畫面那一顆）→ 照舊黑著、不換頁；快門不拍黑的、指她去系統相機（ADR-0182）
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -524,4 +525,28 @@ test('L5 手機橫放、前鏡頭在左或右（全螢幕）：取景與右邊�
     }
     expect(l.shutterHit).toBe(true);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 相機給了、畫面一直出不來（`.scratch/ipad-photo-and-speed/issues/01`，ADR-0182）
+// ---------------------------------------------------------------------------
+//
+// 她 iPad 主畫面那一顆：相機開著、影片一格都收不到、play() 永遠不回。11/8 她選了「照舊黑著，下面那排照樣按得到系統相機」，
+// 不等幾秒換一頁。只多一件：快門不拍黑的。
+
+test('C9 相機給了、play() 永遠不回 → 照舊黑著不換頁，下面那排按得到系統相機；快門不拍、講去按系統相機', async ({ app, page }) => {
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => document.createElement('canvas').captureStream(0);
+    HTMLMediaElement.prototype.play = () => new Promise(() => {});
+  });
+  await app.signIn('/');
+  await openCam(page);
+  await page.waitForFunction(() => !!document.querySelector('[data-cam-video]').srcObject);
+
+  await page.locator('[data-cam-shutter]').click();
+  await expect(page.locator('[data-cam-say]')).toContainText('系統相機');
+  await expect(page.locator('[data-cam-tray] li')).toHaveCount(0);
+  await expect(page.locator('.cam.cam--live')).toHaveCount(0);
+  await expect(page.locator('[data-cam-fallback]')).toBeHidden();
+  await expect(page.locator('.cam__controls [data-cam-system]')).toBeVisible();
 });

@@ -42,6 +42,8 @@ iPad 加到主畫面的那一顆才登得進去）：
 
 **先登記、再部署。** 反過來的話，部署完那幾分鐘連瀏覽器分頁都登不進去（Google 回 `redirect_uri_mismatch`）。
 
+ADR-0173（開機不先載登入那一塊、iPad／手機／Safari 的分頁也改走轉頁登入）**不用多設定任何一格**：轉回來的還是同一頁 `/__/auth/handler`。
+
 ### 1.5 補一個 IAM 角色（新專案幾乎一定要做這一步）
 
 Console 下載下來的服務帳號金鑰（`firebase-adminsdk-…`），預設只有讀寫
@@ -167,6 +169,7 @@ GOOGLE_APPLICATION_CREDENTIALS=~/keys/staging-sa.json \
   外加 Storage 上療程單的照片
 - **不清**主檔與設定、白名單、稽核、AI 用量 —— 預演用的是 staging 上那一份主檔（加 `--master` 的話主檔照現在的種子重來，其餘照舊不清）
 - 正式專案一律拒絕，沒有放行的旗標
+- **清完之後 HTC 上的「隨手記（測試）」登出再登入一次**：清空是真刪，小工具只問「之後改過的」（ADR-0180），真刪的那幾筆它問不到、會一直留在桌面上；登出再登入就整份重讀（還原之後同一件事，見「五、還原演練」）
 
 **staging 的畫面上有真名。** 在上面測試時，截圖、驗收清單、PR 內文一個真名都不帶；
 會寫入資料的驗收步驟改在本機模擬器走（第六節）。
@@ -392,6 +395,81 @@ curl -s -X POST -H "Content-Type: application/json" -d '{"data":{}}' \
 
 ---
 
+## 三之四、桌面小工具（Android「隨手記」）
+
+兩支 app、各接一個環境，可以裝在同一台手機上：
+
+| | 套件名 | 接哪裡 | 裝在 |
+|---|---|---|---|
+| 隨手記（測試） | `tw.baofu.notes.staging` | staging | HTC |
+| 隨手記 | `tw.baofu.notes` | 正式站 | 三星（測試版在 HTC 點過、說可以才裝） |
+
+程式在 `android/`，為什麼這樣做見 ADR-0180。不上 Play 商店：走 Firebase App Distribution，**測試者只有她一位**（不公開下載）。
+
+### 第一次設定（每個 Firebase 專案一次，主控台非點不可）
+
+App Distribution 第一次要在主控台按一次「開始使用」，指令列開不了（沒按之前 CLI 回 404）：
+
+1. 開 https://console.firebase.google.com → 選 **wellness-clinic-staging**
+2. 左邊「執行」（Run）底下 **App Distribution** → 按「**開始使用**」（Get started）→ 同意條款
+3. 換 **wellness-clinic-scheduler**（正式站）再做一次
+4. 加測試者（只有她），指令列做得到：
+
+```bash
+npx firebase appdistribution:group:create "只有我" owner --project wellness-clinic-staging
+npx firebase appdistribution:testers:add <她的 Gmail> --group-alias owner --project wellness-clinic-staging
+```
+
+正式站把 `--project` 換成 `wellness-clinic-scheduler` 再做一次。之後派送一律寫 `--groups owner`，指令與文件裡都不寫 email。
+
+### 簽章鑰匙在哪
+
+release 版用同一把鑰匙簽（兩個 Firebase 專案都登記了它的 SHA-1；換一把＝手機上裝好的要移除重裝、Firebase 重新登記）。**值一律不寫進 repo、不印進 log。**
+
+- 筆電：鑰匙檔 `~/.android/baofu-notes-release.jks`，密碼在 `~/.gradle/gradle.properties` 的 `baofuNotesStoreFile`／`baofuNotesStorePassword`／`baofuNotesKeyAlias`／`baofuNotesKeyPassword`
+- GitHub Secrets：`BAOFU_NOTES_STORE_BASE64`（鑰匙檔的 base64）、`BAOFU_NOTES_STORE_PASSWORD`、`BAOFU_NOTES_KEY_ALIAS`、`BAOFU_NOTES_KEY_PASSWORD` —— `android.yml` 推到 develop／main 時拿它們建一次 release，確認鑰匙還能用（**APK 不上傳成 artifact**：repo 是 public）
+- 備份：私人 repo 的 `android-signing/`（鑰匙檔＋一份寫著那四行的 README）。換一台電腦：鑰匙檔放回 `~/.android/`、四行貼進 `~/.gradle/gradle.properties`
+
+### 建一版、派送
+
+**從合進 develop（正式版：main）的那一個 commit、`git status` 乾淨的 checkout 建**：筆電上還沒 commit 的改動會跟著建進去、派到手機上
+（另開一個 `git worktree add <資料夾> origin/develop` 建最乾淨；`android/local.properties` 要複製過去）。
+
+```bash
+cd android
+# 1. app/build.gradle.kts 的 versionCode 加一（同一個號碼手機裝不上去、App Distribution 也不會講有新版）
+# 2. 建（JAVA_HOME 指到 JDK 21）
+./gradlew :core:test :app:assembleStagingRelease :app:assembleProdRelease
+./gradlew --stop
+```
+
+```bash
+npx firebase appdistribution:distribute android/app/build/outputs/apk/staging/release/app-staging-release.apk --app 1:306220040308:android:dc49687824b0a172501121 --groups owner --release-notes "這一版改了什麼" --project wellness-clinic-staging
+```
+
+正式站：`apk/prod/release/app-prod-release.apk`、`--app 1:4875686059:android:80eb09363f4d1a8007a7ee`、`--project wellness-clinic-scheduler`。
+
+### 第一次裝到手機
+
+1. 手機上會收到 Firebase 寄來的邀請信 → 點「**開始使用**」（用手機的 Chrome 開，登入收信的那個 Google 帳號）
+2. 照畫面「**下載 App Tester**」（Firebase 的派送 app）→ 手機問「允許安裝不明來源的應用程式嗎？」→ 點「設定」→ 打開「**允許這個來源**」→ 返回 → 安裝
+3. 打開 App Tester → 看到「隨手記（測試）」（或「隨手記」）→ **下載** → 安裝（第一次一樣要對 App Tester 打開「允許這個來源」）
+4. **手機上已經有一支同名的、是筆電直接裝的開發版**（例如 HTC）→ 先長按圖示 → 解除安裝，再從 App Tester 裝；鑰匙不一樣，蓋不過去。
+   解除安裝會把桌面上的小工具一起拿掉，裝好要重放
+5. 打開 → 用 Google 登入 →「把小工具放到桌面」（之後怎麼用見 `docs/操作手冊.md`「桌面小工具」）
+
+### 更新
+
+派送了新的一版 → 手機收到通知（或打開 App Tester）→ 點「更新」。設定、登入、桌面上的小工具都留著（小工具更新完自己重畫一次）。
+
+### 換手機
+
+新手機照「第一次裝到手機」走一次（邀請信還在信箱裡；或在主控台 App Distribution → 測試者 → 重新寄邀請）。舊手機解除安裝就好，資料都在 Firestore 上。
+
+### 開發時接本機模擬器
+
+`./gradlew :app:assembleStagingDebug -Pemulator` 建出寫本機模擬器（`demo-scheduler`）的那一支，HTC 用 `adb reverse` 接過來；步驟在 `.scratch/notes-widget/issues/06-android-toolchain-and-data.md`「做完時留下的」。debug 版用筆電的 debug 鑰匙，跟 App Distribution 的 release 版不能互蓋。
+
 ## 四、日常怎麼跑
 
 ```
@@ -435,6 +513,9 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
 
 腳本最後會逐個集合數一次，數字對不上會以非 0 離開碼結束。
 
+**還原到真的專案之後，手機上的「隨手記」登出再登入一次**（整份重讀）：還原回來的那幾筆 `updatedAt` 是備份那一刻的，
+小工具的背景同步只問比上次新的，問不到它們（ADR-0180）。
+
 **療程單的照片不在備份裡**（ADR-0101）：還原的是抄出來的列，照片檔要是原本那個專案的
 Storage 裡還在就看得到，不在的那一張卡會寫「照片不在備份裡」—— 那是預期的，有紙本正本。
 
@@ -475,9 +556,13 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 每一次合進 `main` 都要看的（2026-09-01 的舊版在 `.scratch/PRODUCTION_AUDIT.md` §3.4，那一份不再更新）：
 
+- [ ] **開進 `main` 的那一支 PR 上，「全量 E2E」六份都綠了嗎** —— PR 一開就自己跑（`e2e-full.yml` 的 `pull_request: branches: [main]`），
+      不用另外按；它不是必要檢查，紅著也合得下去，所以合之前自己看一眼。要重跑：`gh workflow run e2e-full.yml --ref develop`
 - [ ] 改了 `public/` 底下任何檔案 → **`sw.js` 的 `VERSION` 加一、`npm run shell:snapshot` 跑了嗎**
       （`tests/shell-version.test.js` 擋著：程式檔先用手機裡的，忘了加一她的手機會永遠停在舊版，ADR-0167）
-- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**
+- [ ] 改了 `SYNC_FORMAT` → 回 Google 試算表重新貼一次 `.gs` 並**重新部署**。**沒升版、只改了 `sheets/readonly-report.gs` 也要重貼**；
+      **2026-11-05 起那一份 Apps Script 還要加「Google Sheets API」服務**（在部署新版本之前；步驟在 `sheets/README.md`「升版之後」）—— 沒加照樣推得上去，只是慢
+      （2026-11-05 批次讀寫與「比較舊的那一包不畫」，ADR-0174）—— 沒重貼照樣推得上去，只是跑的是舊的那一份
 - [ ] 改了 `firestore.indexes.json` → 部署後到 Console 確認索引真的「已啟用」
 - [ ] **切換那天**（ADR-0118）照下面「切換那天」那一節做；staging 上記的東西**不搬**。切換之後 staging 照樣可以 `staging:reset` 重來
 - [ ] 部署後確認新版真的在跑：**手機上打開 app → 最上面跳「有新版本・點一下更新」→ 點**（2026-10-21 起程式檔先用手機裡的，
@@ -551,7 +636,7 @@ E2E 的 fixture），`tests/env.test.js` 盯著。
 
 > **2026-10-19 那一輪（上線前補的）**：`SYNC_FORMAT` 從 7 跳到 8（沒變的那幾頁不重畫、抬頭那一行印病歷號、設定頁多「整份重畫」，ADR-0161），
 > staging 與正式各自接的那一份試算表都要**重貼 `.gs` 並重新部署**，同下面那一輪的步驟。重貼之後第一次推送每一頁都會重畫一次
->（還沒記過指紋），之後沒變的那幾頁只改第三列的產生時間。**貼的是這一輪合進 develop 之後的那一版**：`.gs` 在同一輪又改了一次
+>（還沒記過指紋），之後沒變的那幾頁只改產生時間那一列。**貼的是這一輪合進 develop 之後的那一版**：`.gs` 在同一輪又改了一次
 >（`onEdit` 有人手改就拿掉那一頁的指紋，下一次推送畫回來）—— 10/19 那天先貼過的，要再貼一次。
 >
 > **2026-10-05 那一輪**：`SYNC_FORMAT` 從 6 跳到 7（沒有額度的段 —— n返、功醫門診 —— 的記一句印在來訪紀錄那一行），

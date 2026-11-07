@@ -91,15 +91,16 @@ const push = (app, bundle, extra = {}) => {
 const sheetOf = (app, name) => app.ss.getSheetByName(name);
 
 describe('.gs：沒變的那幾頁只改產生時間', () => {
-  test('同一包推兩次：第二次一頁都不重畫、回報 kept 2、第三列換成這一次的時間', () => {
+  // 產生時間 2026-11-05 起在第 4 列（.scratch/sheet-push-gaps/issues/09：最上面幾列只合併到剩餘那一欄，名字與合計各一列）
+  test('同一包推兩次：第二次一頁都不重畫、回報 kept 2、產生時間那一列換成這一次的時間', () => {
     const app = loadAppsScript();
     assert.deepEqual(push(app, syncBundle(base())), { ok: true, sheets: 2, kept: 0, skipped: [] });
     const clears = sheetOf(app, '客戶A').clears;
     const reply = push(app, syncBundle(base({ generatedAt: '2026/10/19 下午3:00:00' })));
     assert.deepEqual([reply.sheets, reply.kept], [0, 2]);
     assert.equal(sheetOf(app, '客戶A').clears, clears);
-    assert.match(sheetOf(app, '客戶A').at('A3'), /^產生時間 2026\/10\/19 下午3:00:00/);
-    assert.match(sheetOf(app, '王小明').at('A3'), /^產生時間 2026\/10\/19 下午3:00:00/);
+    assert.match(sheetOf(app, '客戶A').at('A4'), /^產生時間 2026\/10\/19 下午3:00:00/);
+    assert.match(sheetOf(app, '王小明').at('A4'), /^產生時間 2026\/10\/19 下午3:00:00/);
   });
 
   test('改了一位：只重畫那一位', () => {
@@ -175,9 +176,9 @@ describe('.gs：沒變的那幾頁只改產生時間', () => {
     const bundle = syncBundle(base());
     const [first, second] = bundle.sheets.map((s) => s.name);
     const real = app.context.renderCustomer;
-    app.context.renderCustomer = (ss, data, b) => {
+    app.context.renderCustomer = (ss, data, ...rest) => {
       if (data.name === second) throw new Error('逾時');
-      return real(ss, data, b);
+      return real(ss, data, ...rest);
     };
     assert.equal(app.post({ token: 'secret', bundle }).ok, false);
     assert.ok(app.docProps.has(`fp:${first}`));
@@ -197,11 +198,14 @@ describe('.gs：沒變的那幾頁只改產生時間', () => {
     assert.equal(push(app, syncBundle(base())).skipped.length, 1);
   });
 
-  test('抬頭那一行印「病歷號 1234」；沒有病歷號的那一頁不寫那一段', () => {
+  // 2026-11-05 起只寫號碼（她：「不用病歷號，直接寫1234就好」；.scratch/sheet-push-gaps/issues/08）；
+  // 同一天晚上搬到名字那一格、一樣大（issues/14）
+  test('名字那一格是「客戶A　1234」、抬頭那一行沒有號碼；沒有病歷號的那一頁只有名字', () => {
     const app = loadAppsScript();
     push(app, syncBundle(base()));
-    assert.match(sheetOf(app, '客戶A').at('C2'), /^病歷號 1234　·　/);
-    assert.doesNotMatch(sheetOf(app, '王小明').at('C2'), /病歷號/);
+    assert.equal(sheetOf(app, '客戶A').at('A2'), '客戶A　1234');
+    assert.doesNotMatch(sheetOf(app, '客戶A').at('A3'), /1234/);
+    assert.equal(sheetOf(app, '王小明').at('A2'), '王小明');
   });
 });
 
@@ -226,7 +230,7 @@ test('.gs 的程式碼改了，LAYOUT_VERSION 要跟著加一（然後換掉這�
     .replace(/var LAYOUT_VERSION = \d+;/, '')
     .replace(/\s+/g, ' ');
   const hash = createHash('sha256').update(code).digest('hex').slice(0, 12);
-  assert.deepEqual({ version, hash }, { version: 1, hash: '9f20527f7294' },
+  assert.deepEqual({ version, hash }, { version: 8, hash: '68dcaa8983a4' },
     '改了 sheets/readonly-report.gs：畫法變了的話 LAYOUT_VERSION 加一；兩種都把這裡換成新的 version 與 hash');
 });
 
@@ -274,7 +278,8 @@ describe('sheetSync.js（原始碼）', () => {
   test('整份重畫不被一般推送的去重併掉：路上那一份不是 force 就等它回來再推一份 force', () => {
     assert.match(src, /inFlight\?\.at === version && \(inFlight\.force \|\| !force\)/);
     assert.match(src, /inFlight = \{ at, force, promise \}/);
-    assert.match(src, /force \? \{ token, bundle, force: true \}/);
+    // 送出去的那一包由 `pushBody()` 組（ADR-0174 多一個 `dataAt`）；force 照樣帶得到（`tests/sheet-stale-bundle.test.js` 測那一支）
+    assert.match(src, /pushBody\(\{ token, bundle: built\.bundle, dataAt: built\.dataAt, force \}\)/);
   });
 });
 

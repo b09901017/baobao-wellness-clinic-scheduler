@@ -27,7 +27,8 @@ const UI_ROOT = fromRoot('public/js/ui/');
  * 做兩次結果一樣，而**全域鎖住一次一個寫入會更糟**：她連續勾三筆待辦時
  * 後兩筆會安靜地不見（`ui/toast.js` 的檔頭記過這個判斷）。
  */
-const CREATES = /\.(create|take|save)\s*\(/;
+// `applyFixes`（資料健檢的修正）：裡面有建新資料的那幾種（補上二返額度、補警示詞…），11/4 健檢 #2 就是它漏在視野外
+const CREATES = /\.(create|take|save|applyFixes)\s*\(/;
 
 /**
  * 豁免。**每一條都要寫得出理由**，而且理由要是「這條路本來就防得住」，
@@ -40,12 +41,6 @@ const ALLOWED = [
     contains: 'invitesData.revoke',
     why: '「重發連結」走二次確認框。confirmAction() 一按下去就把整個對話框節點'
        + '移除，後面幾下落在不存在的元素上（07-chaos.spec.js 的 C12／C13 靠的就是這個）',
-  },
-  {
-    at: 'views/home.js',
-    contains: 'setFollowupNote',
-    why: '「禮拜一再問問」那一句是 update 不是 create —— 存兩次結果一模一樣。'
-       + '它會被掃到只是因為同一個函式裡還有別的呼叫',
   },
 ];
 

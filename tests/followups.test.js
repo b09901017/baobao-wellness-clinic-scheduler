@@ -129,6 +129,13 @@ describe('健檢與二返的配對', () => {
     assert.equal(isFollowupCourse('course-checkup', courses), false);
   });
 
+  test('還沒選課（null／空字串）不是二返 —— 不是健檢的課 followupCourseId 都是 null，以前 null 對 null 回 true（backlog 18）', () => {
+    const courses = [CHECKUP_COURSE, FOLLOWUP_COURSE, RECOVERY_COURSE];
+    assert.equal(isFollowupCourse(null, courses), false);
+    assert.equal(isFollowupCourse(undefined, courses), false);
+    assert.equal(isFollowupCourse('', courses), false);
+  });
+
   test('配到的二返額度是用 followupForEntitlementId 指回去的', () => {
     const pairs = pairsOf([checkup(), followup()], COURSES);
     assert.equal(pairs.length, 1);

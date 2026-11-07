@@ -5,8 +5,10 @@
 import { where } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
 import * as repo from './repo.js';
-import { normalize, normalizePatch } from '../domain/notes.js';
-import { withDelivery, isFullyDelivered, noteTextFor } from '../domain/products.js';
+import {
+  normalize, normalizePatch, linkedPeers, linkedChanges, copyPlan, linkedReach,
+} from '../domain/notes.js';
+import { withDelivery, isFullyDelivered, noteTextFor, existingReminder } from '../domain/products.js';
 
 const PATH = 'notes';
 
@@ -74,16 +76,132 @@ export function create(data) {
 }
 
 /**
+ * 「記一筆」那幾個入口存檔走這一支（右下角泡泡、首頁那張卡、日曆待辦編輯器的新增）。
+ *
+ * **選了一包營養品、那一包已經有還沒勾的提醒 → 改那一筆，不長第二筆**（`domain/products.js` 的 `givableBags()` 檔頭：
+ * 「已經約了」的那一包照樣列，選了它是改那一筆的日期）。2026-11-07 她在小工具的「給營養品」記出兩筆一樣的
+ * （`.scratch/give-bag-once/issues/01`）—— 以前三個入口一律 `create()`。
+ *
+ * - **寫之前照 `entitlementId` 重讀**：畫面手上那一份是打開那一刻的（泡泡存完不重畫，再選同一包一次就是這一種）
+ * - 字換成這一次的；**選了日期才改日期**，沒選就留著原本那一天（沒選不等於要拿掉日期）
+ * - 營養品的提醒不能連在一起（`validateNote()`），所以不用管 `linkId`
+ * - 沒有 `entitlementId` 的跟 `create()` 一模一樣
+ *
+ * @returns {Promise<{id: string, moved: boolean}>} `moved`：改的是本來那一筆
+ */
+export async function createOrMove(data) {
+  const entitlementId = data?.entitlementId ?? null;
+  const rows = entitlementId
+    ? await repo.listWithDeleted(PATH, { wheres: [where('entitlementId', '==', entitlementId)] })
+    : [];
+  const open = existingReminder(rows, entitlementId);
+  if (!open) return { id: await create(data), moved: false };
+  await update(open.id, { text: data.text, ...(data.date ? { date: data.date } : {}) });
+  return { id: open.id, moved: true };
+}
+
+/** 存完那一句：改到本來那一筆時不講「記下來了」（她會以為多了一筆）。 */
+export const createOrMoveSay = (out, fallback = '記下來了') =>
+  (out?.moved ? '這一包本來就有提醒，改好了' : fallback);
+
+// ---------- 連在一起的那一組（ADR-0179） ----------
+//
+// **寫的那一刻照 `linkId` 重讀同一組**：畫面手上那一份都只是一部分（日曆一個月、首頁只讀還沒勾的、
+// 客戶詳情一位、小工具的快取）—— 拿它去算「另外那幾天」，不在畫面上的那幾天就漏了（lessons 二）。
+// 只用等號查、不加排序 → 不用新索引。一組一起變的寫在同一個 commit（每一筆照舊一則稽核）。
+//
+// 離線時重讀只拿得到快取裡剛好有的那幾筆 —— 隨手記不擋（ADR-0158 只管會算次數的寫入），照寫；
+// 一組勾得不一樣的由資料健檢最後一項列出來。
+
+/**
+ * 同一組（同一個 `linkId`），**含已刪除的**（`linkId` 撞不撞要連刪掉的一起看；活著的由 domain 濾）。
+ */
+export function listLinked(linkId) {
+  return repo.listWithDeleted(PATH, { wheres: [where('linkId', '==', linkId)] });
+}
+
+/** 重讀這一筆與它那一組還活著的其他筆。沒有 `linkId` 的不多讀那一趟。 */
+async function freshWithPeers(id) {
+  const before = await repo.getOne(PATH, id);
+  if (!before?.linkId) return { before, peers: [] };
+  return { before, peers: linkedPeers(before, await listLinked(before.linkId)) };
+}
+
+const writeAll = (writes) => repo.commit(
+  writes.map((w) => ({ op: 'update', path: PATH, id: w.id, changes: w.changes })),
+);
+
+/**
  * 改一筆。**走 `normalizePatch()` 不是 `normalize()`** —— 呼叫端給的是
  * 「變了的那幾欄」，而 `normalize()` 吃的是一份完整的隨手記，
  * 少帶一欄就等於把它清掉（`domain/notes.js` 那一支的註解寫了是哪一次）。
+ *
+ * **連在一起的**：字、掛給誰同一組每一筆一起改，日期只改這一筆，照真的變了什麼寫（`linkedChanges()`）——
+ * 日曆編輯器每次存都帶字、日期、掛給誰，只改日期那一下另外那幾天不寫。
+ * 沒有連在一起的跟以前一模一樣（整份 patch 寫下去）。
  */
-export function update(id, changes) {
-  return repo.update(PATH, id, normalizePatch(changes));
+export async function update(id, changes) {
+  const patch = normalizePatch(changes);
+  const { before, peers } = await freshWithPeers(id);
+  if (!peers.length) return repo.update(PATH, id, patch);
+  const writes = linkedChanges(before, patch, peers);
+  if (writes.length) await writeAll(writes);
+  return undefined;
 }
 
+/** 刪掉**這一筆**（連在一起的也是只刪這一筆 —— spec 那張表）。 */
 export const remove = (id, reason) => repo.softDelete(PATH, id, reason);
 export const restore = (id) => repo.restore(PATH, id);
+
+/**
+ * 刪掉清單上的**一列**：一列代表一組時整組一起刪（HANDOFF「清單上一列＝一組時」：垃圾桶、「清掉這 N 筆」）。
+ * 只刪跟這一筆勾法一樣的那幾筆 —— 那一列代表的就是它們（`groupLinked()` 照勾了沒分列）。
+ *
+ * @param {object} note 那一列代表的那一筆
+ */
+export async function removeRow(note, reason) {
+  const { before, peers } = await freshWithPeers(note.id);
+  const same = peers.filter((p) => Boolean(p.done) === Boolean(before?.done));
+  if (!before || !same.length) return remove(note.id, reason);
+  await repo.commit([before, ...same].map((n) => ({ op: 'softDelete', path: PATH, id: n.id, reason })));
+  return undefined;
+}
+
+/**
+ * 複製到別天。一個 commit 建好那幾筆（連在一起時原本那一筆補 `linkId`）。
+ *
+ * **重讀之後才算要建哪幾天**（`copyPlan()`）：同一組那一天已經有一筆就不再建 —— 重按、失敗重按、
+ * 上一次其實寫進去了只是沒收到回應，都不多一份（lessons 三）。
+ *
+ * @param {object} note 要複製的那一筆
+ * @param {string[]} dates
+ * @param {{linked?: boolean}} [o] 預設連在一起
+ * @returns {Promise<{created: number, skipped: string[], linkId: string|null, together: number, sourceIn: boolean}>}
+ *   together／sourceIn：寫完之後那一組有幾筆、它自己在不在裡面（toast 照真的連起來的講，`copiedSay()`）
+ */
+export async function copyTo(note, dates, { linked = true } = {}) {
+  const fresh = await repo.getOne(PATH, note.id);
+  if (!fresh) throw new Error('這一筆剛剛被刪掉了，沒有東西可以複製');
+  const group = await listLinked(fresh.linkId || fresh.id);
+  const plan = copyPlan(fresh, dates, { linked, group, newLinkId: repo.newId(PATH) });
+  if (plan.blocked) throw new Error(plan.blocked);
+
+  const ops = [
+    ...(plan.link ? [{ op: 'update', path: PATH, id: plan.link.id, changes: plan.link.changes }] : []),
+    ...plan.creates.map((data) => ({ op: 'create', path: PATH, data: { ...data, doneAt: null } })),
+  ];
+  if (ops.length) await repo.commit(ops);
+  return {
+    created: plan.creates.length, skipped: plan.skipped, linkId: plan.linkId, together: plan.together, sourceIn: plan.sourceIn,
+  };
+}
+
+/**
+ * 拆開這一天：只有這一筆拿出來，以後各勾各的。同一組其他那幾筆照舊連著（還有兩筆以上的話）。
+ */
+export function unlink(id) {
+  return repo.update(PATH, id, { linkId: null });
+}
 
 /**
  * 勾掉／取消勾。
@@ -91,15 +209,26 @@ export const restore = (id) => repo.restore(PATH, id);
  * 勾掉的不會馬上從清單消失 —— 她會勾錯，看得到才點得回來（見 domain/notes.js
  * 的 sortNotes）。
  *
- * **回傳寫進去的那幾欄**，理由跟 `recordDelivery()` 同一條：呼叫端要重畫的話，
- * 讀的是寫入的人回報的結果，不是自己猜的。
+ * **連在一起的同一組一起勾、一起拿回來**（過去的、還沒到的、不在畫面上的都算 —— 重讀），同一個 commit。
+ * 營養品的提醒不會連在一起（`validateNote()`），所以 `recordDelivery()` 那一條路不用管這件事。
  *
- * @returns {Promise<{done: boolean, doneAt: string|null}>}
+ * **回傳寫進去的那幾欄**，理由跟 `recordDelivery()` 同一條：呼叫端要重畫的話，
+ * 讀的是寫入的人回報的結果，不是自己猜的。多一格 `reach`：這一下作用在幾天（`linkedReach()`，重讀的那一組，
+ * 不是畫面手上那一份；沒連在一起是 null）—— toast「勾掉了（共 N 天）」讀它，跟選單、清單那一顆同一種算法。
+ * `prepareToggle()` 把它拿掉才併回那一筆，畫面手上的隨手記不會多那一格。
+ *
+ * @returns {Promise<{done: boolean, doneAt: string|null, reach: object|null}>}
  */
 export async function setDone(id, done) {
   const changes = { done, doneAt: done ? new Date().toISOString() : null };
-  await repo.update(PATH, id, changes);
-  return changes;
+  const { before, peers } = await freshWithPeers(id);
+  if (!peers.length) {
+    await repo.update(PATH, id, changes);
+    return { ...changes, reach: null };
+  }
+  const writes = linkedChanges(before, changes, peers);
+  if (writes.length) await writeAll(writes);
+  return { ...changes, reach: linkedReach(before, peers) };
 }
 
 /**
@@ -130,16 +259,23 @@ export async function setDone(id, done) {
  * @returns {Promise<object|null>} 寫完之後的那一筆提醒（沒有提醒就回 null）
  */
 export async function recordDelivery(note, entitlement, delivery, ctx = {}) {
-  const patch = withDelivery(entitlement, delivery);
+  const customerId = note?.customerId ?? ctx.customerId;
+  const path = `customers/${customerId}/entitlements`;
+  // **寫之前重讀那一筆額度、拿重讀的那一份判斷給過了沒**（2026-11-05，11/4 健檢 #4）：呼叫端手上那一份是打開畫面那一刻的 ——
+  // 第一次寫完、畫面還沒重讀（或 toast 按重試）就再記一次同一款，`deliveries` 就多一筆一樣的，而那一份會進試算表。
+  // 讀回來的帶著這一台還沒送出的寫入；`ifUpdatedAt` 擋不住這一種（還沒回到伺服器的 serverTimestamp 讀回來是 null）。
+  // 讀不到就照手上那一份（跟以前一樣）
+  const fresh = customerId ? await repo.getOne(path, entitlement.id).catch(() => null) : null;
+  const current = fresh ?? entitlement;
+  const patch = withDelivery(current, delivery);
   // 沒有東西要記（她點成一款都沒給、或那幾款早就給過了）：不寫，
   // 那一筆提醒也就原封不動。
   if (!patch) return note ? { ...note } : null;
 
-  const customerId = note?.customerId ?? ctx.customerId;
   const customerName = note?.customerName ?? ctx.customerName ?? '';
   const master = ctx.products ? { products: ctx.products } : undefined;
 
-  const after = { ...entitlement, ...patch };
+  const after = { ...current, ...patch };
   const finished = isFullyDelivered(after);
   const at = new Date().toISOString();
   const changes = finished
@@ -149,7 +285,7 @@ export async function recordDelivery(note, entitlement, delivery, ctx = {}) {
   await repo.commit([
     {
       op: 'update',
-      path: `customers/${customerId}/entitlements`,
+      path,
       id: entitlement.id,
       changes: patch,
     },

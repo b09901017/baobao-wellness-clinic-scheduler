@@ -474,8 +474,8 @@ describe('資料健檢：「EECP體驗」那一門還在', () => {
   });
   const rows = (s) => runHealthCheck(s, TODAY).checks.find((c) => c.id === 'eecpTrialCourse').findings;
 
-  test('接在 CHECKS 後面（它後面只有 10/19 的「病歷號還寫成一則短備註」）', () => {
-    assert.deepEqual(CHECKS.slice(-2).map((c) => c.id), ['eecpTrialCourse', 'chartNoField']);
+  test('接在 CHECKS 後面（它後面只有 10/19 的「病歷號還寫成一則短備註」與 11/6 的連在一起的隨手記）', () => {
+    assert.deepEqual(CHECKS.slice(-3).map((c) => c.id), ['eecpTrialCourse', 'chartNoField', 'linkedNotes']);
   });
 
   test('沒扣額度的兩段 → 一列；按了之後是 EECP、體驗、20 分、狀態不動，那一門刪掉', () => {
@@ -510,6 +510,13 @@ describe('資料健檢：「EECP體驗」那一門還在', () => {
     const fixable = found.filter((f) => f.fix);
     assert.deepEqual(fixable.map((f) => [f.whoId, f.fix.kind]), [['c-wang', 'trialSlotsToCourse']]);
     assert.ok(!found.some((f) => f.fix?.kind === 'retireTrialCourse'), '那一門不刪');
+  });
+
+  test('一次性的段（ADR-0172）→ 只換課程與時長，不寫成體驗（段五審查 R11）', () => {
+    const v = { id: 'v1', customerId: 'c-a', customerName: '客戶A', date: '2026-10-20', status: 'confirmed',
+      slots: [trialSlot({ oneTime: true, giftKind: null })] };
+    const [slot] = rows(snap({ visits: [v] }))[0].fix.visits[0].slots;
+    assert.deepEqual([slot.courseId, slot.giftKind, slot.oneTime, slot.minutes], ['course-eecp', null, true, 20]);
   });
 
   test('一段都沒有、也沒有額度 → 一列，只刪那一門', () => {

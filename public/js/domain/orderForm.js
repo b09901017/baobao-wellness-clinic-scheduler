@@ -25,7 +25,7 @@ import { PURCHASE_CHANNELS, flagsFromText, marksFrom, partnersFromText, rowShape
 import { contraindicationHints } from './contraindications.js';
 import { shapeOf } from './photoPlan.js';
 import { readMarks, toCustomerFields } from './customerMarks.js';
-import { partnersOf } from './customers.js';
+import { isOneTime, partnersOf, GUEST_SAME_NAME } from './customers.js';
 
 /** 訂購單就是顧客會那一條通路（舊表 B2 的寫法，`purchaseHeadline()` 讀它）。 */
 export const ORDER_FORM_CHANNEL = PURCHASE_CHANNELS[0];
@@ -490,10 +490,25 @@ export function removePhoto(groups = [], key, url) {
 
 // ---------- 確認卡 ----------
 
-/** 既有客戶裡同名的那幾位（停用的也算 —— 回來加購的常常是很久沒來的人）。 */
+/**
+ * 既有客戶裡同名的那幾位（停用的也算 —— 回來加購的常常是很久沒來的人）。
+ *
+ * **一次性客人不算**（ADR-0172，段五審查 R1）：加購到他身上，那一筆額度寫進一張哪一份名單都看不到的卡
+ * （客戶清單、壓表、試算表都跳過他）。同名的是一次性客人時照「沒有同名」走（點「名字對」、新增一位），
+ * 卡上另外講 `GUEST_SAME_NAME`（去名字卡按「轉成我的客戶」）—— 這裡是拍訂購單唯一判同名的地方
+ */
 export function sameNameCustomers(name, existing = []) {
   const want = clean(name);
-  return want ? live(existing).filter((c) => clean(c.name) === want) : [];
+  return want ? live(existing).filter((c) => !isOneTime(c) && clean(c.name) === want) : [];
+}
+
+/**
+ * 照片上的名字跟一位一次性客人一樣時，卡上名字旁邊那一句（段五審查 R1）：跟新增客戶同一句（`GUEST_SAME_NAME`，
+ * 去名字卡按「轉成我的客戶」）。沒有就是 `null`。
+ */
+export function guestSameNameSay(name, existing = []) {
+  const want = clean(name);
+  return want && live(existing).some((c) => isOneTime(c) && clean(c.name) === want) ? GUEST_SAME_NAME : null;
 }
 
 /** 「幾套」那一格填好了沒（0 是合法的：有人只買加購）。 */

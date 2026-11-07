@@ -17,6 +17,7 @@
 | [0025](./0025-what-happened-is-recorded-per-slot.md) 預約的狀態記在來訪上，那天實際發生了什麼記在時段上 | 後半（「前三個逐段不會不一樣」）—— 整條生命週期記在時段上 | [0081](./0081-the-slot-carries-the-lifecycle.md) |
 | [0030](./0030-future-candidates-are-ticked-by-default.md) 還沒發生的候選預設勾起來，已經發生的預設不勾 | 用在拍 Abovee 過去那幾列的做法（日子過了的不預設勾） | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
 | [0033](./0033-a-sent-link-is-a-third-state-of-asking.md) 「連結已發出、還沒填」是問時間的第三種狀態，但不改變那一列的定義 | 一半：待辦中心一列的說明搬到她真的要操作的那一頁 | [0072](./0072-a-row-on-the-todo-centre-is-only-a-title.md) |
+| [0040](./0040-a-personal-event-picks-its-own-colour.md) 個人行程自己挑顏色，存的是名字不是色碼 | Consequences 最後一點（「不挑」那一顆做成空心圈）—— 第一顆是實心的預設色、六色裡重複的那一色不列、休假每一顆都畫斜線 | [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) |
 | [0041](./0041-the-sheet-is-the-registration.md) 壓表本身就是登記，所以 Abovee 不是待辦 | 「同一種取消任務只長一張」—— 改成逐段長 | [0091](./0091-a-cancel-task-knows-which-slots.md) |
 | [0042](./0042-the-report-comes-before-the-follow-up.md) 二返前面還有一站：報告還沒拿到 | 「追蹤健檢報告只在還欠二返時產生」 | [0139](./0139-the-report-task-does-not-wait-on-the-follow-up.md) |
 | [0050](./0050-the-health-check-can-rename-an-imported-note.md) 資料健檢也改得掉匯入寫錯的那個字 | 整支的核心：病歷號不再是一則備註，是客戶身上的一格 | [0160](./0160-chart-number-is-a-field.md) |
@@ -31,6 +32,7 @@
 | [0088](./0088-the-day-lives-on-the-read-card.md) 整天的那幾顆離開來訪編輯器，搬到讀取卡片上 | 整支被取代：「改這一天」連同整天的狀態卡與危險區收掉 | [0089](./0089-the-day-is-only-a-heading.md) |
 | [0093](./0093-an-imported-visit-grows-no-tasks.md) 已經發生的那一筆匯進來，一張任務都不長 | 有取消掉的段時，取消類的待辦一出生就勾好（其餘照舊） | [0164](./0164-imported-cancelled-slots-settle-their-cancel-task.md) |
 | [0094](./0094-a-room-holds-how-many.md) 一間診間裝得下幾個人 | 拿點滴8 當「一間裝得下兩位」的那個例子 | [0127](./0127-bed-rooms-are-rooms.md) |
+| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) 那一段的記一句會上試算表 | 「記在當天那一列的下面」—— 改成那一格的附註（右上角小黑三角），矩陣不再夾註記列 | [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | 「一次確認整天」與「visitsToClose() 不改」兩句 | [0110](./0110-both-todo-drawers-decide-some-slots.md) |
 | [0097](./0097-confirming-is-per-slot-too.md) 確認也是逐段的 | issue 14「整筆也要准」的那一層交集 | [0111](./0111-a-no-show-only-goes-back-to-closing.md) |
 | [0104](./0104-many-slots-from-one-photo.md) 照片一次記很多段 —— 確認層就是第一道、存檔前只問一次、直接標成壓完 | 第 2、3、4（壓完）、6 點 —— 拍 Abovee 照片上的狀態為準 | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
@@ -59,8 +61,10 @@
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 「客戶清單卡片只看短備註」 | [0160](./0160-chart-number-is-a-field.md) |
 | [0156](./0156-long-notes-and-the-notes-order.md) 長備註是備註的長版本；備註那一段電話、LINE、長備註、短備註一起排順序 | 沒排過的預設順序 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
 | [0160](./0160-chart-number-is-a-field.md) 病歷號是一格，照樣在備註那一段；客戶清單卡片照她的順序畫前四個 | 「病歷號接在 LINE 後面」—— 病歷號最前面 | [0163](./0163-notes-default-order-chart-number-first-phone-last.md) |
+| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 第 1 點（前五欄凍結、合併停在第五欄以內、數字四欄淡灰＋粗線）與第 5 點的「抬頭只寫號碼」—— 欄不凍結、整頁寬、四欄全白＋窄空白欄、號碼接在名字後面 | [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) |
+| [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) 試算表的版面第四輪：欄不凍結、上下那幾塊整頁寬、數字四欄全白＋一條窄空白欄 | 第 1 點的「列照舊凍結到矩陣表頭（第 5 列）」—— 列也不凍結 | [0178](./0178-sheet-nothing-frozen.md) |
 
-## 全部（168 支）
+## 全部（173 支）
 
 | ADR | 決定 | 日期 | 現在 |
 |---|---|---|---|
@@ -103,7 +107,7 @@
 | [0037](./0037-the-wall-can-be-re-sorted-but-never-re-scored.md) | 卡片牆的排序可以換，但每一種都只是同一份名單的重排 | 2026-08-22 | 現行 |
 | [0038](./0038-picking-an-option-does-not-repaint-the-page.md) | 在壓表面板上選一個東西，不重畫整頁 | 2026-08-22 | 現行 |
 | [0039](./0039-six-things-on-the-calendar-need-six-colours.md) | 日曆上有六種東西要分辨，所以狀態色不再借用語意色 | 2026-08-23 | 現行 |
-| [0040](./0040-a-personal-event-picks-its-own-colour.md) | 個人行程自己挑顏色，存的是名字不是色碼 | 2026-08-23 | 現行 |
+| [0040](./0040-a-personal-event-picks-its-own-colour.md) | 個人行程自己挑顏色，存的是名字不是色碼 | 2026-08-23 | 部分被推翻 → ADR-0171 |
 | [0041](./0041-the-sheet-is-the-registration.md) | 壓表本身就是登記，所以 Abovee 不是待辦 | 2026-08-23 | 部分被推翻 → ADR-0091 |
 | [0042](./0042-the-report-comes-before-the-follow-up.md) | 二返前面還有一站：報告還沒拿到 | 2026-08-23 | 部分被推翻 → ADR-0139 |
 | [0043](./0043-the-todo-centre-follows-the-flow.md) | 待辦中心照流程分段，階段色就是來訪狀態色 | 2026-08-23 | 現行 |
@@ -159,7 +163,7 @@
 | [0093](./0093-an-imported-visit-grows-no-tasks.md) | 已經發生的那一筆匯進來，一張任務都不長 | 2026-09-16 | 部分被推翻 → ADR-0164 |
 | [0094](./0094-a-room-holds-how-many.md) | 一間診間裝得下幾個人 | 2026-09-16 | 部分被推翻 → ADR-0127 |
 | [0095](./0095-imported-entitlements-take-the-apps-names.md) | 匯進來的額度用 app 的寫法，算不出來的保留她原本的字 | 2026-09-16 | 現行 |
-| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) | 那一段的記一句會上試算表 | 2026-09-16 | 現行 |
+| [0096](./0096-a-slot-note-reaches-the-spreadsheet.md) | 那一段的記一句會上試算表 | 2026-09-16 | 部分被推翻 → ADR-0175 |
 | [0097](./0097-confirming-is-per-slot-too.md) | 確認也是逐段的 | 2026-09-16 | 部分被推翻 → ADR-0110、ADR-0111 |
 | [0098](./0098-an-iv-product-carries-its-own-duration.md) | 一款營養點滴品項自己帶時長，而且它排在額度前面 | 2026-09-16 | 現行 |
 | [0099](./0099-ai-only-copies-the-words.md) | AI 只抄字，不翻譯 | 2026-09-17 | 現行 |
@@ -234,3 +238,15 @@
 | [0168](./0168-sign-in-through-the-apps-own-address.md) | Google 登入走 app 自己的網址（iPad 主畫面那一顆才登得進去） | 2026-10-21 | 現行 |
 | [0169](./0169-a-follow-up-whose-exam-she-did-not-book.md) | 健檢不是她排的回訪：二返～十返不扣額度、不接健檢（時段上的 `examNotMine`） | 2026-11-02 | 現行 |
 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) | 拍 Abovee 辨識完先一眼看完：「辨識結果」只有列與紅字短標記，「發現問題 N」才講為什麼 | 2026-11-03 | 現行 |
+| [0171](./0171-event-colour-first-swatch-is-the-default-solid.md) | 行事備註的顏色：第一顆是那一類本來的顏色、實心；重複的那一色不列；休假每一顆都畫斜線 | 2026-11-05 | 現行 |
+| [0172](./0172-a-one-time-guest-is-a-customer-off-every-list.md) | 一次性客人：不在任何名單上的客戶，他的段標成一次性；健檢那一串用一對只在算的時候存在的額度 | 2026-11-05 | 現行 |
+| [0173](./0173-camera-shows-only-a-real-picture-and-sign-in-loads-google-on-tap.md) | 拍照有影像才算開好（沒有就退回系統相機）；開機登入不先載 Google 的那一塊（iPad／手機／Safari 分頁改走轉頁登入） | 2026-11-05 | 部分被推翻 → ADR-0182（拍照那一半） |
+| [0174](./0174-older-sheet-bundle-is-not-drawn.md) | 兩台同時推試算表時，比較舊的那一包不畫（每一包附稽核最新那一則的伺服器時間） | 2026-11-05 | 現行 |
+| [0175](./0175-sheet-layout-frozen-counts-and-cell-notes.md) | 試算表的版面：前五欄凍結、器材與記一句不再多一列、療程照做最多的排、備註上色 | 2026-11-05 | 部分被推翻 → ADR-0176 |
+| [0176](./0176-sheet-layout-no-frozen-columns-and-a-blank-spacer.md) | 試算表的版面第四輪：欄不凍結、上下那幾塊整頁寬、數字四欄全白＋一條窄空白欄、號碼接在名字後面、營養品前面有購買日 | 2026-11-05 | 部分被推翻 → ADR-0178 |
+| [0177](./0177-sheet-slot-notes-stack-under-each-date.md) | 試算表的記一句也疊在那一個日期那一欄的矩陣底下、塗淡色（附註照留、器材不疊） | 2026-11-06 | 現行 |
+| [0178](./0178-sheet-nothing-frozen.md) | 試算表什麼都不凍結（列也不凍結） | 2026-11-06 | 現行 |
+| [0179](./0179-linked-notes-one-doc-per-day.md) | 複製到別天、連在一起的隨手記：每一天一筆、共用一個 `linkId`；勾、改字、改掛給誰一起變，改日期、刪掉只這一筆 | 2026-11-06 | 現行 |
+| [0180](./0180-notes-widget-is-a-native-android-app.md) | 隨手記的桌面小工具是另一支原生 Android app（兩個版本接 staging／正式站），直接讀寫同一個 Firestore；隨手記的規則多一份 Kotlin 的，用共用情境檔 `tests/fixtures/notes-parity.json` 盯著兩份一樣 | 2026-11-06 | 現行 |
+| [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |
+| [0182](./0182-camera-stays-black-with-the-system-camera-below.md) | 拍照畫面出不來就照舊黑著、不換頁（底下那排照樣按得到系統相機）；快門不拍黑的 | 2026-11-08 | 現行 |

@@ -23,7 +23,7 @@ import { contraindicationTerms } from './contraindications.js';
 import { SEED, seedData } from './seed.js';
 import {
   clinicalTerms, durationChoicesOf, bookingMinutesOf, hasAlias, ASSIGN_LABELS, normalizeAlias, DOCTOR_ROLE, THERAPIST_ROLE, bedRoomOf,
-  isUncounted, trialMinutesOf, giftKindOf,
+  isUncounted, trialMinutesOf, giftKindOf, isOneTime, isOneTimeSlot,
 } from './masterData.js';
 import { fullNameOf } from './naming.js';
 import {
@@ -31,7 +31,7 @@ import {
 } from './followups.js';
 import { followupName } from './nthFollowup.js';
 import { urgency } from './taskRules.js';
-import { monthLabel } from './dates.js';
+import { monthLabel, shortDate } from './dates.js';
 import { currentCollection, collectionsByMonth, summarizeCollection } from './availability.js';
 import { overlaps, isValidTime, toMinutes, endOf } from './visitTime.js';
 import {
@@ -281,6 +281,15 @@ export const CHECKS = [
     hint: '病歷號現在有自己一格（編輯客戶資料裡填），在備註那一段是一顆病歷號的丸子 ——'
       + ' 還寫成「病歷號 1234」短備註的，放進那一格之後位置不變；寫了兩個不一樣號碼的只列出來，你決定是哪一個',
   },
+  // 2026-11-06（ADR-0179）：接在最後，理由同上
+  {
+    id: 'linkedNotes',
+    label: '連在一起的隨手記勾得不一樣',
+    hint: '複製到別天、連在一起的那幾筆，有幾天勾了、有幾天還沒 —— 沒網路時勾的、或從已刪除項目還原的那一筆會這樣。'
+      + '到隨手記那一頁再勾一次（或拿回來一次），同一組就一起對齊',
+    // **只是提醒**：沒有一鍵修正（勾還是拿回來要她決定），收成一行
+    notice: true,
+  },
 ];
 
 /** 嚴重度只有兩級。'mismatch' 是資料自己對不起來，'attention' 是要她去處理一件事。 */
@@ -419,6 +428,9 @@ function checkCounts(ctx) {
           label: `${customer.name}・${e.label}`,
           from: { done: rec.stored.done, booked: rec.stored.booked },
           to: { done: rec.actual.done, booked: rec.actual.booked },
+          // 算的是掃描那一刻（11/4 健檢 #3）：掃完不按、別台替這位排了一段（額度已經被那一台寫對）再回來按，
+          // 寫的是舊的數字。額度每存一次來訪都換 `updatedAt`，帶著它 `repo.commit()` 就擋得住
+          updatedAt: e.updatedAt ?? null,
         },
       });
     }
@@ -574,7 +586,14 @@ function checkOrphans(ctx) {
   // 交付寫回哪一包（ADR-0059）。額度被刪掉之後那一筆提醒還在、還勾得動，
   // 而勾下去 `recordDelivery()` 寫不進任何東西 —— 畫面上看起來就只是勾掉了，
   // 那份要進試算表的交付紀錄安靜地沒了。
+  // 連在一起的一組（ADR-0179）講一次：同一組三天掛著同一位已刪除的客戶，列三行是同一件事
+  const seenGroups = new Set();
   for (const note of ctx.notes) {
+    if (note.linkId) {
+      const key = `${note.linkId}|${note.customerId ?? ''}|${note.entitlementId ?? ''}`;
+      if (seenGroups.has(key)) continue;
+      seenGroups.add(key);
+    }
     const who = note.customerName ?? (note.customerId ? nameOf(ctx, note.customerId) : '');
     const head = `隨手記「${String(note.text ?? '').slice(0, 20)}」${who ? `・${who}` : ''}`;
     const link = note.customerId ? `#/customers/${note.customerId}` : '#/todo/notes';
@@ -780,7 +799,8 @@ function checkStaleAvailability(ctx) {
   const out = [];
 
   for (const customer of alive(ctx.customers)) {
-    if (customer.active === false) continue;
+    // 一次性客人不問這輪的時間（ADR-0172 決定一）—— 明寫，不靠「他剛好沒有額度」
+    if (customer.active === false || isOneTime(customer)) continue;
 
     const collections = ctx.availByCustomer[customer.id] ?? [];
     const current = currentCollection(collections, ctx.today);
@@ -2324,7 +2344,8 @@ function checkEecpTrialCourse(ctx) {
   }
 
   const moved = (slot) => {
-    const giftKind = giftKindOf(slot, coursesById) ?? 'trial';
+    // 一次性的段不是送的也不是體驗（ADR-0172，段五審查 R11）：只換課程與時長
+    const giftKind = isOneTimeSlot(slot) ? null : (giftKindOf(slot, coursesById) ?? 'trial');
     return {
       ...slot,
       courseId: eecp.id,
@@ -2409,6 +2430,45 @@ function checkChartNoField(ctx) {
   return out;
 }
 
+/**
+ * 連在一起的隨手記勾得不一樣（ADR-0179）。
+ *
+ * 一組一起勾寫在同一個 commit，正常不會勾得不一樣；會的是：沒網路時寫的那一下只重讀得到快取裡的那幾筆、
+ * 從已刪除項目還原了一筆勾法跟同組不一樣的、復原退回其中幾筆。**只列不修**：要勾還是要拿回來是她決定的
+ * （再按一次就整組對齊，`data/notes.js` 的 `setDone()`）。
+ */
+function checkLinkedNotes(ctx) {
+  const groups = new Map();
+  for (const n of ctx.notes) {
+    if (!n.linkId) continue;
+    if (!groups.has(n.linkId)) groups.set(n.linkId, []);
+    groups.get(n.linkId).push(n);
+  }
+
+  const out = [];
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const ticked = members.filter((n) => n.done);
+    if (!ticked.length || ticked.length === members.length) continue;
+    const head = members[0];
+    // 先照日期排再換成「11/8(日)」（換了再排是排字：十號跑到九號前面），沒有日期的放最後（段三審查 R4）
+    const days = (rows) => [...rows]
+      .sort((a, b) => String(a.date ?? '￿').localeCompare(String(b.date ?? '￿')))
+      .map((n) => (n.date ? shortDate(n.date) : '沒有日期'))
+      .join('、');
+    out.push({
+      severity: 'attention',
+      ...(head.customerId ? { who: head.customerName ?? nameOf(ctx, head.customerId), whoId: head.customerId } : {}),
+      title: `隨手記「${String(head.text ?? '').slice(0, 20)}」`,
+      detail: `${days(ticked)} 勾了；${days(members.filter((n) => !n.done))} 還沒勾`,
+      // 提示叫她到隨手記那一頁再勾一次 —— 給連結（同 `checkOrphans()` 沒掛客戶時那一條）
+      link: '#/todo/notes',
+      fix: null,
+    });
+  }
+  return out;
+}
+
 const RUNNERS = {
   visitStatusDerived: checkVisitStatusDerived,
   sameDayVisits: checkSameDayVisits,
@@ -2447,4 +2507,5 @@ const RUNNERS = {
   ivProductDuration: checkIvProductDuration,
   eecpTrialCourse: checkEecpTrialCourse,
   chartNoField: checkChartNoField,
+  linkedNotes: checkLinkedNotes,
 };

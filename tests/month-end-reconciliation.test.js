@@ -321,6 +321,53 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
   });
 });
 
+describe('一次性客人（ADR-0172）：認得就是有記，不拿去比次數', () => {
+  // 客戶乙是一份名字卡（`oneTime: true`），他的段都標一次性、沒有額度。她 11/5 第 8 題：
+  // 有名字卡、這一段也記了 → 算有記；這一段沒記 → 「app 沒有這一段」；沒有名字卡的才在「Abovee 上有、app 裡沒有這個人」
+  const guest = { id: 'c-b', name: '客戶乙', oneTime: true, marks: [{ text: '病歷號 3333', color: 'grey' }] };
+  const slotOf = (status, over = {}) => ({
+    entitlementId: null, courseId: 'course-recovery', courseName: '復能', equipmentId: 'eq-sis', startsAt: '10:00', endsAt: '11:00',
+    giftKind: null, status, attended: status === 'done' ? true : null, oneTime: true, ...over,
+  });
+  const visitOf = (date, status) => ({ id: `v-b-${date}`, customerId: 'c-b', customerName: '客戶乙', date, status, slots: [slotOf(status)] });
+  const withGuest = () => {
+    const snap = snapshot(CLEAN);
+    snap.customers = [...snap.customers, guest];
+    snap.visits.push(visitOf('2026-10-05', 'done'), visitOf('2026-10-12', 'confirmed'), visitOf('2026-10-26', 'done'), visitOf('2026-10-28', 'confirmed'));
+    return snap;
+  };
+  const B = (md, status) => [md, '客戶乙', status, { chartNo: '00003333' }];
+  const ROWS = [...THREE, B('10-05', '課程完成'), B('10-12', '課程完成'), B('10-19', '課程完成'), B('10-28', '已取消')];
+
+  test('有名字卡就不是陌生人；記了的那一段算有記', () => {
+    const r = runRaw(withGuest(), abovee(ROWS));
+    assert.equal(r.strangers.length, 0);
+    assert.ok(r.summary.matched >= 4, String(r.summary.matched));
+    assert.ok(!r.issues.some((i) => i.date === '2026-10-05'), types(r).join('、'));
+  });
+
+  test('沒記的、還沒簽的、app 多一段、Abovee 取消了 app 還排著 → 跟一般客戶一樣分類，講次數的那一句換成「不扣次數」', () => {
+    const r = runRaw(withGuest(), abovee(ROWS));
+    const mine = r.issues.filter((i) => i.customerId === 'c-b');
+    assert.deepEqual(mine.map((i) => `${i.date.slice(5)} ${i.type}`), ['10-12 unsigned', '10-19 missing', '10-26 extra', '10-28 stillBooked']);
+    for (const i of mine) {
+      assert.match(i.say, /不扣次數/, i.say);
+      assert.doesNotMatch(i.say, /次數還沒扣|佔著一次|扣了一次|少算一次/, i.say);
+    }
+  });
+
+  test('次數表不數一次性的段：三個數字跟只有王小明時一樣', () => {
+    const r = runRaw(withGuest(), abovee(ROWS));
+    assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
+    assert.ok(!r.people.some((p) => p.customerId === 'c-b'), JSON.stringify(r.people.map((p) => p.name)));
+  });
+
+  test('沒建名字卡的人照舊在「Abovee 上有、app 裡沒有這個人」', () => {
+    const r = runRaw(withGuest(), abovee([...ROWS, ['10-20', '陌生人', '課程完成']]));
+    assert.deepEqual(r.strangers.map((x) => x.name), ['陌生人']);
+  });
+});
+
 describe('合成抄本：同一頁截了兩次', () => {
   test('兩張抄出來一模一樣 → 只算一次，記在 meta.duplicates', async () => {
     const { assemble } = await import('../.claude/skills/month-end-reconciliation/scripts/assemble.mjs');

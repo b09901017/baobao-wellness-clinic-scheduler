@@ -21,8 +21,9 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/allowedUsers/$(request.auth.uid));
     }
 
-    // 永不硬刪除：刪除只能是寫入 deletedAt 時間戳。
-    // 這條規則存在的意義是「就算程式寫錯了也刪不掉」。
+    // 每一次新增與修改都要帶 updatedAt（`repo.commit()` 自己帶；Android 小工具的背景同步也靠這一格看到改動）。
+    // **它不擋刪除**：擋硬刪除的是底下每一段的 `allow delete: if false` —— 刪除只能是寫入 deletedAt 時間戳，
+    // 就算程式寫錯了也刪不掉。名字是舊的，十幾處在用，照舊留著（11/4 健檢 #6：以前這一段註解講它擋刪除）。
     function keepsExistingId() {
       return request.resource.data.keys().hasAll(['updatedAt']);
     }
@@ -293,7 +294,12 @@ service cloud.firestore {
         && d.done is bool
         // 選填的日期。掛了就會出現在日曆上（ADR-0044）。
         // 這一層只擋型別，格式在前端擋（SPEC 第 6.7 節）。
-        && (!('date' in d) || d.date == null || d.date is string);
+        && (!('date' in d) || d.date == null || d.date is string)
+        // 連在一起的那一組共用的字串（ADR-0179；Android 小工具也寫這一格）。沒有、null、或不太長的字串
+        && (!('linkId' in d) || d.linkId == null
+            || (d.linkId is string && d.linkId.size() > 0 && d.linkId.size() <= 64))
+        // 營養品的提醒不連進一組（`validateNote()` 同一句）：一起勾的那幾天沒有人問「給了哪幾款」
+        && !(d.get('linkId', null) != null && d.get('entitlementId', null) != null);
     }
 
     match /notes/{noteId} {

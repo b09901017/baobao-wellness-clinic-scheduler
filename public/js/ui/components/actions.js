@@ -179,13 +179,14 @@ let open = null;
  * @param {object} o
  * @param {string} o.title       長按到的是哪一筆
  * @param {string} [o.subtitle]  第二行（日期・狀態）
+ * @param {{label: string, on?: boolean}[]} [o.tags] 抬頭底下一排小丸（連在一起的隨手記是哪幾天、`on` 是代表的那一天，ADR-0179）
  * @param {ActionItem[]} o.items
  * @param {(id: string) => void} o.onPick 選了哪一顆。**選單會先自己收起來再回呼** ——
  *   回呼裡常常要開別的東西（確認框、日期選擇器），而兩層疊在一起看起來像壞掉。
  * @param {Function} [o.onClose]
  * @returns {{close: Function, el: HTMLElement}}
  */
-export function openActions({ title, subtitle = '', items = [], onPick, onClose }) {
+export function openActions({ title, subtitle = '', tags = [], items = [], onPick, onClose }) {
   closeActions();
 
   const root = document.createElement('div');
@@ -199,6 +200,8 @@ export function openActions({ title, subtitle = '', items = [], onPick, onClose 
       <div class="actions__head">
         <h2 class="actions__title">${esc(title)}</h2>
         ${subtitle ? `<p class="actions__sub">${esc(subtitle)}</p>` : ''}
+        ${tags.length ? `<p class="actions__tags">${tags.map((t) => `
+          <span class="actions__tag${t.on ? ' is-on' : ''}">${esc(t.label)}</span>`).join('')}</p>` : ''}
       </div>
       <div class="actions__list">
         ${items.map((item, i) => rowHtml(item, i)).join('')}

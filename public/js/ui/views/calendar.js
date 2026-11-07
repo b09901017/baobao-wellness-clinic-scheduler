@@ -28,7 +28,8 @@ import * as notesData from '../../data/notes.js';
 import * as tasksData from '../../data/tasks.js';
 import * as playbooksData from '../../data/playbooks.js';
 import * as customersData from '../../data/customers.js';
-import { nameHas } from '../../domain/customers.js';
+import { nameHas, isOneTime, oneTimeCustomer, offersNewGuest } from '../../domain/customers.js';
+import { mountGuestForm } from '../components/guestForm.js';
 import * as visitEditor from './visitEditor.js';
 import * as eventEditor from './eventEditor.js';
 import {
@@ -44,7 +45,9 @@ import {
   applyStatus, visitActions, slotsToShow, showsRoom, focusFor, NOTE_MAX,
 } from '../../domain/visits.js';
 import { todayISO, shortDate, weekdayLabel, addMonths } from '../../domain/dates.js';
-import { MAX_LENGTH as NOTE_TEXT_MAX, noteActions } from '../../domain/notes.js';
+import {
+  MAX_LENGTH as NOTE_TEXT_MAX, linkedPeers, linkedReach, linkedWords,
+} from '../../domain/notes.js';
 import { toMinutes, isValidTime, timeLabel } from '../../domain/visitTime.js';
 import { esc } from '../components/form.js';
 import { slotName, nameOf } from '../../domain/naming.js';
@@ -61,7 +64,7 @@ import { openSheet, closeSheet } from '../components/sheet.js';
 import { openCard, closeCard } from '../components/card.js';
 import { openActions, wireLongPress } from '../components/actions.js';
 import { go } from '../router.js';
-import { leaveFor, whenSettled } from '../nav.js';
+import { leaveFor, takeFor, whenSettled } from '../nav.js';
 import { icon } from '../icons.js';
 import { tip } from '../components/tip.js';
 
@@ -117,6 +120,13 @@ export async function render(el) {
   // 還以為那一段是復原之前的樣子（prelaunch-audit-2026-09-23/issues/10）。
   // 就地換、就地重畫 —— 不收掉重開（那會重播滑上來的動畫、捲回最上面，也會蓋掉她正在填的表單）
   state.openDay?.refresh(state.data);
+
+  // 待辦「約二返」那一顆（一次性客人是「去日曆排」，ADR-0172）留的那一句話：直接打開新增、他已經選好（`nav.js` 的 `leaveFor()`）
+  const want = takeFor('calendar/new');
+  if (want?.customerId) {
+    const sheet = openSheet({ title: '', body: '', onClose: closeCard });
+    mountEditor(el, result.value, sheet, { kind: 'visit', customerId: want.customerId, date: want.date ?? todayISO() });
+  }
 }
 
 /**
@@ -1022,13 +1032,24 @@ function openNoteCard(el, data, id, date, repaint) {
         不是死線。</p>`,
       actions: `
         <button class="btn ${current.done ? '' : 'btn--primary'}" type="button" data-tick>
-          ${current.done ? '拿回來，還沒做' : '做完了，勾掉'}</button>`,
+          ${current.done ? '拿回來，還沒做' : '做完了，勾掉'}</button>
+        ${/* 長按選單那一顆不靠長按的路（ADR-0060）；「拆開這一天」在那張卡的最上面。營養品的提醒不給複製（ADR-0179） */''}
+        ${current.entitlementId ? '' : `
+          <button class="btn" type="button" data-copy>${icon('copy', { size: 15 })}複製到別天</button>`}`,
       canEdit: true,
       onEdit: () => {
         closeCard();
         openNoteEditor(el, data, { id: current.id, backDate: date });
       },
       onMount: (card) => {
+        card.querySelector('[data-copy]')?.addEventListener('click', async () => {
+          try {
+            const changed = await note.runAction('copy', current, { ...noteDeps(), onCalendar: true });
+            if (changed) await refreshAfterAction(el, date);
+          } catch {
+            /* 已處理 */
+          }
+        });
         card.querySelector('[data-tick]')?.addEventListener('click', async () => {
           // 營養品的提醒會先問「給了哪些」（四個入口共用 `note.prepareToggle()`）。
           // 問話在 withSaveState 外面 —— 包進去的話她按了「先不要」也會跳
@@ -1222,7 +1243,7 @@ async function runVisitAction(el, data, visit, action, backDate, slotIndex = nul
         // 那一天已完成的另一筆（ADR-0083）也算「那一天還剩下的」
         customerVisits,
         // 取消一場二返，那一次健檢的「約二返」會回來 —— 要講（讀不到就是 null，少講不擋）
-        chain: await visitsData.chainInputs(fresh.customerId, data.coursesById ?? {}),
+        chain: await visitsData.chainInputs(fresh.customerId, data.coursesById ?? {}, customerVisits),
       }),
       confirmLabel: '取消這一段',
       danger: true,
@@ -1294,6 +1315,10 @@ function noteDeps() {
     loadEntitlements: (cid) => customersData.listEntitlements(cid),
     recordDelivery: (n, e, d) => notesData.recordDelivery(n, e, d),
     loadCustomers: () => customersData.list(),
+    // 連在一起的那一組（ADR-0179）：重讀、複製到別天、拆開這一天
+    listLinked: (linkId) => notesData.listLinked(linkId),
+    copyTo: (n, dates, o) => notesData.copyTo(n, dates, o),
+    unlink: (id) => notesData.unlink(id),
     // 舊資料的 `items[].name` 是空字串，靠主檔認回名字（`issues/10`）。
     loadProducts: () => config.listAll('products'),
     today: todayISO(),
@@ -1307,26 +1332,18 @@ function noteQuickActions(el, data, id, backDate) {
   const n = (data.notes ?? []).find((x) => x.id === id);
   if (!n) return;
 
-  openActions({
-    title: n.text,
-    subtitle: [n.date ? shortDate(n.date) : '沒有日期', n.customerName]
-      .filter(Boolean).join('・'),
-    items: noteActions(n, { today: todayISO(), onCalendar: true }),
-    onPick: async (action) => {
-      try {
-        const changed = await note.runAction(action, n, {
-          ...noteDeps(),
-          onEdit: () => openNoteEditor(el, data, { id: n.id, backDate }),
-          onBag: () => {
-            if (n.customerId) go(`/customers/${n.customerId}`);
-            else toast.info('這一筆沒有掛客戶，找不到是哪一包');
-          },
-        });
-        if (changed) await refreshAfterAction(el, backDate);
-      } catch {
-        /* 已處理 */
-      }
+  // 日曆只讀了畫得出來的那一段 → 連在一起的另外那幾天不一定在手上，打開選單之前重讀（`note.openMenu()`）
+  note.openMenu(n, {
+    notes: data.notes,
+    complete: false,
+    onCalendar: true,
+    deps: noteDeps(),
+    onEdit: () => openNoteEditor(el, data, { id: n.id, backDate }),
+    onBag: () => {
+      if (n.customerId) go(`/customers/${n.customerId}`);
+      else toast.info('這一筆沒有掛客戶，找不到是哪一包');
     },
+    after: () => refreshAfterAction(el, backDate),
   });
 }
 
@@ -1384,9 +1401,15 @@ const isLeaveEvent = (event) => event?.category === 'leave';
 function mountNoteEditor(el, data, sheet, spec) {
   const existing = spec.id ? (data.notes ?? []).find((x) => x.id === spec.id) : null;
   const isNew = !existing;
+  // 營養品的提醒：掛給誰由那一包決定（長按選單同一條，`domain/notes.js` 的 `noteActions()`）——
+  // 這裡不畫「掛給誰」、打名字也不跳出客戶、存的時候不送客戶那兩格。改掛給別人的話，勾掉時
+  // `prepareToggle()` 讀那一位的額度找不到那一包 →「給了什麼？」不問、交付沒記（上 main 前最後健檢 A，2026-11-07）
+  const bagOwned = Boolean(existing?.entitlementId);
 
   sheet.setTitle(isNew ? '新增待辦' : '改這一件');
-  sheet.setNote('隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
+  sheet.setNote(bagOwned
+    ? `${existing.customerName ? `${esc(existing.customerName)} 的` : ''}營養品提醒：掛給誰跟著那一包`
+    : '隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
   sheet.setActions('');
   // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——
   // 在一張正在填的表單上面留一顆「新增」是講不通的。
@@ -1399,23 +1422,21 @@ function mountNoteEditor(el, data, sheet, spec) {
                value="${esc(existing?.text ?? '')}"
                placeholder="例：幫王小明問週六有沒有位子" />
       </label>
-      ${/* 三排各自是一個欄位，節奏跟上面那個「記什麼」一樣 ——
-             以前它們裸放而且中間一點間距都沒有，「營養品」和「掛給誰」
-             會擠在一起（她的原話）。`.notemeta` 是那四個入口共用的外框。 */''}
-      <div class="field">
-        <span class="field__label">哪一天</span>
-        <div class="notemeta">${note.field({ value: existing?.date ?? spec.date })}</div>
-      </div>
-      <div class="field" data-calwho>
-        <span class="field__label">掛給誰</span>
-        <div class="notemeta">
+      ${bagOwned ? '' : note.suggestRow()}
+      ${/* 今天／挑日期／掛給誰／給營養品排一排，跟首頁那張卡、泡泡一樣（段三審查 R7，她 11/6：「有沒有四個丸子同一排 ?
+             而且其實不需要"哪一天""掛給誰"的文字吧 ?」—— 推翻 02 留著兩個有標籤欄位的做法）。
+             四顆的字自己講得出是什麼；整排給一個 aria-label。包住掛給誰的那一層選了一包營養品時收起來 */''}
+      <div class="notemeta" role="group" aria-label="${bagOwned ? '哪一天' : '哪一天、掛給誰'}">
+        ${note.field({ value: existing?.date ?? spec.date })}
+        ${bagOwned ? '' : `
+        <span data-calwho>
           ${note.who({
             customerId: existing?.customerId ?? null,
             customerName: existing?.customerName ?? null,
           })}
-        </div>
+        </span>`}
+        ${isNew ? note.give() : ''}
       </div>
-      ${isNew ? `<div class="field">${note.give()}</div>` : ''}
       <div class="form__actions" style="margin-top: var(--space-4)">
         <button class="btn btn--primary btn--wide" type="submit">
           ${isNew ? '記下來' : '存起來'}</button>
@@ -1428,32 +1449,31 @@ function mountNoteEditor(el, data, sheet, spec) {
     </form>`);
   sheet.expand();
 
-  note.wire(sheet.el);
-  // 「掛給誰」跟另外四個入口是同一塊（`ui/components/note.js`）。它以前不在
-  // 這一頁，理由寫的是「那是客戶詳情頁的事」—— 而那句話指向一個不存在的地方：
-  // 隨手記除了勾掉之外沒有別的編輯入口，這一張就是唯一的那一個
-  // （ADR-0044 的 Consequences 自己寫著）。
+  // 日期、「掛給誰」、「給營養品」走 `note.wireCapture()`（首頁那一格、右下角泡泡同一支）。
+  // 「掛給誰」以前不在這一頁，理由寫的是「那是客戶詳情頁的事」—— 而隨手記除了勾掉之外沒有別的編輯入口，
+  // 這一張就是唯一的那一個（ADR-0044 的 Consequences 自己寫著）。「給營養品」**只在新增時有** ——
+  // 改一件既有的待辦時，它是哪一包早就決定了（沒有那一塊 `wireGive()` 什麼都不接）。
   //
-  // **旗標是必要的。** `note.wire()` 每次都重抓 `[data-notedate]` 所以它自己
-  // 防得了重複，`wireWho()` 是把監聽委派在 `sheet.el` 上的 —— 而
-  // `sheet.update()` 換的是內容那一塊，`sheet.el` 本身留著。同一張抽屜上
-  // mount 兩次就會掛兩組（同 `views/home.js` 的 `openQuick()`）。
-  if (!sheet.el.dataset.noteWhoWired) {
-    sheet.el.dataset.noteWhoWired = '1';
-    // 點開才讀客戶名單 —— 日曆是每天開十幾次的一頁。
-    note.wireWho(sheet.el, { load: () => customersData.list() });
+  // **每次 mount 都接，不靠旗標**（notes-widget 02）：監聽掛在那幾塊自己身上，而 `sheet.update()`
+  // 換掉的正是那幾塊 —— 以前的 `noteWhoWired` 旗標留在 `sheet.el` 上，同一張抽屜第二次 mount 時
+  // 新的「掛給誰」一個監聽都沒有。客戶名單用到才讀（點開掛給誰、或打字跳出客戶，`wireCapture()`）—— 日曆是每天開十幾次的一頁。
+  note.wireCapture(sheet.el, {
+    input: () => sheet.el.querySelector('[data-noteform] [name="text"]'),
+    whoBox: () => sheet.el.querySelector('[data-calwho]'),
+    loadCustomers: () => customersData.list(),
+    loadBags: () => loadGivableBags(),
+  });
 
-    // 「給營養品」那一顆捷徑（ADR-0059、issue 12）。**只在新增時有** ——
-    // 改一件既有的待辦時，它是哪一包早就決定了。
-    note.wireGive(sheet.el, {
-      load: () => loadGivableBags(),
-      onPick: (picked) => {
-        const box = sheet.el.querySelector('[data-calwho]');
-        if (box) box.hidden = Boolean(picked);
-        const text = sheet.el.querySelector('[data-noteform] [name="text"]');
-        if (picked && text) text.value = picked.text;
-      },
-    });
+  // 連在一起的（ADR-0179）：字與掛給誰同一組一起改，講出來（lessons 五）—— 換掉抬頭底下那一行，不多長一段常駐說明。
+  // 重讀那一組才知道還有幾天（日曆手上只有這一個月）；讀不到就不講，寫的那一刻照樣重讀
+  if (existing?.linkId) {
+    notesData.listLinked(existing.linkId)
+      .then((rows) => {
+        const peers = linkedPeers(existing, rows);
+        if (!peers.length || !sheet.el.isConnected) return;
+        sheet.setNote(`<span data-linkhint>${linkedWords(linkedReach(existing, peers)).hint}</span>`);
+      })
+      .catch(() => { /* 讀不到就不講 */ });
   }
 
   const done = () => {
@@ -1464,9 +1484,10 @@ function mountNoteEditor(el, data, sheet, spec) {
   const write = async (changes, success) => {
     try {
       await toast.withSaveState(
-        () => (isNew ? notesData.create(changes) : notesData.update(existing.id, changes)),
+        // 新增時選了一包、那一包已經約了提醒 → 改那一筆（`createOrMove()`，give-bag-once 01）
+        () => (isNew ? notesData.createOrMove(changes) : notesData.update(existing.id, changes)),
         {
-          success,
+          success: isNew ? (out) => notesData.createOrMoveSay(out, success) : success,
           key: isNew ? `note:create:${changes.date}:${changes.text}` : `note:update:${existing.id}`,
         },
       );
@@ -1480,26 +1501,12 @@ function mountNoteEditor(el, data, sheet, spec) {
     e.preventDefault();
     const text = String(e.target.elements.text.value ?? '').trim();
     if (!text) return;
-    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定 ——
-    // 「掛給誰」那一排這時候是收起來的。
-    const bag = isNew ? note.readGive(sheet.el) : null;
-
-    write(
-      {
-        text,
-        date: note.read(sheet.el),
-        // 兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`）：
-        // 只帶其中一個過來，另一個會被算成空的。`readWho()` 一律兩個一起回。
-        ...(bag
-          ? {
-            customerId: bag.customerId,
-            customerName: bag.customerName,
-            entitlementId: bag.entitlementId,
-          }
-          : note.readWho(sheet.el)),
-      },
-      isNew ? '記下來了' : '改好了',
-    );
+    // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定（`readCapture()`）——
+    // 「掛給誰」那一排這時候是收起來的；改一件既有的沒有那一顆，讀的就是「掛給誰」。
+    // 客戶的兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`），`readCapture()` 一律兩個一起回。
+    // 既有的營養品提醒沒有「掛給誰」那一顆（`bagOwned`）：只送日期 —— 兩格都不帶，`normalizePatch()` 就不動原本掛的人
+    const picked = note.readCapture(sheet.el);
+    write({ text, ...(bagOwned ? { date: picked.date } : picked) }, isNew ? '記下來了' : '改好了');
   });
 
   sheet.el.querySelector('[data-undate]')?.addEventListener('click', () =>
@@ -1509,7 +1516,8 @@ function mountNoteEditor(el, data, sheet, spec) {
         date: null,
         // 從表單讀，不從 `existing` 讀 —— 她可能剛剛才在這一頁改了掛給誰，
         // 然後才按「從日曆拿掉」。用舊的那一份會把她剛改的清掉。
-        ...note.readWho(sheet.el),
+        // 營養品的提醒沒有「掛給誰」那一顆：不帶那兩格（讀表單會讀到空的、把掛的人清掉）
+        ...(bagOwned ? {} : note.readWho(sheet.el)),
       },
       '從日曆拿掉了，隨手記裡還在',
     ),
@@ -1635,7 +1643,11 @@ export function visitReadHtml(visit, data) {
   //（例如問 `data.focusSlot` 是不是整數）—— 指到一個不存在的段落時那一支
   // 會退回全部，而自己推的那一份會以為只有一段。
   const tappable = !focused && slots.length > 1;
+  // 一次性客人（ADR-0172 第 5 題）：抬頭（名字）底下一小格「一次性」—— 抬頭是五個呼叫端各自給的，
+  // 所以畫在這一支裡、四頁一起有（`data.customer` 沒帶的那幾頁由 `fillMirror()` 補讀之後重畫）
+  const guest = isOneTime(data?.customer) ? '<div class="readguest"><span class="guestmark">一次性</span></div>' : '';
   return `
+    ${guest}
     ${alerts ? `<div class="readalerts">${alerts}</div>` : ''}
     ${slots.map(({ slot: s, index }) => {
       // 診間印**簡寫**（`.2`），跟日／週那一列與月曆同一種寫法 ——
@@ -1885,17 +1897,26 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
           .filter((c) => nameHas(c.name, q))
           .slice(0, 40);
 
+        // 打了字、**列出來的沒有一位名字一模一樣**（`offersNewGuest()`，段五審查 R8：打「王小」列出王小明時也給）→
+        // 「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（名字帶好）→ 接著排
+        const newGuestBtn = offersNewGuest(q, rows)
+          ? `<p style="padding: var(--space-2) var(--space-3); margin: 0">
+               <button class="btn btn--sm" type="button" data-new-guest>＋ 新增一次性客人「${esc(q)}」</button></p>`
+          : '';
         box.innerHTML = rows.length
           ? rows.map((c) => `
               <button class="grouprow" type="button" data-pick="${esc(c.id)}">
                 <span class="grouprow__main">
-                  <span class="grouprow__label">${esc(c.name)}</span>
+                  <span class="grouprow__label">${esc(c.name)}${isOneTime(c) ? ' <span class="guestmark">一次性</span>' : ''}</span>
                   ${(c.flags ?? []).length
                     ? `<span class="grouprow__note">${esc((c.flags ?? []).join('・'))}</span>` : ''}
                 </span>
                 ${icon('right', { size: 16 })}
-              </button>`).join('')
-          : '<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>';
+              </button>`).join('') + newGuestBtn
+          : `<p class="muted" style="padding: var(--space-3); margin: 0">沒有這個人。</p>${newGuestBtn}`;
+
+        box.querySelector('[data-new-guest]')?.addEventListener('click', () =>
+          newGuest(el, data, sheet, { name: q, date, backDate, customers }));
 
         box.querySelectorAll('[data-pick]').forEach((btn) =>
           btn.addEventListener('click', () =>
@@ -1912,6 +1933,36 @@ function pickCustomer(el, data, sheet, date, backDate = null) {
     .catch((err) => {
       box.innerHTML = `<p class="muted" style="padding: var(--space-3)">讀取失敗：${esc(err.message)}</p>`;
     });
+}
+
+/**
+ * 日曆新增「＋ 新增一次性客人『X』」（ADR-0172 第 4 題）：名字卡的快速表單（`components/guestForm.js`，名字帶好、病歷號、電話）→
+ * 建名字卡（`oneTimeCustomer()`，走建客戶同一條寫入）→ 接著在這裡排（`mountEditor()`，同選了一位）。
+ */
+function newGuest(el, data, sheet, { name, date, backDate, customers }) {
+  sheet.setTitle('新增一次性客人');
+  sheet.setNote('不在客戶清單上、沒有額度；日曆與待辦照常。');
+  sheet.update('<div data-guestnew></div>');
+  mountGuestForm(sheet.el.querySelector('[data-guestnew]'), {
+    card: { name },
+    existing: customers,
+    quick: true,
+    submitLabel: '建立，接著排',
+    onCancel: () => pickCustomer(el, data, sheet, date, backDate),
+    onSubmit: async ({ card }) => {
+      try {
+        const id = await toast.withSaveState(
+          () => customersData.createWithPlan(oneTimeCustomer(card), { plan: null, quantity: 0, extras: [] }),
+          // 連點兩下就是兩張同名的名字卡。**沒有復原**（段五審查 R4，同拍 Abovee 的 `createGuest()`）：
+          // 接著排的那一張不跟著收，復原之後存得下一段指著刪掉的客戶 —— 建錯了去名字卡那一頁刪
+          { success: '已建立名字卡', key: 'customer:create-guest', undoable: false },
+        );
+        mountEditor(el, data, sheet, { kind: 'visit', customerId: id, date, backDate });
+      } catch {
+        /* withSaveState 已顯示錯誤與重試 */
+      }
+    },
+  });
 }
 
 // ---------- 事件 ----------

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  三星 One UI 讀的小工具屬性（沒寫在 Android 的文件裡；名字與值照 github.com/thatjoshguy67/blur-widget-demo）。
+  provider 宣告了 widgetStyle="colorful" 與真的 widgetSize、root 是 @android:id/background、底色半透明 → One UI 7+ 替它模糊桌布。
+  別家桌面不認得這兩個屬性，照常畫半透明。
+-->
+<resources>
+    <attr name="widgetStyle" format="integer">
+        <flag name="colorful" value="0x1" />
+        <flag name="monotone" value="0x2" />
+    </attr>
+    <attr name="widgetSize" format="integer">
+        <flag name="tiny" value="0x1" />
+        <flag name="small" value="0x2" />
+        <flag name="wideSmall" value="0x4" />
+        <flag name="medium" value="0x8" />
+        <flag name="large" value="0x10" />
+        <flag name="extraLarge" value="0x20" />
+        <flag name="extraLargeLong" value="0x40" />
+    </attr>
+</resources>

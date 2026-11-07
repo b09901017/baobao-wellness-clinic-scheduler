@@ -48,8 +48,8 @@ const FIELD_HINT_KEEP = {
   'ui/views/calendar.js': 1,
   // 整支檔案連 tip.js 都不可以 import（同 flags.js）
   'ui/views/customersBulk.js': 1,
-  // 休假與行事備註差在哪、結束日不同就是跨天 —— 兩句都會改變她挑哪一個
-  'ui/views/eventEditor.js': 3,
+  // `ui/views/eventEditor.js` 2026-11-05 降到 0（小修 06）：她「不要有任何小字」—— 休假與行事備註差在哪、
+  // 結束日不同就是跨天那三句全刪；標題、顏色、刪掉那三顆 `?` 留著（點了才出來）
   // Apps Script 的網址與 token 要怎麼填 —— 藏起來她會填錯，而那是一次性設定
   'ui/views/report.js': 2,
   // 「這裡是加約的二返」「沒有它試算表印不出位置」「跟買的不一樣」

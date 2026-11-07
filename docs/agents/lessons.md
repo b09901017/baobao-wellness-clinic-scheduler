@@ -156,6 +156,26 @@
 
 > 這一段有反斜線嗎？有的話用 Write／Edit 寫，或在腳本裡用 `chr(92)`；寫完 `grep -c $'\x08'` 一次。
 
+**同一族：python 在 Windows 上寫檔會換成 CRLF**（11/5 段四）。`open(p, 'w')` 文字模式把 `\n` 寫成 `\r\n`，整支檔一起換 ——
+`git diff` 只看得到改的那幾行（`autocrlf` 會遮），畫面上一模一樣，而**掃原始碼的測試**照 `'\n\n'`、`'\n}'` 切函式的全部切錯：
+`tests/abovee-row-hints-placed.test.js` 把 `needsAttention` 切成六萬字、比到不相干的函式，紅得莫名其妙。
+讀寫都帶 `newline=''`／`newline='\n'`（`open(p, encoding='utf-8', newline='')` 讀、`newline='\n'` 寫），寫完 `file <路徑>` 看有沒有「CRLF」。
+
+**11/6 再踩一次，而且更糟**（notes-widget 段二，`f0ea3b51`）：一支改檔腳本用預設的 `open(p, 'w')`（整份變 CRLF），下一支用 `newline=''` 讀、
+自己再把 `\n` 換成 `\r\n` 接上去 —— 接縫處多了兩個**單獨的 `\r`**（`}\r\r\n`）。有單獨的 CR，git 就把整支當成 `-text`，
+`.gitattributes` 的 `eol=lf` 不轉了：`app.css` 一萬一千行以 CRLF 進了版本庫，diff 是 +12315/-11852，下一次合 develop 每一行都衝突。
+`git add` 時的「CRLF will be replaced by LF」警告**不保證**真的轉了（它照樣印）。
+同一個腳本**一律** `newline='\n'` 寫；不要在 `newline=''` 讀進來的字串上自己拼 `\r\n`。
+
+**同一族、反方向：Write／Edit 會把「反斜線 u 加四位十六進位」的跳脫寫成真的那個字**（11/6 notes-widget 段五）。
+要寫進原始碼的是那六個字（例如 JS 正規表示式裡全形空白、BOM、行分隔符的跳脫），落到檔案上的卻是看不見的字本身 ——
+不換行空白、零寬空白混在字元類別裡看不出來，**行分隔符（U+2028）在正規表示式字面值裡直接是語法錯誤**（`notesParity.js` 就是這樣壞的）；
+Kotlin 的字元字面值收了真的字照樣編得過，只是那一行再也沒人看得懂。控制字元（U+0000–U+001F）與 U+0080 那一段沒被換，所以 `no-control-chars` 擋不到。
+要寫看不見的字：在腳本裡用字碼組（`String.fromCharCode(92)` ＋ `u` ＋ 四位）把真的字換回跳脫，寫完掃一次（逐字看字碼，U+00A0、U+1680、U+2000–U+200F、U+2028／2029、U+202F、U+205F、U+3000、U+FEFF）。
+
+> 用 python 改了檔嗎？寫的時候帶 `newline='\n'` 了沒；`file` 一次。commit 之後 `git ls-files --eol <檔>` 是 `i/lf` 嗎？
+> 用 Write／Edit 寫了跳脫（反斜線 u）嗎？寫完逐字掃一次字碼，看是不是變成了真的那個字。
+
 ---
 
 ## 十二、`--related` 比的是本機那一份 `develop`
@@ -223,8 +243,26 @@
 
 ---
 
+## 十六、git worktree 裡，被 `.gitignore` 擋住的東西都不在
+
+worktree（`.claude/worktrees/<名字>/`）只有被追蹤的檔案：`.local/`（真名名單、`redact.mjs`、她的資料）、`.codegraph/`、`graphify-out/` 都不在。
+**沒有一個工具會因此紅**，它們安靜地少做一件事、或拿到別條分支的結果（2026-11-05 在 worktree 裡碰到三件）：
+
+- 真名掃描（`tests/no-secrets.test.js`）找不到別名表 → `t.skip()`，`npm test` 只多一個「skipped 1」。現在 `tests/helpers/localDir.js` 會再去主資料夾找（`git rev-parse --git-common-dir` 的上一層）；
+  **新增一支要讀 `.local/` 的測試或腳本也走它**，不要只找 `${ROOT}.local/`
+- CodeGraph 往上找到主資料夾的 `.codegraph/`：`query`／`callers`／`impact` 查的是主資料夾那條分支，行號是舊的、這裡改的符號找不到，**不報錯**。在 worktree 裡先 `codegraph init --yes`（`ripple-check`「改之前」第 1 步）
+- `graphify-out/` 不在：用主資料夾那一份要講清楚是哪個 commit 建的（`ripple-check`「Graphify 的圖」）
+- 讀 `.local` 的過濾網在主資料夾：`| node <主資料夾>/.local/references/redact.mjs`
+- **不要在 worktree 裡建指向主資料夾 `.local` 的 junction／symlink 一直放著**：有些刪 worktree 的方式會順著連結刪進去，刪掉的是她唯一的一份真資料。臨時要用就跑完馬上 `cmd /c rmdir .local`（只拆連結）
+
+> 這個工具在 worktree 裡找不到它要的東西時，是紅、還是安靜地跳過／往上拿到主資料夾那一份？`skipped` 的數字是不是 0？
+
+---
+
 ## 查的方法（給之後做健檢或驗證的 session）
 
+- **歷次全庫健檢放在哪**：2026-08-25 `.scratch/code-audit-2026-08-25/`、2026-09-23 `.scratch/prelaunch-audit-2026-09-23/`、
+  **2026-11-04 `.scratch/code-health-2026-11-04/`（只記錄、還沒修；入口是那裡的 `README.md`，查過沒事的與這次的查法在 `NOTES.md`）**
 - **測試全綠不代表沒事**：掃原始碼的測試只看得到它認得的寫法（save-guards 只掃 `withSaveState`；E2E U8 量按鈕外框，量不到被 `overflow` 裁掉的感應範圍 —— 要用 `elementFromPoint` 量）
 - **零成本的真資料語料**：`.local/references/abovee-m5-m10/擷取/abovee-m5-m10.json`（Abovee 353 列，逐像素驗證過）、`.local/references/ai-exam/result-*.json`（模型真的吐出來的抄字）。拿來餵翻譯層，不用再叫模型。腳本只印數字
 - **正式站的主檔是舊一代的種子**：要測「上線那天」就用 `git show <舊 commit>:public/js/domain/seed.js` 造主檔，不要拿現在的種子

@@ -19,7 +19,7 @@ skill 只在叫的時候讀一次，下面這幾條要一直記著，每一段�
 - **改一個已經存在的函式、型別或畫面上的字之前**，照 `ripple-check` 找出它所有的呼叫端、波及範圍與畫面上出現的地方；修完 bug 照它找同一個形狀的地方。
 - **中途發現的事不岔出去修**：沒人提過的關聯問題、同一個形狀的類似問題，記進 HANDOFF 的「中途發現」（哪裡、什麼情境會錯、建議），繼續做原本的。
   段末一次問。使用者說要修的，修之前再照 `ripple-check` 查一次牽連，照一支 issue 的規矩做（commit、`Status`、判準）。
-- **同時最多兩個 subagent**：開太多會在幾分鐘內燒光額度。
+- **預設同時最多兩個 subagent**：開太多會在幾分鐘內燒光額度。不是硬性的：要多開先問使用者（幾個、為什麼），同意了就照開。
 - **專案限定的事看專案的 `CLAUDE.md`**：基底分支、驗證指令、合併規定、推之前要掃什麼、手動驗收在哪個環境。這裡不重寫，
   同一件事寫兩處，模型會猜寫兩遍的是不是比較重要，兩處不一致時還會隨便挑一條。
 
@@ -101,7 +101,8 @@ skill 只在叫的時候讀一次，下面這幾條要一直記著，每一段�
 
 1. 這一輪在做什麼（一句）、分支、上一段做到哪（commit）
 2. 這一段做哪幾支、照什麼順序、**不做**哪幾支
-3. 先讀：具體到 HANDOFF 的哪幾節、哪幾支 issue 的「做完時留下的」、哪幾份決定，加上 `CLAUDE.md`、`docs/agents/lessons.md`
+3. 先讀：具體到 HANDOFF 的哪幾節、哪幾支 issue 的「做完時留下的」、哪幾份決定，加上 `CLAUDE.md`、`docs/agents/lessons.md`。
+   **路徑寫相對於專案根目錄**（`.scratch/<這一輪>/HANDOFF.md`），不寫 `C:/…` 或 `/home/…`：同一份開場可能在家裡或雲端 VM 上接（2026-11-02 VM 接手時段一的開場寫死了 Windows 路徑）
 4. 「整輪都適用的規矩」裡的 `ripple-check`（改前查牽連、修完找同類）、中途發現、使用者說修的再查牽連、subagent 上限
 5. 這一段要先一次問使用者的題目（有才寫）；審查段另寫「要特別看的」：「這一行會不會讓 X」的問句，加上要查牽連的符號與要 grep 的字串
 6. 「主控會開下一段：不要自己開 session，也不要存 limit-guard 的開場 JSON」（理由見第三段）
@@ -131,8 +132,25 @@ skill 只在叫的時候讀一次，下面這幾條要一直記著，每一段�
 
 **開不了的時候**（沒有這個工具，例如在終端機或雲端；app 拒絕；使用者說要自己開）：把開場用程式碼區塊貼給使用者複製。
 
+**在雲端 VM 上（使用者用手機經 Remote Control 叫的）**，開段的工具不一樣（2026-11-02 第一次 VM 接手時遇到，11/4 對官方文件查過）：
+
+- **主控開下一段、段之間傳訊息都不用先問使用者**（她 2026-11-04：「然後再vm我覺得 自己對話傳訊息 或開新對話 不用我同意」）：她在外面用手機，每一下都要她回來按同意，整段就停在那裡。
+  只限 VM，家裡照上面（app 的 `start_session` 規則照舊）；花錢、寫正式資料、刪重要的東西、傳到外面照舊先問。
+  Claude Code 本身不擋傳訊息（`SendMessage` [不用權限](https://code.claude.com/docs/en/tools-reference)、auto 模式只[審內容](https://code.claude.com/docs/en/permission-modes)）；
+  會問的是 guard mod 把 MCP 的 send／message 工具當成「傳出去」，VM 上那幾支的名字要加進它的「自己的對話」名單（`mods/guard/hooks/classify.ts` 的 `OWN_SESSIONS`）
+
+- 工具叫 `create_session`，**沒有 effort 參數**（11/2 VM 上那支工具的說明；官方文件沒有寫這支工具）。新的那一段開起來的 effort 是 VM 設定檔的預設
+  （`~/.claude/settings.json` 的 `modelSettings`；**Opus 5.5 不認頂層那一格 `effortLevel`**，見 [Adjust effort level](https://code.claude.com/docs/en/model-config#adjust-effort-level)）。
+  建議的 effort 跟預設不一樣時，開完請使用者在手機上那個 session 用 effort 控制或打 `/effort xhigh` 調（[只對那個 session 有效](https://code.claude.com/docs/en/remote-control#what-connected-devices-see)）。
+  主控用訊息傳 `/effort` 沒用：從別的 session 來的訊息裡的指令[不會執行](https://code.claude.com/docs/en/cross-session-messaging#how-a-session-treats-an-incoming-message)
+- `create_session` 開的段**正常做完不會通知主控**（那支工具的說明寫只有失敗或重啟才通知）。**不要排程輪詢**：開場最後寫「做完用 SendMessage 告訴主控 `<主控的名字或 id>`」；
+  也可以試 `SendMessage` 的 `notify_when_idle` 訂閱那一段下一次閒下來（[只對同一台機器上的 session](https://code.claude.com/docs/en/cross-session-messaging#get-a-notice-when-another-session-goes-idle)、
+  Claude Code v2.1.236 以上；VM 上開的段都在同一台，但 Remote Control 開的 session 吃不吃得到還沒實測過）
+- 背景指令在 VM 上 30 分鐘會被停（Remote Control 開的 session 算[沒人看著的](https://code.claude.com/docs/en/tools-reference#time-limit-for-background-commands)）：
+  跑模擬器、整批 E2E 這種要久的，`run_in_background` 帶 `timeout`（最多 `7200000`，兩小時）
+
 **跟 limit-guard 不重複**：有載入 mods 的地方，limit-guard 會叫 Claude 把開場另存成 `~/.claude/mods-data/handoffs/*.json`，
-使用者下一次開新對話時自動放進輸入框。**已經用 `start_session` 開了的段不存這份**，否則使用者下一次開新對話，同一段又會被帶進來。
+使用者下一次開新對話時自動放進輸入框。**已經用 `start_session`（VM 上是 `create_session`）開了的段不存這份**，否則使用者下一次開新對話，同一段又會被帶進來。
 只有兩種情況照 limit-guard 存：開不了、改成給使用者貼的時候；額度快用完、中途收尾要接著做同一段的時候。
 專案另有規定（例如某個時期不能存）照專案。
 

@@ -368,10 +368,10 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
 
   test('那一列畫在額度列底下，一槓照寫、✓ 在那一天那一欄', () => {
     const sheet = render(bundleOf([day('2026-10-01', [free('fm')])]));
-    // 第 5 列是表頭、第 6 列是那一筆額度、第 7 列是多的那一列
+    // 第 5 列是表頭、第 6 列是那一筆額度、第 7 列是多的那一列；F 是空白欄、日期從 G 起（.scratch/sheet-push-gaps/issues/14）
     assert.deepEqual(
-      ['A7', 'B7', 'C7', 'D7', 'E7', 'F7'].map((a) => sheet.at(a)),
-      ['功醫門診（體驗）', '—', 1, 0, '—', '✓'],
+      ['A7', 'B7', 'C7', 'D7', 'E7', 'F7', 'G7'].map((a) => sheet.at(a)),
+      ['功醫門診（體驗）', '—', 1, 0, '—', '', '✓'],
     );
   });
 
@@ -380,12 +380,12 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
     // 顏色照 `.gs` 的 COLOR：剩餘 0 是 #FFCDD2、已完成是 #C8E6C9。隔列的底色不算
     assert.notEqual(sheet.backgrounds.get('E7'), '#FFCDD2', '一槓不是 0');
     assert.equal(sheet.backgrounds.get('C7'), '#C8E6C9', '做過一次：已完成那一格照樣上色');
-    assert.equal(sheet.backgrounds.get('F7'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
+    assert.equal(sheet.backgrounds.get('G7'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
   });
 
   test('第二列那句合計不把它算進去', () => {
     const sheet = render(bundleOf([day('2026-10-01', [free('fm')])]));
-    assert.match(String(sheet.at('C2')), /合計　應有 12　已完成 0　已排未上 0　剩餘 12/);
+    assert.match(String(sheet.at('A3')), /合計　應有 12　已完成 0　已排未上 0　剩餘 12/);
   });
 
   test('一筆額度都沒有的客戶：畫得出來，不出錯', () => {
@@ -402,15 +402,15 @@ describe('現在那一份 .gs 直接畫得出來（不升 SYNC_FORMAT、她不�
       followupForVisitId: exam.id, doctorId: 'd1', status: 'done',
     }]);
     const sheet = render(bundleOf([exam, third], [E_EXAM, E_FU]));
-    // 第 5 列是表頭、第 6、7 列是健檢與二返、第 8 列是三返；F 是 9/1、G 是 9/20
+    // 第 5 列是表頭、第 6、7 列是健檢與二返、第 8 列是三返；F 是空白欄、G 是 9/1、H 是 9/20
     assert.deepEqual(
-      ['A8', 'B8', 'C8', 'D8', 'E8', 'F8', 'G8'].map((a) => sheet.at(a)),
-      ['三返（不算次數）', '—', 1, 0, '—', '', '✓'],
+      ['A8', 'B8', 'C8', 'D8', 'E8', 'F8', 'G8', 'H8'].map((a) => sheet.at(a)),
+      ['三返（不算次數）', '—', 1, 0, '—', '', '', '✓'],
     );
     assert.notEqual(sheet.backgrounds.get('E8'), '#FFCDD2', '一槓不是 0');
-    assert.equal(sheet.backgrounds.get('G8'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
-    assert.match(String(sheet.at('C2')), /合計　應有 2　已完成 1　已排未上 0　剩餘 1/);
-    const under = [...sheet.cells.entries()].filter(([a1, v]) => a1.startsWith('F') && String(v).includes('9/20 三返(夏)'));
+    assert.equal(sheet.backgrounds.get('H8'), '#C8E6C9', '那一天那一格是 ✓ 的顏色');
+    assert.match(String(sheet.at('A3')), /合計　應有 2　已完成 1　已排未上 0　剩餘 1/);
+    const under = [...sheet.cells.entries()].filter(([a1, v]) => a1.startsWith('G') && String(v).includes('9/20 三返(夏)'));
     assert.equal(under.length, 1, '健檢那一欄底下那一行照舊');
   });
 });

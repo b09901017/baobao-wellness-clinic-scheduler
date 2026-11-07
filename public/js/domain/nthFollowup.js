@@ -42,6 +42,9 @@
 // > **這一行會不會讓一筆二返的資料被算成 n返，或反過來？**
 
 import { followupCourseIdOf, examDoneIn, holdsExam, examStatusIn, PICKABLE_EXAM } from './followups.js';
+// 一次性客人的 n返 接他的一次性健檢（ADR-0172）：找健檢的那兩支吃投影過的那一份。n返 自己**不填**那一對的 id
+import { withOneTimeChain, isOneTimeEntitlementId } from './oneTimeChain.js';
+import { isOneTime } from './masterData.js';
 
 /**
  * 最少三返（2 是二返，那一條路已經有了 —— 兩條路不可以都走得到同一個數字），
@@ -161,13 +164,51 @@ export function examVisits(entitlements = [], coursesById = {}, visits = []) {
  * @returns {string|null} 課程 id。那一次健檢對不到健檢額度就是 null
  */
 export function courseIdForNth(examVisit, entitlements = [], coursesById = {}) {
-  const byId = new Map((entitlements ?? []).map((e) => [e.id, e]));
-  for (const slot of examVisit?.slots ?? []) {
+  if (!examVisit) return null;
+  // 那一次是一次性客人的健檢的話，用那一對認出它是健檢（ADR-0172）。只投影這一筆：要的只是課程
+  const chain = withOneTimeChain({ entitlements, visits: [examVisit], coursesById });
+  const byId = new Map((chain.entitlements ?? []).map((e) => [e.id, e]));
+  for (const slot of chain.visits[0]?.slots ?? []) {
     const course = coursesById[byId.get(slot.entitlementId)?.courseId];
     const followupId = followupCourseIdOf(course);
     if (followupId) return followupId;
   }
   return null;
+}
+
+/**
+ * 這一次健檢是不是一次性客人的那一次（ADR-0172，03）：`courseIdForNth()` 認出健檢的**同一段**是一次性的段。
+ * 接在它後面的 n返 也標一次性（`slotDraft.js` 的 `slotFromPicks()` 一處判、`validateVisit()` 擋沒標的）——
+ * 跟「轉成我的客戶之後，還欠的那一場二返照舊標一次性」同一個理由：那一串是一次性那一次的（她第 6 題）。
+ *
+ * @returns {boolean}
+ */
+export function isOneTimeExamVisit(examVisit, entitlements = [], coursesById = {}) {
+  if (!examVisit) return false;
+  const chain = withOneTimeChain({ entitlements, visits: [examVisit], coursesById });
+  const byId = new Map((chain.entitlements ?? []).map((e) => [e.id, e]));
+  for (const slot of chain.visits[0]?.slots ?? []) {
+    if (followupCourseIdOf(coursesById[byId.get(slot.entitlementId)?.courseId])) return isOneTimeEntitlementId(slot.entitlementId);
+  }
+  return false;
+}
+
+/**
+ * 「約二返」那一張的按鈕帶她去哪裡排（ADR-0172、段五審查 R3）：**日曆**（`true`）或壓表（`false`）。
+ *
+ * - 還是一次性客人 → 日曆（他不在壓表上，過目 5）
+ * - 轉成我的客戶了、但接的那一次是他當一次性客人時的健檢（`isOneTimeExamVisit()`）→ 也是日曆：
+ *   還沒加購的人壓表那一批沒有他；加購了，壓表上也沒有配那一次的真的二返額度 —— 日曆新增有「二返（一次性那一次）」
+ * - 其餘照舊壓表
+ *
+ * 按鈕上的字與按下去走哪一條共用這一支（`home.js`），兩邊才講同一種話。
+ *
+ * @param {object|null} customer 那一位
+ * @param {object|null} examVisit 待辦接的那一次健檢的來訪
+ */
+export function followupGoesToCalendar(customer, examVisit, entitlements = [], coursesById = {}) {
+  if (isOneTime(customer)) return true;
+  return isOneTimeExamVisit(examVisit, entitlements, coursesById);
 }
 
 // ---------- 某一次健檢底下有哪幾返 ----------
@@ -255,8 +296,10 @@ export function nextNthFor(examVisitId, visits = [], followupEntitlementIds = []
  *   日期舊的在前
  */
 export function examChoicesForNth({
-  entitlements = [], coursesById = {}, visits = [], excludeVisitId = null,
+  entitlements: givenEntitlements = [], coursesById = {}, visits: givenVisits = [], excludeVisitId = null,
 } = {}) {
+  // 一次性客人的健檢也列（ADR-0172）：一次性的 n返 接得上，轉成客戶之後的 n返 也接得上。回的 `visitId` 是真的來訪 id
+  const { entitlements, visits } = withOneTimeChain({ entitlements: givenEntitlements, visits: givenVisits, coursesById });
   const second = secondFollowupIds(entitlements);
   const others = (visits ?? []).filter((v) => v.id !== excludeVisitId);
   const examIds = examEntitlementIds(entitlements, coursesById);

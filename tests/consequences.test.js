@@ -453,6 +453,22 @@ describe('結案那一下會發生什麼', () => {
         });
       });
 
+      test('壓表與來訪編輯器的新增那一條都拿 followupBookingLines() 試算「約二返」，而且讀 chainInputs()（backlog 19）', () => {
+        // 來訪編輯器新增那一條以前沒傳：存一場二返時確認框不講那一次健檢的「約二返」會收掉（改扣法與取消那兩條有）
+        const editor = readFileSync(fromRoot('public/js/ui/views/visitEditor.js'), 'utf8');
+        const branch = editor.slice(editor.indexOf('} else if (hasNewSlots(ctx, draft)) {'), editor.indexOf('const pick = said.relink', editor.indexOf('} else if (hasNewSlots(ctx, draft)) {')));
+        assert.ok(branch.length > 0, '找不到新增那一條');
+        assert.match(branch, /followupBookingLines\(\{/);
+        assert.match(branch, /chain: bookingChain/);
+        assert.match(branch, /\.\.\.chainSaid/, '那幾句要真的進確認框');
+        // 讀在第一道（confirmReview）之前：讀在兩道中間，第一道一收、第二道要等一趟讀取才出來
+        const read = editor.indexOf('const bookingChain = ');
+        assert.ok(read > 0 && read < editor.indexOf('if (!await confirmReview(warnings)) return;'), 'bookingChain 在第一道之前讀');
+        assert.match(editor.slice(read, read + 300), /visitsData\.chainInputs\(/);
+        const sched = readFileSync(fromRoot('public/js/ui/views/schedule.js'), 'utf8');
+        assert.match(sched, /followupBookingLines\(\{[\s\S]{0,300}chain: await visitsData\.chainInputs\(/);
+      });
+
       test('沒有任何「約二返」會變 → 一句都不多講', () => {
         const said = lines({ visits: [exam, second('v2', '2026-09-20', 'confirmed')], tasks: [] });
         assert.ok(!said.some((l) => l.includes('「約二返」')), said.join('／'));

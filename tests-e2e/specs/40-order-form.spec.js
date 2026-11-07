@@ -249,6 +249,32 @@ test('O3 名字跟既有客戶一樣：兩顆都沒預選時按不下去；選�
   expect(new Set(added.map((e) => e.purchaseId)).size, '一次加購是一次購買').toBe(1);
 });
 
+// 一次性客人（ADR-0172，段五審查 R1）：同名的是一次性客人時**沒有「加購到他」那一顆** —— 加購到他，那一筆額度
+// 寫進一張哪一份名單都看不到的卡。照「沒有同名」走（點「名字對」、新增一位），名字旁邊 ⚠ 指路去轉成我的客戶
+test('O3b 名字跟一位一次性客人一樣：沒有「加購到」那一顆、⚠ 講轉成我的客戶；建的是一位新的、一次性客人身上一筆都沒加', async ({ app, page }) => {
+  await app.seed([...masterDocs(), customer({ id: 'cust-g', name: '客戶A', oneTime: true, active: true })]);
+  await app.signIn('/customers');
+  await photograph(page, ['orderForm-samename']);
+
+  const card = cardAt(page, 0);
+  await expect(card.locator('.ocard__choice')).toHaveCount(0);
+  await expect(card.locator('[data-oc-nameok]')).toBeVisible();
+  await expect(card.locator('.tip--warn[data-tip*="一次性客人"]')).toHaveCount(1);
+  await expect(card.locator('.tip--warn[data-tip*="一次性客人"]')).toHaveAttribute('data-tip', /轉成我的客戶/);
+
+  await card.locator('[data-oc-nameok]').click();
+  await expect(card.locator('[data-oc-create]')).toBeEnabled();
+  await card.locator('[data-oc-create]').click();
+  await app.saved();
+  await expect(page.locator('.ocdeck')).toHaveCount(0);
+
+  const all = await app.readAll('customers');
+  expect(all).toHaveLength(2);
+  expect(await app.readAll('customers/cust-g/entitlements'), '一次性客人身上一筆都沒加').toHaveLength(0);
+  const fresh = all.find((c) => c.id !== 'cust-g');
+  expect(fresh.oneTime ?? null, '建的是一般客戶').toBe(null);
+});
+
 // 「還有沒建的就離開 → 先問一句照片不會留著」（spec「暫定」）。**有一張正在建立的時候也要問**：
 // 以前只要有一張卡在存，按 × 就不問直接收 —— 慢網路下她按了第一位的建立、接著按 ×，第二位就沒了
 test('O4 第一位還在建立（沒網路）時按 × → 照樣問「還有 1 位沒建立」；留下來、網路回來之後建好', async ({ app, page }) => {

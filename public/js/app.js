@@ -11,6 +11,7 @@ import { install as installTips } from './ui/components/tip.js';
 import * as bootTiming from './ui/bootTiming.js';
 import { resolve } from './ui/router.js';
 import * as swUpdate from './ui/swUpdate.js';
+import { watchKeyboard } from './ui/keyboard.js';
 
 // 量開機（after-golive 05）：走到這一行＝上面那一百多支程式檔全部到齊了。
 // 記在這一台、設定頁「打開要多久」讀它；**它一行都不擋開機**（每一步自己包 try）。
@@ -20,6 +21,8 @@ bootTiming.begin({ home: resolve().path === '/' });
 // 說明泡泡的委派掛在 document 上，**開機接一次就好** —— 每一頁、每一次重畫
 // 長出來的那幾顆 `?` 都不用各自接。各自接的話，漏接一頁就是「那一顆點了沒反應」。
 installTips();
+// 打字時收起底部導覽列（ADR-0181：版面跟著鍵盤縮之後它會站到鍵盤上面）。掛在 window 上，只掛一次
+watchKeyboard();
 
 const root = document.getElementById('root');
 
@@ -81,7 +84,8 @@ function main() {
     if (sheetSyncWired) return;
     sheetSyncWired = true;
     // 寫入成功後安靜地把報表推一份給試算表。推不出去不影響任何事，
-    // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡沒有寫入要推
+    // 資料的真相在 Firestore（SPEC 第 4.8 節）。**確認之後才接**：還沒確認的那一兩秒裡存的那一筆沒有人聽，
+    // 由它掛上去之後 10 秒的那一次推送補上（那一次讀全部，`sheetSync.wire()`，.scratch/sheet-push-gaps/issues/01）
     sheetSync.wire();
   };
 

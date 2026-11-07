@@ -5,9 +5,73 @@
 // 見 docs/adr/0002-app-records-decisions-it-does-not-make-them.md。
 
 import { isValidDate, addMonths, daysBetween } from './dates.js';
-import { clinicalTerms, normalizeAlias } from './masterData.js';
+import { clinicalTerms, normalizeAlias, isOneTime as oneTimeFlag } from './masterData.js';
 import { acceptsMoreSlots } from './visits.js';
 import { chartNosOf, normalizeChartNo } from './identify.js';
+import { toCustomerFields } from './customerMarks.js';
+
+// **一次性客人**（2026-11-05，ADR-0172）：`isOneTime(customer)` 住在 `masterData.js`（葉節點）、從這裡轉出去 ——
+// `visits.js` 的存檔驗證要問它，而這一支經 `identify.js` → `legacyImport.js` 繞回 `visits.js`（載入時就會撞到）。
+// 畫面一律從這裡 import；它是同一支函式，「讀只有一支」照樣成立。
+export const isOneTime = oneTimeFlag;
+
+/**
+ * 一張名字卡 → 要建的那一份客戶文件（ADR-0172 決定一）。能填的只有名字、病歷號、電話、LINE 名字、警示 ——
+ * 都是客戶文件既有的欄位；其餘照新增客戶表單的空白預設（`customerForm.js` 的 `draftToCustomer(blankDraft())`：
+ * 沒有購買日、沒有方案、喜好程度 0），多一格 `oneTime: true`。`active` 由寫入那一支補（`createWithPlan()` 同一個做法）。
+ *
+ * @param {{name: string, chartNo?: string|null, phone?: string|null, lineId?: string|null, flags?: string[]}} card
+ * @returns {object}
+ */
+export function oneTimeCustomer({ name, chartNo = null, phone = null, lineId = null, flags = [] } = {}) {
+  const text = (v) => String(v ?? '').trim() || null;
+  return {
+    name: String(name ?? '').trim(),
+    phone: text(phone),
+    lineId: text(lineId),
+    chartNo: text(chartNo),
+    source: null,
+    purchasedAt: null,
+    membershipExpiresAt: null,
+    priority: 0,
+    flags: [...(flags ?? [])],
+    partners: [],
+    ...toCustomerFields([]),
+    oneTime: true,
+  };
+}
+
+/**
+ * 轉成我的客戶要寫的變動：**`{ oneTime: false }`，不拿掉那一格**（ADR-0172 決定二）。
+ * 拿掉要 `deleteField`，而 `repo.commit()` 把變動原樣抄進稽核那一筆，放一個刪除標記進去整批會失敗；
+ * domain 也 import 不到 SDK。`isOneTime()` 只認 `true`，所以 `false` 跟沒有那一格一樣，稽核上留得下「一次性客人 是 → 否」。
+ * 他以前那幾段的標記留著（照舊不扣、不進試算表）。
+ */
+export const toMyCustomer = () => ({ oneTime: false });
+
+/** 客戶清單的三份（ADR-0172）：在服務中、已停用、一次性客人。 */
+export const CUSTOMER_LISTS = Object.freeze(['active', 'inactive', 'oneTime']);
+
+/**
+ * 客戶清單上那一份列不列他（ADR-0172 決定一、spec 第 2 題）。**三份互斥**：
+ * 一次性客人只在「看一次性客人」那一份 —— 平常那一份與已停用那一份都不列他（他沒有停用：不要了就刪）；
+ * 那一份也不列一般客戶。刪掉的哪一份都不列。
+ *
+ * @param {object} customer
+ * @param {'active'|'inactive'|'oneTime'} [list]
+ */
+export function inCustomerList(customer, list = 'active') {
+  if (!customer || customer.deletedAt) return false;
+  if (isOneTime(customer)) return list === 'oneTime';
+  if (list === 'oneTime') return false;
+  return list === 'inactive' ? customer.active === false : customer.active !== false;
+}
+
+/**
+ * 新增客戶打到一次性客人的名字時那一句（spec 第 6 題）。**不放連結**：存檔前那一道（`confirmReview()`）只收字串，
+ * 所以句子自己指路。
+ */
+export const GUEST_SAME_NAME = '有一位同名的一次性客人 —— 要把他轉成你的客戶，去客戶清單最底下「看一次性客人」點他、按「轉成我的客戶」';
 
 /**
  * 喜好程度的上限。排序公式是 w2 × (喜好程度 / 最大喜好值)（SPEC 第 9 節），
@@ -36,6 +100,19 @@ const isBlank = (v) => v == null || String(v).trim() === '';
 export const nameHas = (name, query) => normalizeAlias(name).includes(normalizeAlias(query));
 
 /**
+ * 日曆新增「要幫誰排？」底下要不要畫「＋ 新增一次性客人『X』」（ADR-0172 第 4 題、段五審查 R8）：
+ * 打了字、**列出來的沒有一位名字跟打的字一模一樣**（同 `nameHas()` 的比法：空白、全形半形不算）。
+ * 「找不到這個名字」，不是「找不到任何人」—— 一次性客人叫王小、清單上有王小明時，打「王小」照樣給得到那一顆。
+ *
+ * @param {string} query 她打的字
+ * @param {object[]} shown 列出來的那幾位
+ */
+export function offersNewGuest(query, shown = []) {
+  const q = normalizeAlias(query);
+  return Boolean(q) && !(shown ?? []).some((c) => normalizeAlias(c?.name) === q);
+}
+
+/**
  * 客戶清單的搜尋也找病歷號（2026-10-19，ADR-0160）：打幾個數字、這位的病歷號含著那幾個數字就算。
  * 補零不算不一樣（`00001234` 跟 `1234`，`normalizeChartNo()`）；那一格與還寫成短備註的都認（`chartNosOf()`）。
  * 沒打數字回 false（名字那一格由 `nameHas()` 問）。
@@ -44,6 +121,53 @@ export function chartNoHas(customer, query) {
   const q = normalizeChartNo(query);
   if (!/^\d+$/.test(q)) return false;
   return chartNosOf(customer).some((no) => no.includes(q));
+}
+
+/** 一段字的邊界：空白、標點、符號（「請王小明回電，」的逗號、括號、全形空白都算）。 */
+const SUGGEST_BOUNDARY = /[\s\p{P}\p{S}]/u;
+
+/**
+ * 記一筆時打名字就跳出客戶（notes-widget 03，她 11/6：「我打王 下面就跳出王小明，然後我點了之後，
+ * 輸入框直接跳出王小明我只要在打回電就好，如果我點了就也順便幫我掛給他」）。
+ *
+ * 看的是**游標前面那一段**（往前到空白或標點為止），取其中**最長的、是某一位名字開頭的尾巴**：
+ * 打「請王小」→ 用「王小」（「請王小」沒有人的名字這樣開頭）。比法同 `nameHas()`（`normalizeAlias()`：
+ * 去空白、全形半形一致、英文不分大小寫）—— **但這裡是名字「開頭」，不是「包含」**：打「明」不會跳出王小明。
+ *
+ * 那一段已經是某一位的全名、而且他就是現在掛的那一位 → 不跳（點過了，接著打字不要一直跳）。
+ * 刪掉的客戶不列；**列誰照呼叫端給的名單**（「掛給誰」那一份，停用的與一次性客人都在）。
+ *
+ * Android 小工具的輸入卡（08）照抄這一支：情境在 `tests/notes-name-suggestions.test.js`。
+ *
+ * @param {string} text 框裡的字
+ * @param {number} caret 游標的位置（`selectionStart`）
+ * @param {object[]} customers
+ * @param {{currentId?: string|null, limit?: number}} [o] currentId：現在掛的那一位
+ * @returns {{from: number, to: number, matches: object[]}} 換字的範圍 `[from, to)`；沒有符合的 `matches` 是空的
+ */
+export function nameSuggestions(text, caret, customers = [], { currentId = null, limit = 6 } = {}) {
+  const value = String(text ?? '');
+  const to = Math.max(0, Math.min(Number.isInteger(caret) ? caret : value.length, value.length));
+  const none = { from: to, to, matches: [] };
+  const chars = [...value.slice(0, to)];
+  let start = chars.length;
+  while (start > 0 && !SUGGEST_BOUNDARY.test(chars[start - 1])) start -= 1;
+  const people = (customers ?? []).filter((c) => c && !c.deletedAt && normalizeAlias(c.name));
+
+  for (let i = start; i < chars.length; i += 1) {
+    const tail = chars.slice(i).join('');
+    const q = normalizeAlias(tail);
+    if (!q) continue;
+    const hits = people.filter((c) => normalizeAlias(c.name).startsWith(q));
+    if (!hits.length) continue;
+    const exact = (c) => normalizeAlias(c.name) === q;
+    if (currentId && hits.some((c) => c.id === currentId && exact(c))) return none;
+    const matches = hits
+      .sort((a, b) => Number(exact(b)) - Number(exact(a)) || String(a.name).localeCompare(String(b.name), 'zh-Hant'))
+      .slice(0, limit);
+    return { from: to - tail.length, to, matches };
+  }
+  return none;
 }
 
 /**
@@ -148,11 +272,18 @@ export function fieldWarnings(c, existing = []) {
   const sameName = existing.filter(
     (e) => e.id !== c.id && !e.deletedAt && String(e.name ?? '').trim() === name,
   );
+  // 一次性客人（ADR-0172）：**一般客戶**打到同名的一次性客人，那一句換成指路去轉（spec 第 6 題）；
+  // 名字卡本身（他也是一次性的）照舊數每一位。名字卡選填電話與 LINE，所以不講「沒有聯絡方式」
+  const regular = !isOneTime(c);
+  const guests = regular ? sameName.filter(isOneTime).length : 0;
+  const mine = sameName.length - guests;
+  const said = [
+    mine ? `已經有 ${mine} 位客戶也叫「${name}」，確認不是同一個人嗎？` : null,
+    guests ? GUEST_SAME_NAME : null,
+  ].filter(Boolean);
   return {
-    name: name && sameName.length
-      ? `已經有 ${sameName.length} 位客戶也叫「${name}」，確認不是同一個人嗎？`
-      : null,
-    contact: isBlank(c.phone) && isBlank(c.lineId)
+    name: name && said.length ? said.join(' ') : null,
+    contact: regular && isBlank(c.phone) && isBlank(c.lineId)
       ? '沒有電話也沒有 LINE，之後問時間會找不到人'
       : null,
     chartNo: chartNoClash(c, existing),

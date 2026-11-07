@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "306220040308",
+    "project_id": "wellness-clinic-staging",
+    "storage_bucket": "wellness-clinic-staging.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:306220040308:android:dc49687824b0a172501121",
+        "android_client_info": {
+          "package_name": "tw.baofu.notes.staging"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "306220040308-6aslj8qdsjjbe00vnva1ea60rbk2rhsj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tw.baofu.notes.staging",
+            "certificate_hash": "69689f3c5810d611777560effee24beb32a88b3b"
+          }
+        },
+        {
+          "client_id": "306220040308-7faah0r5a8jr155qoi7bk5cfj0n1mh9b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tw.baofu.notes.staging",
+            "certificate_hash": "d4ccce44eacf01bbd24ac22ab2b0a9f72661af01"
+          }
+        },
+        {
+          "client_id": "306220040308-a04r66rma9uac6th3v1p9q4hqnt9uu0c.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDDCHmREUb5_L928Mmpcbuup7uPzp1iQjs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "306220040308-a04r66rma9uac6th3v1p9q4hqnt9uu0c.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

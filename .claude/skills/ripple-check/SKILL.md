@@ -28,6 +28,7 @@ description: 動到已經存在、別處在用的程式碼時「透視關聯」�
 ## 改之前
 
 1. `codegraph sync`（不開背景程序，所以查之前先同步，約一秒）。
+   **在 git worktree 裡（`.claude/worktrees/<名字>/`）先看 `.codegraph/` 在不在這個 worktree**：不在的話 CodeGraph 往上找到主資料夾那一份，查的是主資料夾那條分支的程式碼 —— `query`、`callers`、`impact` **一句警告都不印**，只是這裡改過的符號找不到、行號是舊的（2026-11-05 實測；只有 `codegraph status` 會講「belongs to a different git working tree」）。這時不要跑 `sync`，在 worktree 裡建自己的：`codegraph init --yes`（`.codegraph/` 被 `.gitignore` 擋著，刪 worktree 時一起走）。
 2. 不熟那一區：`codegraph explore "<問題>"`。它回傳的是磁碟上的原始碼原文、呼叫路徑與波及範圍，當作已經讀過，不要再 grep 一遍確認。
 3. `codegraph impact <符號>`（預設深度 2，牽連深的加 `--depth 3`）、`codegraph callers <符號>`；同名的用 `--file <路徑>` 指定。
 4. **把清單逐條寫下來**：每個呼叫端會怎麼受影響，不受影響的也寫一句為什麼。寫進 issue 的「為什麼會這樣」或回覆裡，不要只放在腦中。
@@ -51,20 +52,26 @@ description: 動到已經存在、別處在用的程式碼時「透視關聯」�
 - **INFERRED 的邊是推出來的**：動手前回原始碼或原文確認。圖是用來找路的，不是標準答案。
 - **查**：中文可以直接問（要裝 `graphifyy[chinese]`）；結果被截斷時照提示加 `--budget N`。整體架構才讀 `graphify-out/GRAPH_REPORT.md`。
 - **圖是快照**：`GRAPH_REPORT.md` 寫了建圖時的 commit，跟 `git rev-parse HEAD` 差很多就先更新再查。
+- **在 git worktree 裡沒有 `graphify-out/`**（被 `.gitignore` 擋著）：查圖用主資料夾那一份（`graphify --graph <主資料夾>/graphify-out/graph.json`，主資料夾是 `git rev-parse --git-common-dir` 的上一層），而且講清楚它是哪一個 commit 建的（`GRAPH_REPORT.md` 的「Built from commit」，再 `git branch --contains <commit>`）—— 那是主資料夾那條分支的內容，這個 worktree 改的不在裡面。不要在 worktree 裡重建整份圖（文件那一段會花額度）；圖找到路之後回 worktree 的原始碼確認。
 - **更新圖**（階段結束時；改了很多程式碼、要用圖之前也可以）：
   1. 程式碼：`GRAPHIFY_BACKEND=none GRAPHIFY_MAX_WORKERS=8 graphify update .`（不用 LLM、不花額度）。不設 `GRAPHIFY_MAX_WORKERS` 會用滿所有核心（使用者的電腦曾經過熱斷電）；小 repo 不到一分鐘，上千個檔的先跟使用者說。
   2. 私人資料夾的檢查網：`node .claude/skills/ripple-check/scripts/private-index-check.mjs`，列出目錄還沒寫到的檔（只印檔名）。每一份歸類後跟使用者說怎麼處理（見下一節）。
-  3. 文件有改：`/graphify . --update`。這一步會讓模型讀文件、會花額度，大的時候先跟使用者說。
+  3. 進圖的私人檔有沒有真名：`node .claude/skills/ripple-check/scripts/private-graph-check.mjs`，每一份過專案的名字過濾網、印出被遮掉的那幾行（遮過才印）。結束碼 1 不代表有真名：id、帳號、帶數字的資料夾名是假警報；是人名、號碼、金額就把那一份拿出私人資料夾的 `.graphifyignore`。
+  4. 文件有改：`/graphify . --update`。這一步會讓模型讀文件、會花額度，大的時候先跟使用者說。
 - **不裝 Graphify 的常駐提醒**（`graphify claude install` 會寫進 CLAUDE.md 和 PreToolUse hook）：日常的程式碼問題交給 CodeGraph，兩個都要當「第一個查的」會互相打架。
 
 ## 掃哪些、不掃哪些
 
 - **排除**：別的 repo 的複本（`.claude/skills/`）、上游授權檔、跟這個專案的 app 無關的 `.scratch/` 輪（工具、客廳）。Graphify 寫在 `.graphifyignore`，CodeGraph 寫在 `codegraph.json` 的 `exclude`；`.gitignore` 裡的兩邊本來就不掃。開一輪不是 app 的工作時，順手把它的 `.scratch/<slug>/` 加進 `.graphifyignore`。
-- **私人資料夾（`.local/`）預設不進圖**。只放回：
-  - 目錄 `README.md`：每個檔一行「是什麼、什麼時候讀」，**不寫任何真實值**。這樣查圖會知道有哪些私人檔、什麼時候該打開。
+- **私人資料夾（`.local/`）的資料不進圖，「有什麼、什麼時候讀、使用者決定了什麼」進圖**（使用者 2026-11-04：改程式碼的時候要知道手上有哪些真實的參考資料，才有大局觀）。只放回一個真實值（名字、號碼、金額、帳號）都沒有的：
+  - 目錄 `README.md`：每個檔一行「是什麼、什麼時候讀」。這樣查圖會知道有哪些私人檔、什麼時候該打開。
+  - **真實資料的目錄**：放真資料的資料夾（截圖、匯出、對帳結果、名單）各寫一份 `README.md`，一格一列「有什麼、什麼時候讀、哪個 skill 或哪段程式碼在用」，**目錄進圖、資料本身不進**。
+  - **知識庫**：使用者現行的決定、跟她工作的方式、某件事之前要先知道的（例：寶寶專案的 `.local/知識庫/`）。
+  - **挑過的記憶**（`claude-memory/` 的複本）：跟大局有關（上線、公開 repo、資料規矩、工作方式、各輪的設計）而且檢查網沒抓到名字的那幾份，一份一行列出來。記憶每次對話只載入索引，進圖才連得到 ADR 與程式碼。
   - `research/`：設計參考（國王日記怎麼被用、以前的工作流程）。
   - 產生資料的程式。
-  - 有真實帳戶、金額的檔只在目錄裡提到，要用時才打開，讀過之後照專案的 lessons 比對，不把值抄進 repo。
+  - 有真實帳戶、金額、個資的檔只在目錄裡提到，要用時才打開，讀過之後照專案的 lessons 比對，不把值抄進 repo。
+- **放回哪幾份寫在私人資料夾自己的 `.graphifyignore`**（`templates/local-graphifyignore`），公開 repo 的 `.graphifyignore` 只寫「先擋住、交給它決定」（`templates/graphifyignore`）：私人檔的檔名不出現在公開 repo，雲端或別人 clone 沒有那一份時一份都不進。
 - **新增私人檔時順手在目錄補一行**；是設計參考就放進 `research/`，它會自動進圖。忘了補，更新圖之前的檢查網會抓到。
 - `graphify-out/`、`.codegraph/` 一律 gitignore：公開 repo 不能帶。
 
@@ -73,10 +80,10 @@ description: 動到已經存在、別處在用的程式碼時「透視關聯」�
 範本在這支 skill 的 `templates/`：先複製，再照專案改（專案特有的資料夾、私人檔、不是 app 的輪）。
 
 1. 每台電腦裝一次（版本照客廳 `skills/README.md`）：`npm i -g @colbymchenry/codegraph @ast-grep/cli`、`codegraph telemetry off`、`python -m pip install -U "graphifyy[chinese]"`。
-2. `templates/codegraph.json` → 專案根目錄 `codegraph.json`；`templates/graphifyignore` → `.graphifyignore`；`templates/local-README.md` → `.local/README.md`（已經有就照它補）；`templates/claude-md-line.md` 裡的那一行貼進專案 `CLAUDE.md`、兩行貼進 `.gitignore`。
-3. 驗證掃描範圍：graphify 用 `python -I -c` 呼叫 `graphify.detect.detect(Path('.'))` 看會讀哪些檔（私人資料夾只能有目錄列的、複本與金鑰不能出現）；CodeGraph 建完看 `codegraph files --max-depth 2`。
+2. `templates/codegraph.json` → 專案根目錄 `codegraph.json`；`templates/graphifyignore` → `.graphifyignore`；`templates/local-graphifyignore` → `.local/.graphifyignore`；`templates/local-README.md` → `.local/README.md`（已經有就照它補）；`templates/claude-md-line.md` 裡的那一行貼進專案 `CLAUDE.md`、兩行貼進 `.gitignore`。
+3. 驗證掃描範圍：graphify 用 `python -I -c` 呼叫 `graphify.detect.detect(Path('.'))` 看會讀哪些檔（私人資料夾只能有 `.local/.graphifyignore` 放回的、複本與金鑰不能出現），再跑 `private-graph-check.mjs`；CodeGraph 建完看 `codegraph files --max-depth 2`。
 4. 建索引：`codegraph init --yes`、`GRAPHIFY_BACKEND=none GRAPHIFY_MAX_WORKERS=8 graphify update .`。
-5. 第一次完整建圖（含文件）：`/graphify .`。會花額度，先跟使用者說；語意分析的 subagent 同時最多兩個。
+5. 第一次完整建圖（含文件）：`/graphify .`。會花額度，先跟使用者說；語意分析的 subagent 預設同時最多兩個（要多開先問使用者，同意就照開）。
 6. `.claude/project.json` 的 `skills` 加 `ripple-check`、`graphify`，跑客廳的同步。
 
 雲端 session 沒有裝這些工具，也沒有 `graphify-out/`：CodeGraph 用 `npx -y @colbymchenry/codegraph@<版本> init --yes` 建索引，之後每個指令前面都加 `npx -y @colbymchenry/codegraph@<版本>`；ast-grep 用 `npx -y @ast-grep/cli@<版本>`；Graphify 的圖跳過，用 grep 讀文件。

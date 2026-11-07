@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>桌面小工具・樣子挑選</title>
+<style>
+  :root {
+    --bg: #faf7f2; --surface: #fff; --surface-2: #f3efe8; --border: #e6dfd4;
+    --text: #241f1a; --dim: #6b6157; --mute: #9a9086;
+    --accent: #2f5d4c; --accent-soft: #e4ede8; --tea: #a4703c; --tea-soft: #f5e9dc;
+    --late: #a63a2a; --late-bg: #f7e4e0;
+    --sans: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+    --serif: 'Noto Serif TC', 'Songti TC', serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ece7df; font-family: var(--sans); color: var(--text); }
+  header.page { max-width: 1320px; margin: 0 auto; padding: 28px 24px 4px; }
+  h1 { font-family: var(--serif); font-size: 26px; margin: 0 0 6px; }
+  h2 { font-family: var(--serif); font-size: 21px; margin: 34px 0 4px; }
+  .lead { color: var(--dim); font-size: 14px; margin: 0; }
+  section { max-width: 1320px; margin: 0 auto; padding: 0 24px 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 16px; }
+  .opt { width: 300px; }
+  .opt h3 { font-size: 16px; margin: 12px 0 4px; }
+  .opt h3 b { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 13px; margin-right: 6px; }
+  .opt p { margin: 0; font-size: 13px; color: var(--dim); line-height: 1.6; }
+  .opt .rec { color: var(--accent); font-weight: 700; }
+
+  /* ---------- 手機 ---------- */
+  .phone { width: 300px; height: 640px; border-radius: 36px; background: #111; padding: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 28px; overflow: hidden;
+    background: linear-gradient(165deg, #b9cbc2 0%, #d9d3c4 55%, #e8d9c4 100%); }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 26px; display: flex; justify-content: space-between;
+    align-items: center; padding: 0 18px; font-size: 11px; color: #1d1d1d; font-weight: 600; z-index: 3; }
+  .status i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #1d1d1d; margin-left: 3px; }
+  .clock { position: absolute; top: 44px; left: 22px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  .clock .t { font-size: 46px; font-weight: 300; letter-spacing: 1px; line-height: 1; }
+  .clock .d { font-size: 13px; margin-top: 4px; }
+  .dock { position: absolute; left: 0; right: 0; bottom: 18px; display: flex; justify-content: space-around; padding: 0 16px; }
+  .app { width: 46px; text-align: center; font-size: 10px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .app span { display: block; width: 46px; height: 46px; border-radius: 15px; margin-bottom: 4px; }
+  .grid { position: absolute; left: 0; right: 0; display: flex; justify-content: space-around; padding: 0 16px; }
+
+  /* ---------- 小工具共用 ---------- */
+  .w { position: absolute; left: 14px; right: 14px; background: var(--bg); border-radius: 22px;
+    box-shadow: 0 4px 16px rgba(36,31,26,.14); }
+  .w-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px; }
+  .w-title { font-family: var(--serif); font-size: 17px; font-weight: 700; }
+  .w-title small { font-family: var(--serif); font-size: 13px; color: var(--mute); font-weight: 400; margin-left: 4px; }
+  .item { display: flex; align-items: center; gap: 9px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 13.5px; }
+  .item:first-child { border-top: 0; }
+  .box { flex: none; width: 18px; height: 18px; border-radius: 6px; border: 1.6px solid #cfc6b8; background: #fff; }
+  .box.on { background: var(--accent); border-color: var(--accent); position: relative; }
+  .box.on::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .done .txt { text-decoration: line-through; color: var(--mute); }
+  .tag { flex: none; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--dim); }
+  .tag.who { background: var(--tea-soft); color: var(--tea); }
+  .tag.late { background: var(--late-bg); color: var(--late); }
+  .tag.link { background: var(--accent-soft); color: var(--accent); }
+  .bar { display: flex; align-items: center; gap: 8px; margin: 8px 12px 12px; }
+  .pill { flex: 1; height: 40px; border-radius: 999px; background: #fff; border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--mute); font-size: 14px; }
+  .round { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent); color: #fff; font-size: 18px; }
+  .round.soft { background: var(--accent-soft); color: var(--accent); }
+  svg.ic { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* 半透明 */
+  .w.glass { background: rgba(255,255,255,.42); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.55); box-shadow: none; }
+  .w.glass .item { border-top-color: rgba(36,31,26,.08); }
+  .w.glass .box { background: rgba(255,255,255,.6); }
+
+  /* ---------- 輸入那一刻 ---------- */
+  .dim { position: absolute; inset: 0; background: rgba(20,18,15,.28); z-index: 4; }
+  .kbd { position: absolute; left: 0; right: 0; bottom: 0; height: 232px; background: #f1ece6; z-index: 6;
+    padding: 8px 5px 22px; display: flex; flex-direction: column; gap: 7px; }
+  .kbd .cand { height: 30px; display: flex; gap: 16px; align-items: center; padding: 0 10px; font-size: 15px; color: #333; border-bottom: 1px solid #e2dbd2; }
+  .kbd .krow { display: flex; gap: 5px; justify-content: center; }
+  .kbd .k { width: 24px; height: 34px; border-radius: 6px; background: #fff; box-shadow: 0 1px 0 #d4ccc1; font-size: 11px;
+    display: grid; place-items: center; color: #444; }
+  .kbd .k.wide { width: 120px; }
+  .kbd .k.mid { width: 40px; background: #e3dcd2; }
+  .layer { position: absolute; left: 0; right: 0; z-index: 5; }
+  .sugg { display: flex; gap: 6px; overflow: hidden; padding: 0 12px; }
+  .chip { flex: none; height: 30px; padding: 0 12px; border-radius: 999px; background: #fff; border: 1px solid var(--border);
+    display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); white-space: nowrap; }
+  .chip.person { background: var(--tea-soft); border-color: #ebd6bf; color: #6d4520; }
+  .chip.person { gap: 0; }
+  .chip.person b { font-weight: 700; }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chiprow { display: flex; gap: 5px; padding: 0 12px; flex-wrap: nowrap; }
+  .chiprow .chip { padding: 0 9px; font-size: 12px; height: 28px; }
+  .field { background: #fff; border-radius: 14px; border: 1.5px solid var(--text); padding: 9px 12px; font-size: 15px; min-height: 42px; }
+  .field .caret { display: inline-block; width: 1.5px; height: 17px; background: var(--accent); vertical-align: -3px; margin-left: 1px; }
+  .hint-say { font-size: 11px; color: var(--mute); padding: 0 14px; }
+  .send { width: 42px; height: 42px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+
+  .note { background: #fffdf9; border: 1px dashed #d7c8b3; border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--dim); line-height: 1.65; margin-top: 18px; max-width: 980px; }
+  .note b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <h1>桌面小工具・挑一個樣子</h1>
+  <p class="lead">底色、字體、綠色跟 app 一樣。名字都是假的。兩組各挑一個（也可以挑兩個小工具一起給，桌面上想放哪一個自己決定）。</p>
+</header>
+
+<!-- ======================= 第一組：小工具 ======================= -->
+<section>
+  <h2>第一組｜放在桌面上的小工具</h2>
+  <p class="lead">打勾框直接在桌面上勾（連在一起的會一起勾）。點一筆的字＝打開那一筆的選單（改字、改日期、掛給誰、複製到別天）。</p>
+  <div class="row">
+
+    <!-- A -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w" style="top:128px">
+          <div class="w-head"><span class="w-title">隨手記<small>5</small></span><span class="tag">今天 2</span></div>
+          <div>
+            <div class="item"><span class="box"></span><span class="txt">王小明 有回電，下週改週四</span><span class="tag who">王小明</span></div>
+            <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span><span class="tag">11/7</span></div>
+            <div class="item"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+            <div class="item done"><span class="box on"></span><span class="txt">報告寄給醫師</span></div>
+          </div>
+          <div class="bar">
+            <div class="pill"><svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>記一筆…</div>
+            <div class="round soft"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div>
+          <div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div>
+        </div>
+      </div></div>
+      <h3><b>A</b>清單＋輸入列 <span class="rec">（推薦）</span></h3>
+      <p>佔 4×3。上面是還沒勾的隨手記（可以上下滑），最下面一條「記一筆…」。麥克風那一顆下一輪才會動，這一輪先放著（或先不畫）。</p>
+    </div>
+
+    <!-- B -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w" style="top:128px; background:transparent; box-shadow:none">
+          <div class="bar" style="margin:0">
+            <div class="pill" style="height:48px; font-size:15px; box-shadow:0 4px 14px rgba(36,31,26,.14); border:0"><svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>記一筆隨手記…</div>
+            <div class="round" style="width:48px;height:48px;box-shadow:0 4px 14px rgba(36,31,26,.18)"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+          </div>
+        </div>
+        <div class="grid" style="top:200px">
+          <div class="app"><span style="background:#a7b9c9"></span>日曆</div><div class="app"><span style="background:#d6b48c"></span>相簿</div>
+          <div class="app"><span style="background:#9fb59a"></span>地圖</div><div class="app"><span style="background:#c4a8a0"></span>設定</div>
+        </div>
+        <div class="dock">
+          <div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div>
+          <div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div>
+        </div>
+      </div></div>
+      <h3><b>B</b>只有一條輸入列</h3>
+      <p>佔 4×1，像搜尋列那樣一條。最省位置；記好的東西不在桌面上顯示，要看要勾還是進 app。</p>
+    </div>
+
+    <!-- C -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w" style="top:128px; right:auto; width:132px; height:150px; padding:12px 12px 0">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div><div style="font-size:12px;color:var(--dim)">今天的隨手記</div><div style="font-family:var(--serif);font-size:36px;font-weight:700;line-height:1.1">2</div></div>
+            <div class="round" style="width:34px;height:34px;font-size:20px">＋</div>
+          </div>
+          <div style="font-size:12px;margin-top:6px;line-height:1.55;color:var(--text)">
+            <div class="txt">・提醒帶健保卡</div><div class="txt">・王小明 有回電</div>
+          </div>
+        </div>
+        <div class="grid" style="top:132px; left:auto; right:12px; width:118px; flex-wrap:wrap; gap:16px 12px; padding:0; justify-content:flex-start">
+          <div class="app"><span style="background:#a7b9c9"></span>日曆</div><div class="app"><span style="background:#d6b48c"></span>相簿</div>
+          <div class="app"><span style="background:#9fb59a"></span>地圖</div><div class="app"><span style="background:#c4a8a0"></span>設定</div>
+        </div>
+        <div class="dock">
+          <div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div>
+          <div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div>
+        </div>
+      </div></div>
+      <h3><b>C</b>小方塊・只看今天</h3>
+      <p>佔 2×2，旁邊還能放 app 圖示。只列掛今天的、最多兩三行；右上角＋記一筆。勾不在這裡勾（太小），點了打開清單。</p>
+    </div>
+
+    <!-- D -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="w glass" style="top:128px">
+          <div class="w-head"><span class="w-title">隨手記<small>5</small></span>
+            <span style="display:flex;gap:8px">
+              <span class="round soft" style="width:32px;height:32px;background:rgba(255,255,255,.7)"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+              <span class="round" style="width:32px;height:32px;font-size:18px">＋</span>
+            </span></div>
+          <div>
+            <div class="item"><span class="box"></span><span class="txt">王小明 有回電，下週改週四</span><span class="tag who">王小明</span></div>
+            <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span></div>
+            <div class="item" style="padding-bottom:12px"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="app"><span style="background:#7fa38f"></span>電話</div><div class="app"><span style="background:#c99a6a"></span>訊息</div>
+          <div class="app"><span style="background:#2f5d4c"></span>暴富日常</div><div class="app"><span style="background:#8b8f96"></span>相機</div>
+        </div>
+      </div></div>
+      <h3><b>D</b>半透明便利貼</h3>
+      <p>佔 4×2，像毛玻璃一樣透出桌布，跟桌面融在一起。＋和麥克風收在右上角，下面全部給清單。</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ======================= 第二組：輸入卡 ======================= -->
+<section>
+  <h2>第二組｜按下「記一筆」之後</h2>
+  <p class="lead">三種都是浮在桌面上（後面是你的桌布，沒有開 app）。圖上是打了一個「王」，底下跳出姓王的客戶的那一刻。</p>
+  <div class="row">
+
+    <!-- 1 -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="dim" style="background:rgba(20,18,15,.12)"></div>
+        <div class="layer" style="bottom:232px; padding:10px 0 8px; background:linear-gradient(to bottom, rgba(250,247,242,0), rgba(250,247,242,.96) 22%); ">
+          <div class="sugg" style="margin-bottom:8px">
+            <span class="chip person"><b>王</b>小明</span><span class="chip person"><b>王</b>小美</span><span class="chip person"><b>王</b>大同</span>
+          </div>
+          <div class="chiprow" style="margin-bottom:8px">
+            <span class="chip">今天</span><span class="chip">挑日期</span><span class="chip">掛給誰</span><span class="chip">給營養品</span>
+          </div>
+          <div style="display:flex; gap:8px; padding:0 12px; align-items:center">
+            <div class="field" style="flex:1; border-radius:999px">王<span class="caret"></span></div>
+            <div class="send"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          </div>
+        </div>
+        <div class="kbd"><div class="cand"><span>王</span><span>往</span><span>網</span><span>忘</span></div>
+          <div class="krow"><span class="k">ㄅ</span><span class="k">ㄉ</span><span class="k">ˇ</span><span class="k">ˋ</span><span class="k">ㄓ</span><span class="k">ˊ</span><span class="k">˙</span><span class="k">ㄚ</span><span class="k">ㄞ</span><span class="k">ㄢ</span></div>
+          <div class="krow"><span class="k">ㄆ</span><span class="k">ㄊ</span><span class="k">ㄍ</span><span class="k">ㄐ</span><span class="k">ㄔ</span><span class="k">ㄗ</span><span class="k">ㄧ</span><span class="k">ㄛ</span><span class="k">ㄟ</span><span class="k">ㄣ</span></div>
+          <div class="krow"><span class="k">ㄇ</span><span class="k">ㄋ</span><span class="k">ㄎ</span><span class="k">ㄑ</span><span class="k">ㄕ</span><span class="k">ㄘ</span><span class="k">ㄨ</span><span class="k">ㄜ</span><span class="k">ㄠ</span><span class="k">ㄤ</span></div>
+          <div class="krow"><span class="k mid">?123</span><span class="k wide">空白</span><span class="k mid">完成</span></div>
+        </div>
+      </div></div>
+      <h3><b>1</b>貼著鍵盤的一條 <span class="rec">（推薦）</span></h3>
+      <p>像傳訊息那樣：只有一條輸入框貼在鍵盤上面，上面兩排是客戶名字和「今天／挑日期／掛給誰／給營養品」。桌面幾乎都看得到，按 → 就記好、收掉。</p>
+    </div>
+
+    <!-- 2 -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="clock"><div class="t">10:24</div><div class="d">11月6日 星期五</div></div>
+        <div class="dim"></div>
+        <div class="layer" style="bottom:242px; left:10px; right:10px; background:var(--bg); border-radius:22px; padding:14px 0 14px; box-shadow:0 6px 24px rgba(0,0,0,.18)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:0 14px 10px">
+            <span class="w-title">記一筆</span><span style="font-size:20px;color:var(--mute)">×</span>
+          </div>
+          <div style="padding:0 12px 10px"><div class="field" style="min-height:62px">王<span class="caret"></span></div></div>
+          <div class="sugg" style="margin-bottom:10px">
+            <span class="chip person"><b>王</b>小明</span><span class="chip person"><b>王</b>小美</span><span class="chip person"><b>王</b>大同</span>
+          </div>
+          <div class="chiprow" style="margin-bottom:12px">
+            <span class="chip">今天</span><span class="chip">挑日期</span><span class="chip">掛給誰</span><span class="chip">給營養品</span>
+          </div>
+          <div style="padding:0 12px"><div style="height:42px;border-radius:999px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px">記下來</div></div>
+        </div>
+        <div class="kbd"><div class="cand"><span>王</span><span>往</span><span>網</span><span>忘</span></div>
+          <div class="krow"><span class="k">ㄅ</span><span class="k">ㄉ</span><span class="k">ˇ</span><span class="k">ˋ</span><span class="k">ㄓ</span><span class="k">ˊ</span><span class="k">˙</span><span class="k">ㄚ</span><span class="k">ㄞ</span><span class="k">ㄢ</span></div>
+          <div class="krow"><span class="k">ㄆ</span><span class="k">ㄊ</span><span class="k">ㄍ</span><span class="k">ㄐ</span><span class="k">ㄔ</span><span class="k">ㄗ</span><span class="k">ㄧ</span><span class="k">ㄛ</span><span class="k">ㄟ</span><span class="k">ㄣ</span></div>
+          <div class="krow"><span class="k">ㄇ</span><span class="k">ㄋ</span><span class="k">ㄎ</span><span class="k">ㄑ</span><span class="k">ㄕ</span><span class="k">ㄘ</span><span class="k">ㄨ</span><span class="k">ㄜ</span><span class="k">ㄠ</span><span class="k">ㄤ</span></div>
+          <div class="krow"><span class="k mid">?123</span><span class="k wide">空白</span><span class="k mid">完成</span></div>
+        </div>
+      </div></div>
+      <h3><b>2</b>浮起一張卡</h3>
+      <p>跟 app 裡「記一筆」那張長得一樣，只是浮在桌面上、貼在鍵盤上面。框比較大，長一點的字看得完整；後面桌面調暗一點。</p>
+    </div>
+
+    <!-- 3 -->
+    <div class="opt">
+      <div class="phone"><div class="screen">
+        <div class="status"><span>10:24</span><span><i></i><i></i><i></i></span></div>
+        <div class="dim" style="background:rgba(20,18,15,.18)"></div>
+        <div class="layer" style="top:40px; left:14px; right:14px; background:var(--bg); border-radius:22px; box-shadow:0 6px 24px rgba(0,0,0,.18); padding:12px 0 12px">
+          <div style="display:flex; gap:8px; padding:0 12px; align-items:center; margin-bottom:10px">
+            <div class="field" style="flex:1; border-radius:999px">王<span class="caret"></span></div>
+            <div class="send"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+          </div>
+          <div class="sugg" style="margin-bottom:8px">
+            <span class="chip person"><b>王</b>小明</span><span class="chip person"><b>王</b>小美</span><span class="chip person"><b>王</b>大同</span>
+          </div>
+          <div class="chiprow" style="margin-bottom:10px">
+            <span class="chip">今天</span><span class="chip">挑日期</span><span class="chip">掛給誰</span><span class="chip">給營養品</span>
+          </div>
+          <div style="border-top:1px solid var(--border)">
+            <div class="item"><span class="box"></span><span class="txt">提醒帶健保卡</span><span class="tag link">共 3 天</span></div>
+            <div class="item"><span class="box"></span><span class="txt">問客戶B能不能約週六</span><span class="tag late">11/4</span></div>
+          </div>
+        </div>
+        <div class="kbd"><div class="cand"><span>王</span><span>往</span><span>網</span><span>忘</span></div>
+          <div class="krow"><span class="k">ㄅ</span><span class="k">ㄉ</span><span class="k">ˇ</span><span class="k">ˋ</span><span class="k">ㄓ</span><span class="k">ˊ</span><span class="k">˙</span><span class="k">ㄚ</span><span class="k">ㄞ</span><span class="k">ㄢ</span></div>
+          <div class="krow"><span class="k">ㄆ</span><span class="k">ㄊ</span><span class="k">ㄍ</span><span class="k">ㄐ</span><span class="k">ㄔ</span><span class="k">ㄗ</span><span class="k">ㄧ</span><span class="k">ㄛ</span><span class="k">ㄟ</span><span class="k">ㄣ</span></div>
+          <div class="krow"><span class="k">ㄇ</span><span class="k">ㄋ</span><span class="k">ㄎ</span><span class="k">ㄑ</span><span class="k">ㄕ</span><span class="k">ㄘ</span><span class="k">ㄨ</span><span class="k">ㄜ</span><span class="k">ㄠ</span><span class="k">ㄤ</span></div>
+          <div class="krow"><span class="k mid">?123</span><span class="k wide">空白</span><span class="k mid">完成</span></div>
+        </div>
+      </div></div>
+      <h3><b>3</b>從小工具原地長出來</h3>
+      <p>輸入框就出現在小工具原本的位置（像小工具自己變成可以打字），底下接著那幾筆還沒勾的。最像「在小工具上打字」；但小工具放在桌面下半部時會被鍵盤擋住，那時退回 1 的樣子。</p>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <b>不管挑哪一個都一樣的：</b>點「王小明」→ 框裡的「王」換成「王小明」、游標接在後面、自動掛給他；記好之後輸入卡收掉，新的那一筆馬上出現在小工具最上面。
+    小工具上<b>沒有長按選單</b>（長按小工具是手機用來搬它、調大小的），所以「改日期、複製到別天」那些放在點一筆之後跳出來的選單裡。
+  </div>
+</section>
+<div style="height:40px"></div>
+</body>
+</html>
