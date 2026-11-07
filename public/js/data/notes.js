@@ -8,7 +8,7 @@ import * as repo from './repo.js';
 import {
   normalize, normalizePatch, linkedPeers, linkedChanges, copyPlan, linkedReach,
 } from '../domain/notes.js';
-import { withDelivery, isFullyDelivered, noteTextFor } from '../domain/products.js';
+import { withDelivery, isFullyDelivered, noteTextFor, existingReminder } from '../domain/products.js';
 
 const PATH = 'notes';
 
@@ -74,6 +74,35 @@ export async function listDeleted() {
 export function create(data) {
   return repo.create(PATH, { ...normalize(data), doneAt: null });
 }
+
+/**
+ * 「記一筆」那幾個入口存檔走這一支（右下角泡泡、首頁那張卡、日曆待辦編輯器的新增）。
+ *
+ * **選了一包營養品、那一包已經有還沒勾的提醒 → 改那一筆，不長第二筆**（`domain/products.js` 的 `givableBags()` 檔頭：
+ * 「已經約了」的那一包照樣列，選了它是改那一筆的日期）。2026-11-07 她在小工具的「給營養品」記出兩筆一樣的
+ * （`.scratch/give-bag-once/issues/01`）—— 以前三個入口一律 `create()`。
+ *
+ * - **寫之前照 `entitlementId` 重讀**：畫面手上那一份是打開那一刻的（泡泡存完不重畫，再選同一包一次就是這一種）
+ * - 字換成這一次的；**選了日期才改日期**，沒選就留著原本那一天（沒選不等於要拿掉日期）
+ * - 營養品的提醒不能連在一起（`validateNote()`），所以不用管 `linkId`
+ * - 沒有 `entitlementId` 的跟 `create()` 一模一樣
+ *
+ * @returns {Promise<{id: string, moved: boolean}>} `moved`：改的是本來那一筆
+ */
+export async function createOrMove(data) {
+  const entitlementId = data?.entitlementId ?? null;
+  const rows = entitlementId
+    ? await repo.listWithDeleted(PATH, { wheres: [where('entitlementId', '==', entitlementId)] })
+    : [];
+  const open = existingReminder(rows, entitlementId);
+  if (!open) return { id: await create(data), moved: false };
+  await update(open.id, { text: data.text, ...(data.date ? { date: data.date } : {}) });
+  return { id: open.id, moved: true };
+}
+
+/** 存完那一句：改到本來那一筆時不講「記下來了」（她會以為多了一筆）。 */
+export const createOrMoveSay = (out, fallback = '記下來了') =>
+  (out?.moved ? '這一包本來就有提醒，改好了' : fallback);
 
 // ---------- 連在一起的那一組（ADR-0179） ----------
 //

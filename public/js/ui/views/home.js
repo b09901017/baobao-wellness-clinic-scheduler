@@ -1693,12 +1693,13 @@ function wireQuick(drawer, ctx, added) {
 
     try {
       await toast.withSaveState(
-        () => notesData.create({ text, ...picked }),
+        // 選了一包、那一包已經約了提醒 → 改那一筆，不長第二筆（`createOrMove()`，give-bag-once 01）
+        () => notesData.createOrMove({ text, ...picked }),
         // **`key` 不可以少。** `#/todo/notes` 那一頁的 `addNote()` 一直都有，
         // 這顆泡泡沒有 —— 而這顆是最順手的那一個入口，而且它刻意不重畫面板、
         // 焦點留在輸入框，所以按下去畫面幾乎沒有變化，最容易多按一下。
         // key 帶上文字：連續記三件不同的事不可以被當成同一件擋掉。
-        { success: '記下來了', key: `note:create:${text}` },
+        { success: (out) => notesData.createOrMoveSay(out), key: `note:create:${text}` },
       );
     } catch {
       return; /* withSaveState 已經顯示錯誤與重試 */
@@ -1889,9 +1890,10 @@ async function addNote(ctx, form) {
   if (!text) return;
   try {
     await toast.withSaveState(
-      // 日期、掛給誰；選了一包營養品時連 `entitlementId` 一起（`note.readCapture()`，泡泡同一支）
-      () => notesData.create({ text, ...note.readCapture(form) }),
-      { success: '記下來了', key: `note:create:${text}` },
+      // 日期、掛給誰；選了一包營養品時連 `entitlementId` 一起（`note.readCapture()`，泡泡同一支）；
+      // 那一包已經約了提醒 → 改那一筆（`createOrMove()`）
+      () => notesData.createOrMove({ text, ...note.readCapture(form) }),
+      { success: (out) => notesData.createOrMoveSay(out), key: `note:create:${text}` },
     );
     await render(ctx.el);
   } catch {
