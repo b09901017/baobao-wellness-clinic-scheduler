@@ -1477,9 +1477,10 @@ function mountNoteEditor(el, data, sheet, spec) {
   const write = async (changes, success) => {
     try {
       await toast.withSaveState(
-        () => (isNew ? notesData.create(changes) : notesData.update(existing.id, changes)),
+        // 新增時選了一包、那一包已經約了提醒 → 改那一筆（`createOrMove()`，give-bag-once 01）
+        () => (isNew ? notesData.createOrMove(changes) : notesData.update(existing.id, changes)),
         {
-          success,
+          success: isNew ? (out) => notesData.createOrMoveSay(out, success) : success,
           key: isNew ? `note:create:${changes.date}:${changes.text}` : `note:update:${existing.id}`,
         },
       );

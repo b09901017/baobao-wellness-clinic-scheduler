@@ -41,7 +41,7 @@ test('C2 泡泡：四顆排一排；打開掛給誰，名單在那一排底下',
   expect(listTop, '名單在丸子那一排底下，不擠在中間').toBeGreaterThanOrEqual(chipsBottom);
 });
 
-test('C3 首頁那張卡選一包營養品存下去：帶著 entitlementId、掛給誰收起來、字自動填', async ({ app, page }) => {
+test('C3 首頁那張卡選一包營養品存下去：掛給誰收起來、字自動填；那一包已經約了 → 改那一筆、不長第二筆', async ({ app, page }) => {
   await app.seed(scenarioProducts());
   await app.signIn('/');
   const form = page.locator('[data-newnote]');
@@ -53,10 +53,12 @@ test('C3 首頁那張卡選一包營養品存下去：帶著 entitlementId、掛
   await form.locator('button[type="submit"]').click();
   await app.saved();
 
-  const notes = (await app.readAll('notes')).filter((n) => !n.deletedAt && n.id !== 'note-c-give');
-  expect(notes).toHaveLength(1);
-  expect(notes[0].entitlementId).toBe('ent-c-prod');
-  expect(notes[0].customerId).toBe('cust-c');
+  // `ent-c-prod` 本來就有 `note-c-give`（give-bag-once 01）
+  const forBag = (await app.readAll('notes')).filter((n) => !n.deletedAt && !n.done && n.entitlementId === 'ent-c-prod');
+  expect(forBag.map((n) => n.id), '改本來那一筆，不長第二筆').toEqual(['note-c-give']);
+  expect(forBag[0].customerId).toBe('cust-c');
+  expect((await app.readAll('notes')).filter((n) => !n.deletedAt).length, '一筆都沒多')
+    .toBe(scenarioProducts().filter((d) => d.path === 'notes').length);
 });
 
 test('C4 長按提示收在 `?` 裡：首頁那張卡與隨手記那一頁的標題旁邊', async ({ app, page }) => {

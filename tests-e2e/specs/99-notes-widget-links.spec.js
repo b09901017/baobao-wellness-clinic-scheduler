@@ -10,7 +10,7 @@ import { masterDocs, customer, note, scenarioProducts } from '../fixtures/data.j
 
 const live = async (app) => (await app.readAll('notes')).filter((n) => !n.deletedAt);
 
-test('W1 冷開機 …/new/give：記一筆打開、給營養品展開；選一包存下去帶 entitlementId；網址換回隨手記', async ({ app, page }) => {
+test('W1 冷開機 …/new/give：記一筆打開、給營養品展開；選了已經約了的那一包 → 改那一筆、不長第二筆；網址換回隨手記', async ({ app, page, today }) => {
   await app.seed(scenarioProducts());
   await app.signIn('/todo/notes/new/give');
 
@@ -20,11 +20,14 @@ test('W1 冷開機 …/new/give：記一筆打開、給營養品展開；選一�
 
   await drawer.locator('[data-ng-cust="cust-c"]').click();
   await drawer.locator('[data-ng-bag="ent-c-prod"]').click();
+  await drawer.locator('[data-nd-today]').click();
   await drawer.locator('[data-save]').click();
   await app.saved();
-  const made = (await live(app)).filter((n) => n.id !== 'note-c-give');
-  expect(made).toHaveLength(1);
-  expect(made[0].entitlementId).toBe('ent-c-prod');
+  // `ent-c-prod` 本來就有 `note-c-give`（她 11/7 在小工具上記出兩筆一樣的，give-bag-once 01）
+  const forBag = (await live(app)).filter((n) => n.entitlementId === 'ent-c-prod' && !n.done);
+  expect(forBag.map((n) => n.id), '改本來那一筆，不長第二筆').toEqual(['note-c-give']);
+  expect(forBag[0].date, '選了今天就改成今天').toBe(today);
+  await expect(page.locator('.toast')).toContainText('本來就有提醒');
 });
 
 test('W2 冷開機 …/note/<營養品的提醒>：先問給了哪幾款，按「先不要」什麼都沒勾', async ({ app, page }) => {
