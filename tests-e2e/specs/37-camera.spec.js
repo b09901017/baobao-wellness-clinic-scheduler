@@ -11,6 +11,7 @@
 //   7. 手機解不開整張的 1 億像素照片 → 解碼時就縮，照樣轉正送出（after-golive 01）
 //   8. 手機橫放時取景框撐滿、快門在右邊那一欄（after-golive 02）
 //   9. 相機給了、一格影像都沒有（她 iPad 主畫面那一顆）→ 換一組再要一次，還是沒有就退回、講「畫面一直出不來」（ADR-0173）
+//  10. 退回那一頁的「點這裡開取景」：在手指按下去的那一刻播（自己播被擋的那一種救得回來）
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -563,6 +564,43 @@ test('C9 相機給了一條一格都不出的影像 → 再要一次（不指定
   expect(asks, '要兩次').toHaveLength(2);
   expect(asks[0].width, '第一次要 4K').toBeTruthy();
   expect(asks[1].width, '第二次不指定解析度').toBeUndefined();
-  // 退回之後相機關掉了（不然那顆燈一直亮著）
-  expect(await page.evaluate(() => document.querySelector('[data-cam-video]').srcObject)).toBeNull();
+  // 最後那一次留著給「點這裡開取景」在她按下去的那一刻播；最下面那一小行講相機給了什麼
+  const tap = fallback.locator('[data-cam-tapplay]');
+  await expect(tap).toBeVisible();
+  await expect(fallback.locator('[data-cam-why]')).toContainText('相機 live');
+  await tap.click();
+  await expect(page.locator('[data-cam-say]')).toContainText('還是出不來', { timeout: PICTURE_WAIT_MS + 5_000 });
+  await expect(page.locator('.cam.cam--live')).toHaveCount(0);
+  // 收起來 → 相機關掉（不然那顆燈一直亮著）
+  const track = await page.evaluateHandle(() => document.querySelector('[data-cam-video]').srcObject.getVideoTracks()[0]);
+  await page.locator('[data-cam-close]').click();
+  expect(await track.evaluate((t) => t.readyState)).toBe('ended');
+});
+
+test('C10 相機給了、一開始沒畫面 → 按「點這裡開取景」之後有畫面了 → 取景出來、快門拍得到', async ({ app, page }) => {
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = document.createElement('canvas');
+      c.width = 640;
+      c.height = 480;
+      const g = c.getContext('2d');
+      g.fillStyle = '#456';
+      g.fillRect(0, 0, c.width, c.height);
+      return c.captureStream(5);
+    };
+    // 手指按下去之前 play() 都被擋（iOS 主畫面模式可能就是這樣）
+    const realPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function play() {
+      if (!navigator.userActivation?.isActive) return Promise.reject(new DOMException('blocked', 'NotAllowedError'));
+      return realPlay.call(this);
+    };
+  });
+  await app.signIn('/');
+  await openCam(page);
+  const fallback = page.locator('[data-cam-fallback]');
+  await expect(fallback).toBeVisible({ timeout: 15_000 });
+  await expect(fallback.locator('[data-cam-why]')).toContainText('NotAllowedError');
+  await fallback.locator('[data-cam-tapplay]').click();
+  await expect(page.locator('.cam.cam--live')).toHaveCount(1, { timeout: 8_000 });
+  await expect(fallback).toBeHidden();
 });
