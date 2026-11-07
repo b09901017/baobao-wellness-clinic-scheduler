@@ -737,6 +737,13 @@ export const COVERAGE = {
   '100-keyboard-layout': [
     'public/js/ui/keyboard.js', 'public/index.html', 'public/js/app.js', 'public/css/app.css',
   ],
+  // 上 main 前第二堆（final-check-2026-11-07）：批次建立打到一次性客人的名字、日曆新增二返時講「約二返」會收起來、
+  // 拍 Abovee 每一列都是 app 裡沒有的人時的抬頭
+  '101-pre-main-five': [
+    'public/js/domain/bulkCustomers.js', 'public/js/ui/views/customersBulk.js', 'public/js/ui/views/visitEditor.js',
+    'public/js/domain/consequences.js', 'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js',
+    'tests-e2e/fixtures/ai/aboveeList-strangers.json',
+  ],
   // 資料健檢「補上二返額度」真的只建一筆：兩趟一起送、寫完再送、刪掉之後再送（small-fixes-2026-11-05 段三，審查 02）
   '93-health-fix-once': [
     'public/js/data/health.js', 'public/js/ui/views/health.js', 'public/js/domain/health.js',

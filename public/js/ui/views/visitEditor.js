@@ -1690,6 +1690,12 @@ async function submit(ctx, draft) {
     return;
   }
 
+  // 新加了段的那一條，「壓好了嗎」那一道要講「約二返」會不會收掉（backlog 19）—— 要那位客戶的額度與任務。
+  // **在第一道之前讀**：讀在兩道中間的話，第一道一收、第二道要等一趟讀取才出來，中間空著一下
+  const bookingChain = !rebooked && hasNewSlots(ctx, draft) && customer?.id
+    ? await visitsData.chainInputs(customer.id, coursesByIdOf(all), [...(customerVisits ?? []), toSave])
+    : null;
+
   // **第一道：這幾段先看一下。** 超過次數、還沒選治療師那一類。
   // 只在真的有東西要講的時候跳（她 2026-09-08：「如果沒有就可以不用提醒」）。
   // 句子照抄 `validateVisit()` 的 —— 在這裡重寫一遍等於同一件事兩種說法。
@@ -1754,10 +1760,11 @@ async function submit(ctx, draft) {
     });
     // 「約二返」那一張會不會收掉（或長出來）**拿存檔真的在跑的那一支試算**（`followupBookingLines()`，壓表同一條）。
     // 以前這一條沒算：存一場二返時確認框不講那一次健檢的「約二返」會收掉（backlog 19；改扣法與取消那兩條有）
+    // （那兩份在第一道之前就讀好了：`bookingChain`）
     const chainSaid = customer?.id ? followupBookingLines({
       customer: { id: customer.id, name: customer.name ?? null },
       visits: [...(customerVisits ?? []).filter((v) => !toSave.id || v.id !== toSave.id), toSave],
-      chain: await visitsData.chainInputs(customer.id, coursesById, [...(customerVisits ?? []), toSave]),
+      chain: bookingChain,
       coursesById,
     }) : [];
     const asked = {

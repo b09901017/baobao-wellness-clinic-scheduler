@@ -459,8 +459,12 @@ describe('結案那一下會發生什麼', () => {
         const branch = editor.slice(editor.indexOf('} else if (hasNewSlots(ctx, draft)) {'), editor.indexOf('const pick = said.relink', editor.indexOf('} else if (hasNewSlots(ctx, draft)) {')));
         assert.ok(branch.length > 0, '找不到新增那一條');
         assert.match(branch, /followupBookingLines\(\{/);
-        assert.match(branch, /chain: await visitsData\.chainInputs\(/);
+        assert.match(branch, /chain: bookingChain/);
         assert.match(branch, /\.\.\.chainSaid/, '那幾句要真的進確認框');
+        // 讀在第一道（confirmReview）之前：讀在兩道中間，第一道一收、第二道要等一趟讀取才出來
+        const read = editor.indexOf('const bookingChain = ');
+        assert.ok(read > 0 && read < editor.indexOf('if (!await confirmReview(warnings)) return;'), 'bookingChain 在第一道之前讀');
+        assert.match(editor.slice(read, read + 300), /visitsData\.chainInputs\(/);
         const sched = readFileSync(fromRoot('public/js/ui/views/schedule.js'), 'utf8');
         assert.match(sched, /followupBookingLines\(\{[\s\S]{0,300}chain: await visitsData\.chainInputs\(/);
       });
