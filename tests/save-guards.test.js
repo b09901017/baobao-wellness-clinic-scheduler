@@ -42,12 +42,6 @@ const ALLOWED = [
     why: '「重發連結」走二次確認框。confirmAction() 一按下去就把整個對話框節點'
        + '移除，後面幾下落在不存在的元素上（07-chaos.spec.js 的 C12／C13 靠的就是這個）',
   },
-  {
-    at: 'views/home.js',
-    contains: 'setFollowupNote',
-    why: '「禮拜一再問問」那一句是 update 不是 create —— 存兩次結果一模一樣。'
-       + '它會被掃到只是因為同一個函式裡還有別的呼叫',
-  },
 ];
 
 function filesUnder(dir) {

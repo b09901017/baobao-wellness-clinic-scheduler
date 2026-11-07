@@ -4,7 +4,7 @@
 // 三個有「掛給誰」的入口共用 `ui/components/note.js` 的 `wireCapture()`：首頁那張卡、右下角泡泡、日曆的待辦編輯器。
 
 import { test, expect } from '../fixtures/app.js';
-import { masterDocs, customer, note, scenarioProducts } from '../fixtures/data.js';
+import { masterDocs, customer, note, scenarioProducts, TODAY } from '../fixtures/data.js';
 
 const CHIPS = ['[data-nd-today]', '[data-nd-pick]', '[data-nw-toggle]', '[data-ng-toggle]'];
 
@@ -248,4 +248,37 @@ test('S8 日曆 ＋ → 待辦：今天／挑日期／掛給誰／給營養品�
   await form.locator('[data-ng-cust="cust-c"]').click();
   await form.locator('[data-ng-bag="ent-c-prod"]').click();
   await expect(form.locator('[data-nw-toggle]')).toBeHidden();
+});
+
+// 上 main 前最後健檢 A（2026-11-07，`.scratch/final-check-2026-11-07`）：營養品的提醒掛給誰由那一包決定 ——
+// 長按選單本來就沒有「掛給誰」（`domain/notes.js` 的 `noteActions()`），日曆的待辦編輯器以前照樣有，打名字跳出客戶也接著。
+// 改掛給別人之後勾掉，`prepareToggle()` 讀那一位的額度找不到那一包 → 「給了什麼？」不問、交付沒記
+test('S9 日曆編輯一筆營養品的提醒：沒有「掛給誰」、打名字不跳客戶；存了掛的人不變、勾掉照樣問給了什麼', async ({ app, page }) => {
+  await app.seed([...scenarioProducts({ giveDate: TODAY }), customer({ id: 'cust-b', name: '客戶B' })]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-open="note:note-c-give"]');
+  await page.locator('[data-open="note:note-c-give"]').click();
+  await page.locator('[data-card-edit]').click();
+  const form = page.locator('[data-noteform]');
+  const input = form.locator('input[name="text"]');
+  await expect(input).toBeVisible();
+  await expect(form.locator('[data-nw-toggle]'), '掛給誰跟著那一包，不給換').toHaveCount(0);
+  await expect(page.locator('.drawer'), '是誰的那一包照樣看得到').toContainText('客戶C 的營養品提醒');
+
+  await input.focus();
+  await input.press('End');
+  await input.pressSequentially('客戶');
+  await expect(form.locator('[data-ns-pick]'), '打名字不跳出客戶').toHaveCount(0);
+  await form.locator('button[type="submit"]').click();
+  await app.saved();
+  const after = await app.readDoc('notes', 'note-c-give');
+  expect(after.text.endsWith('客戶'), '字照樣存').toBe(true);
+  expect(after.customerId, '掛的人沒有被清掉或換掉').toBe('cust-c');
+  expect(after.customerName).toBe('客戶C');
+  expect(after.entitlementId).toBe('ent-c-prod');
+
+  await app.go('/todo/notes');
+  await page.locator('[data-notes] [data-note="note-c-give"]').click();
+  await expect(page.locator('text=給了什麼？'), '勾掉照樣問給了哪幾款').toBeVisible();
 });

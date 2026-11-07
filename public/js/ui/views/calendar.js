@@ -1401,9 +1401,15 @@ const isLeaveEvent = (event) => event?.category === 'leave';
 function mountNoteEditor(el, data, sheet, spec) {
   const existing = spec.id ? (data.notes ?? []).find((x) => x.id === spec.id) : null;
   const isNew = !existing;
+  // 營養品的提醒：掛給誰由那一包決定（長按選單同一條，`domain/notes.js` 的 `noteActions()`）——
+  // 這裡不畫「掛給誰」、打名字也不跳出客戶、存的時候不送客戶那兩格。改掛給別人的話，勾掉時
+  // `prepareToggle()` 讀那一位的額度找不到那一包 →「給了什麼？」不問、交付沒記（上 main 前最後健檢 A，2026-11-07）
+  const bagOwned = Boolean(existing?.entitlementId);
 
   sheet.setTitle(isNew ? '新增待辦' : '改這一件');
-  sheet.setNote('隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
+  sheet.setNote(bagOwned
+    ? `${existing.customerName ? `${esc(existing.customerName)} 的` : ''}營養品提醒：掛給誰跟著那一包`
+    : '隨手記。掛了日期就會出現在日曆上，拿掉日期它還在隨手記裡。');
   sheet.setActions('');
   // 換成編輯器／選人之後，抬頭那顆「＋」要收掉 ——
   // 在一張正在填的表單上面留一顆「新增」是講不通的。
@@ -1416,18 +1422,19 @@ function mountNoteEditor(el, data, sheet, spec) {
                value="${esc(existing?.text ?? '')}"
                placeholder="例：幫王小明問週六有沒有位子" />
       </label>
-      ${note.suggestRow()}
+      ${bagOwned ? '' : note.suggestRow()}
       ${/* 今天／挑日期／掛給誰／給營養品排一排，跟首頁那張卡、泡泡一樣（段三審查 R7，她 11/6：「有沒有四個丸子同一排 ?
              而且其實不需要"哪一天""掛給誰"的文字吧 ?」—— 推翻 02 留著兩個有標籤欄位的做法）。
              四顆的字自己講得出是什麼；整排給一個 aria-label。包住掛給誰的那一層選了一包營養品時收起來 */''}
-      <div class="notemeta" role="group" aria-label="哪一天、掛給誰">
+      <div class="notemeta" role="group" aria-label="${bagOwned ? '哪一天' : '哪一天、掛給誰'}">
         ${note.field({ value: existing?.date ?? spec.date })}
+        ${bagOwned ? '' : `
         <span data-calwho>
           ${note.who({
             customerId: existing?.customerId ?? null,
             customerName: existing?.customerName ?? null,
           })}
-        </span>
+        </span>`}
         ${isNew ? note.give() : ''}
       </div>
       <div class="form__actions" style="margin-top: var(--space-4)">
@@ -1497,7 +1504,9 @@ function mountNoteEditor(el, data, sheet, spec) {
     // 選了一包營養品的話，掛的人與 `entitlementId` 由那一包決定（`readCapture()`）——
     // 「掛給誰」那一排這時候是收起來的；改一件既有的沒有那一顆，讀的就是「掛給誰」。
     // 客戶的兩個欄位是一組的（`domain/notes.js` 的 `normalizePatch()`），`readCapture()` 一律兩個一起回。
-    write({ text, ...note.readCapture(sheet.el) }, isNew ? '記下來了' : '改好了');
+    // 既有的營養品提醒沒有「掛給誰」那一顆（`bagOwned`）：只送日期 —— 兩格都不帶，`normalizePatch()` 就不動原本掛的人
+    const picked = note.readCapture(sheet.el);
+    write({ text, ...(bagOwned ? { date: picked.date } : picked) }, isNew ? '記下來了' : '改好了');
   });
 
   sheet.el.querySelector('[data-undate]')?.addEventListener('click', () =>
@@ -1507,7 +1516,8 @@ function mountNoteEditor(el, data, sheet, spec) {
         date: null,
         // 從表單讀，不從 `existing` 讀 —— 她可能剛剛才在這一頁改了掛給誰，
         // 然後才按「從日曆拿掉」。用舊的那一份會把她剛改的清掉。
-        ...note.readWho(sheet.el),
+        // 營養品的提醒沒有「掛給誰」那一顆：不帶那兩格（讀表單會讀到空的、把掛的人清掉）
+        ...(bagOwned ? {} : note.readWho(sheet.el)),
       },
       '從日曆拿掉了，隨手記裡還在',
     ),

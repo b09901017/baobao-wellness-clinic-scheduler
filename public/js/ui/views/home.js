@@ -3487,6 +3487,9 @@ async function saveFollowupNote(ctx, customerId, text) {
         // 兩個 commit 的動作給不出正確的復原（見 data/repo.js 的 withUndo）。
         // 只寫來訪那一個時照舊給得出來。
         undoable: !remember,
+        // 連按兩下「記」：第二下接到同一趟。上面的去重是寫之前讀，兩下都讀到「還沒有」時
+        // 隨手記會長兩筆（上 main 前最後健檢 B，2026-11-07；`tests/save-guards.test.js` 那一條豁免拿掉了）
+        key: `followupNote:${customerId}`,
       },
     );
     await renderConfirm(ctx.el);

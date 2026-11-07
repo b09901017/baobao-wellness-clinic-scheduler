@@ -5,7 +5,9 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
+import { fromRoot } from './helpers/paths.js';
 import {
   validateNote,
   normalize,
@@ -513,6 +515,14 @@ describe('會作用在幾天（linkedReach，R2）', () => {
     assert.equal(w.card, '');
     assert.equal(w.toast, '');
     assert.equal(noteActions(n, { reach: null }).find((a) => a.id === 'date').note, '11/9(一)');
+  });
+
+  // 上 main 前最後健檢 D（2026-11-07）：「改日期」那張卡底下那一行以前寫死「只改這一天」，
+  // 選單同一件事講「只改這一筆」（兩筆改到同一天、或其中一筆拿掉了日期）
+  test('「改日期」那張卡底下那一行也只問 linkedWords（網頁與小工具都不寫死）', () => {
+    const read = (p) => readFileSync(fromRoot(p), 'utf8');
+    assert.doesNotMatch(read('public/js/ui/components/note.js'), /'只改這一天'/);
+    assert.doesNotMatch(read('android/app/src/main/kotlin/tw/baofu/notes/capture/MenuActivity.kt'), /"只改這一天"/);
   });
 });
 
