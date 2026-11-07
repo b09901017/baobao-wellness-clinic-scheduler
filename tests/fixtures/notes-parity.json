@@ -1,0 +1,3742 @@
+{
+  "_說明": [
+    "隨手記的共用情境檔（ADR-0180）：網頁（public/js/domain/notes.js、data/notes.js…）與 Android 小工具（android/core）對同一份答案。",
+    "網頁那一側：tests/notes-parity.test.js；Android 那一側：android/core 的 ParityTest（./gradlew :core:test）。",
+    "網頁的規則改了：node scripts/notes-parity.mjs --write 重算 out → 看一眼 diff 是不是你要的 → Android 那一側跟著改到綠。",
+    "寫法：Firestore 的時間 {\"$ts\":[秒,奈秒]}、伺服器時間 \"$server\"、自動產生的 id 照出現的順序寫成 $1、$2…（排過鍵、深度優先）。",
+    "名字一律假名（王小明、客戶B…），真名不進 repo。"
+  ],
+  "sections": {
+    "normalize": [
+      {
+        "name": "全部沒帶：每一格都在、空的是 null、done 是 false",
+        "in": {"note":{}},
+        "out": {"text":"","customerId":null,"customerName":null,"date":null,"done":false,"entitlementId":null,"linkId":null}
+      },
+      {
+        "name": "JS 的 trim：全形空白、不換行空白、BOM、換行都去掉",
+        "in": {"note":{"text":"\u3000\u00a0王小明回電\ufeff\n","customerId":" c1 ","customerName":" 王小明\u3000","date":" 2026-11-09 ","done":true}},
+        "out": {
+          "text": "王小明回電",
+          "customerId": "c1",
+          "customerName": "王小明",
+          "date": "2026-11-09",
+          "done": true,
+          "entitlementId": null,
+          "linkId": null
+        }
+      },
+      {
+        "name": "JS 的 trim 不收的（U+001C～U+001F、零寬空白）照留 —— Kotlin 自己的 trim 會收掉前者",
+        "in": {"note":{"text":"\u001f記一筆\u001c\u200b"}},
+        "out": {
+          "text": "\u001f記一筆\u001c\u200b",
+          "customerId": null,
+          "customerName": null,
+          "date": null,
+          "done": false,
+          "entitlementId": null,
+          "linkId": null
+        }
+      },
+      {
+        "name": "沒掛客戶（id 只有空白）：名字一起清成 null",
+        "in": {"note":{"text":"a","customerId":"  ","customerName":"王小明"}},
+        "out": {"text":"a","customerId":null,"customerName":null,"date":null,"done":false,"entitlementId":null,"linkId":null}
+      },
+      {
+        "name": "linkId、entitlementId：空字串是 null，有字的去頭尾空白",
+        "in": {"note":{"text":"a","linkId":" L1 ","entitlementId":""}},
+        "out": {"text":"a","customerId":null,"customerName":null,"date":null,"done":false,"entitlementId":null,"linkId":"L1"}
+      },
+      {
+        "name": "done 照 JS 的真假值：字串 \"false\" 也是 true",
+        "in": {"note":{"text":"a","done":"false"}},
+        "out": {"text":"a","customerId":null,"customerName":null,"date":null,"done":true,"entitlementId":null,"linkId":null}
+      },
+      {
+        "name": "done 空字串是 false",
+        "in": {"note":{"text":"a","done":""}},
+        "out": {"text":"a","customerId":null,"customerName":null,"date":null,"done":false,"entitlementId":null,"linkId":null}
+      }
+    ],
+    "normalizePatch": [
+      {"name":"沒帶任何鍵：什麼都不寫","in":{"changes":{}},"out":{}},
+      {"name":"只帶日期","in":{"changes":{"date":"2026-11-09"}},"out":{"date":"2026-11-09"}},
+      {"name":"日期帶空字串：拿掉日期（null）","in":{"changes":{"date":"  "}},"out":{"date":null}},
+      {"name":"只帶名字沒帶 id：兩格一起清掉","in":{"changes":{"customerName":"王小明"}},"out":{"customerId":null,"customerName":null}},
+      {
+        "name": "掛給誰：兩格一起",
+        "in": {"changes":{"customerId":"c1","customerName":" 王小明 "}},
+        "out": {"customerId":"c1","customerName":"王小明"}
+      },
+      {"name":"拆開這一天：linkId 空字串 → null","in":{"changes":{"linkId":""}},"out":{"linkId":null}},
+      {"name":"done 照真假值、字去頭尾空白","in":{"changes":{"done":0,"text":" 回電 "}},"out":{"text":"回電","done":false}}
+    ],
+    "validateNote": [
+      {"name":"空的","in":{"note":{}},"out":["要寫點東西"]},
+      {"name":"只有全形空白","in":{"note":{"text":"\u3000\u3000"}},"out":["要寫點東西"]},
+      {
+        "name": "剛好 200 字",
+        "in": {
+          "note": {
+            "text": "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字"
+          }
+        },
+        "out": []
+      },
+      {
+        "name": "201 字",
+        "in": {
+          "note": {
+            "text": "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字"
+          }
+        },
+        "out": ["太長了（201 字，最多 200 字）。這種份量寫進客戶備註比較找得到"]
+      },
+      {
+        "name": "長度照 UTF-16 算：100 個表情符號是 200",
+        "in": {
+          "note": {
+            "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          }
+        },
+        "out": []
+      },
+      {
+        "name": "長度照 UTF-16 算：101 個表情符號是 202",
+        "in": {
+          "note": {
+            "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          }
+        },
+        "out": ["太長了（202 字，最多 200 字）。這種份量寫進客戶備註比較找得到"]
+      },
+      {"name":"掛了客戶卻沒有名字","in":{"note":{"text":"a","customerId":"c1","customerName":" "}},"out":["掛了客戶卻沒有名字"]},
+      {"name":"日期看不懂：2 月 30 日","in":{"note":{"text":"a","date":"2026-02-30"}},"out":["日期看不懂"]},
+      {"name":"日期看不懂：沒補零","in":{"note":{"text":"a","date":"2026-2-3"}},"out":["日期看不懂"]},
+      {"name":"閏年的 2/29 可以","in":{"note":{"text":"a","date":"2028-02-29"}},"out":[]},
+      {"name":"營養品的提醒不能連在一起","in":{"note":{"text":"a","linkId":"L1","entitlementId":"e1"}},"out":["營養品的提醒不能跟別天連在一起"]},
+      {
+        "name": "好幾個錯一起講，照順序",
+        "in": {"note":{"text":"","customerId":"c1","date":"x","linkId":"L","entitlementId":"e"}},
+        "out": ["要寫點東西","掛了客戶卻沒有名字","日期看不懂","營養品的提醒不能跟別天連在一起"]
+      }
+    ],
+    "dates": [
+      {"name":"一般的一天","in":{"iso":"2026-11-09"},"out":{"valid":true,"short":"11/9(一)"}},
+      {"name":"星期日","in":{"iso":"2026-11-08"},"out":{"valid":true,"short":"11/8(日)"}},
+      {"name":"月底","in":{"iso":"2026-12-31"},"out":{"valid":true,"short":"12/31(四)"}},
+      {"name":"不存在的一天","in":{"iso":"2026-04-31"},"out":{"valid":false,"short":null}},
+      {"name":"平年的 2/29","in":{"iso":"2027-02-29"},"out":{"valid":false,"short":null}},
+      {"name":"格式不對","in":{"iso":"2026/11/09"},"out":{"valid":false,"short":null}}
+    ],
+    "doneAt": [
+      {"name":"整秒：一定寫 .000（Kotlin 的 Instant.toString() 會拿掉）","in":{"ms":1793946600000},"out":"2026-11-06T06:30:00.000Z"},
+      {"name":"毫秒補到三位","in":{"ms":1793946600007},"out":"2026-11-06T06:30:00.007Z"}
+    ],
+    "sortNotes": [
+      {
+        "name": "沒勾的照 createdAt 新的在上、勾掉的照 doneAt；沒有 doneAt 退回 createdAt；刪掉的不列；還沒回到伺服器的 createdAt 是 null",
+        "in": {
+          "notes": [
+            {
+              "id": "a1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900100,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "b2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900200,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "c3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": "2026-11-06T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900050,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "d4",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900300,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "e5",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": {"$ts":[1793900400,0]},
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900050,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "f6",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": null,
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "g7",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": "2026-11-06T02:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900060,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": ["b2","a1","f6","d4","g7","c3"]
+      },
+      {
+        "name": "同一秒建的照奈秒的字串比（跟網頁一樣比字串，不是比數字）",
+        "in": {
+          "notes": [
+            {
+              "id": "a1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900000,5000000]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "b2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900000,123000000]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": ["a1","b2"]
+      }
+    ],
+    "openCount": [
+      {
+        "name": "一組算 1、勾掉的不算",
+        "in": {
+          "notes": [
+            {
+              "id": "a1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-08",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "a2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "b1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "c1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": "2026-11-06T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": 2
+      }
+    ],
+    "groupLinked": [
+      {
+        "name": "沒有連在一起的：一筆一列，照 sortNotes",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "a1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "b2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "c3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": "2026-11-06T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [
+          {"note":"b2","members":["b2"],"days":[],"badge":null},
+          {"note":"a1","members":["a1"],"days":[],"badge":null},
+          {"note":"c3","members":["c3"],"days":[],"badge":null}
+        ]
+      },
+      {
+        "name": "一組三天：代表今天那一筆、成員照日期、共 3 天",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-07",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "x9",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900090,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [
+          {"note":"x9","members":["x9"],"days":[],"badge":null},
+          {"note":"n2","members":["n1","n2","n3"],"days":["2026-11-07","2026-11-09","2026-11-12"],"badge":"共 3 天"}
+        ]
+      },
+      {
+        "name": "一組全部過了：代表最後一天",
+        "in": {
+          "today": "2026-11-20",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-07",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n2","members":["n1","n2"],"days":["2026-11-07","2026-11-12"],"badge":"共 2 天"}]
+      },
+      {
+        "name": "一組勾得不一樣：分成兩列",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-07",
+              "done": true,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": "2026-11-07T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [
+          {"note":"n2","members":["n2","n3"],"days":["2026-11-09","2026-11-12"],"badge":"共 2 天"},
+          {"note":"n1","members":["n1"],"days":["2026-11-07"],"badge":null}
+        ]
+      },
+      {
+        "name": "有一筆沒日期：排在最後、不算一天、不當代表",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-11",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n2","members":["n2","n3","n1"],"days":["2026-11-10","2026-11-11"],"badge":"共 2 天"}]
+      },
+      {
+        "name": "一組都沒日期：共 2 筆",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n2","members":["n1","n2"],"days":[],"badge":"共 2 筆"}]
+      },
+      {
+        "name": "同一天兩筆：共 2 筆",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n1","members":["n1","n2"],"days":["2026-11-09"],"badge":"共 2 筆"}]
+      },
+      {
+        "name": "刪掉的不算；只剩一筆就不是一組",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": {"$ts":[1793900000,0]},
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n1","members":["n1"],"days":["2026-11-09"],"badge":null}]
+      },
+      {
+        "name": "linkId 前後有空白也是同一組",
+        "in": {
+          "today": "2026-11-09",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": " L ",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"note":"n1","members":["n1","n2"],"days":["2026-11-09","2026-11-10"],"badge":"共 2 天"}]
+      }
+    ],
+    "linkedPeers": [
+      {
+        "name": "同一組活著的其他筆（不含自己、不含刪掉的、不含別組）",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": {"$ts":[1793900000,0]},
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n4",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "M",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900040,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n5",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900050,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": ["n2"]
+      },
+      {
+        "name": "沒有 linkId：沒有同一組",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "notes": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": []
+      }
+    ],
+    "linkedChanges": [
+      {
+        "name": "改字：同一組一起改，已經一樣的那一筆不寫",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "舊的",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"text":"新的"},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "舊的",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "新的",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"id":"n1","changes":{"text":"新的"}},{"id":"n2","changes":{"text":"新的"}}]
+      },
+      {
+        "name": "只改日期：只寫這一筆",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"date":"2026-11-10","text":"王小明回電","customerId":null,"customerName":null},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"id":"n1","changes":{"date":"2026-11-10"}}]
+      },
+      {
+        "name": "改掛給誰：兩格一起，同一組一起",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"customerId":"c1","customerName":"王小明"},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [
+          {"id":"n1","changes":{"customerId":"c1","customerName":"王小明"}},
+          {"id":"n2","changes":{"customerId":"c1","customerName":"王小明"}}
+        ]
+      },
+      {
+        "name": "只換名字（同一位改名）也算改了",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": "c1",
+            "customerName": "王小",
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"customerId":"c1","customerName":"王小明"},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": "c1",
+              "customerName": "王小",
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [
+          {"id":"n1","changes":{"customerId":"c1","customerName":"王小明"}},
+          {"id":"n2","changes":{"customerId":"c1","customerName":"王小明"}}
+        ]
+      },
+      {
+        "name": "勾掉：這一筆其實已經勾了（手上那一份舊了），另外那幾天照樣對齊",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": true,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": "2026-11-05T01:00:00.000Z",
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z"},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": "2026-11-05T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"id":"n2","changes":{"done":true,"doneAt":"2026-11-06T06:30:00.000Z"}}]
+      },
+      {
+        "name": "拿回來",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": true,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": "2026-11-05T01:00:00.000Z",
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"done":false,"doneAt":null},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": true,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": "2026-11-05T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": [{"id":"n1","changes":{"done":false,"doneAt":null}},{"id":"n2","changes":{"done":false,"doneAt":null}}]
+      },
+      {
+        "name": "什麼都沒變：一筆都不寫",
+        "in": {
+          "before": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "patch": {"text":"王小明回電","date":""},
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": null,
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": []
+      }
+    ],
+    "copyPlan": [
+      {
+        "name": "還沒連過：linkId 用它自己的 id、它補上；它自己那一天、重複的、看不懂的不建",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": "c1",
+            "customerName": "王小明",
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-12","2026-11-10","2026-11-09","2026-11-10","2026-02-30"," 2026-11-11 "],
+          "linked": true,
+          "group": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": "n1",
+          "link": {"id":"n1","changes":{"linkId":"n1"}},
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": "c1",
+              "customerName": "王小明",
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "n1"
+            },
+            {
+              "text": "王小明回電",
+              "customerId": "c1",
+              "customerName": "王小明",
+              "date": "2026-11-11",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "n1"
+            },
+            {
+              "text": "王小明回電",
+              "customerId": "c1",
+              "customerName": "王小明",
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "n1"
+            }
+          ],
+          "skipped": [],
+          "taken": [],
+          "together": 4,
+          "sourceIn": true
+        }
+      },
+      {
+        "name": "已經連著：沿用它的 linkId；那一天同一組已經有一筆就跳過（刪掉的不算）",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10","2026-11-11","2026-11-12"],
+          "linked": true,
+          "group": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-11",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L",
+              "doneAt": null,
+              "deletedAt": {"$ts":[1793900000,0]},
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": "L",
+          "link": null,
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-11",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L"
+            },
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "L"
+            }
+          ],
+          "skipped": ["2026-11-10"],
+          "taken": ["2026-11-10"],
+          "together": 4,
+          "sourceIn": true
+        }
+      },
+      {
+        "name": "不連在一起：各自獨立、它不補 linkId",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10"],
+          "linked": false,
+          "group": [],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": null,
+          "link": null,
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null
+            }
+          ],
+          "skipped": [],
+          "taken": [],
+          "together": 0,
+          "sourceIn": false
+        }
+      },
+      {
+        "name": "營養品的提醒不給複製",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": "e1",
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10"],
+          "linked": true,
+          "group": [],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "linkId": null,
+          "link": null,
+          "creates": [],
+          "skipped": [],
+          "taken": [],
+          "together": 0,
+          "sourceIn": false,
+          "blocked": "營養品的提醒不給複製 —— 要約別天給，到客戶詳情的「營養品」那一段約時間"
+        }
+      },
+      {
+        "name": "拆開過的（它的 id 還是舊那一組的 linkId）：用新的 id",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10"],
+          "linked": true,
+          "group": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-12",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "n1",
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": "NEW",
+          "link": {"id":"n1","changes":{"linkId":"NEW"}},
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "NEW"
+            }
+          ],
+          "skipped": [],
+          "taken": [],
+          "together": 2,
+          "sourceIn": true
+        }
+      },
+      {
+        "name": "從已勾掉的那一筆複製：新的那幾筆用它的 id、它自己不寫",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": true,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": "2026-11-09T01:00:00.000Z",
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10"],
+          "linked": true,
+          "group": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": "n1",
+          "link": null,
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "n1"
+            }
+          ],
+          "skipped": [],
+          "taken": [],
+          "together": 1,
+          "sourceIn": false
+        }
+      },
+      {
+        "name": "從已勾掉的那一筆複製、它的 id 那一組裡有勾掉的：用新的 id",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": true,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": "2026-11-09T01:00:00.000Z",
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "dates": ["2026-11-10"],
+          "linked": true,
+          "group": [
+            {
+              "id": "n1",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": true,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900010,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-11",
+              "done": true,
+              "entitlementId": null,
+              "linkId": "n1",
+              "doneAt": "2026-11-09T01:00:00.000Z",
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ],
+          "newLinkId": "NEW"
+        },
+        "out": {
+          "blocked": null,
+          "linkId": "NEW",
+          "link": null,
+          "creates": [
+            {
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": "NEW"
+            }
+          ],
+          "skipped": [],
+          "taken": [],
+          "together": 1,
+          "sourceIn": false
+        }
+      }
+    ],
+    "copiedSay": [
+      {"name":"一天都沒建","in":{"created":0,"linked":true,"together":0,"sourceIn":true},"out":"那幾天已經有了，沒有多建"},
+      {"name":"不連在一起","in":{"created":2,"linked":false,"together":0,"sourceIn":false},"out":"複製到 2 天"},
+      {"name":"連在一起、它自己在裡面","in":{"created":2,"linked":true,"together":3,"sourceIn":true},"out":"複製到 2 天：勾一天，其他天一起勾"},
+      {"name":"連在一起、它已經勾掉了","in":{"created":2,"linked":true,"together":2,"sourceIn":false},"out":"複製到 2 天：新的那幾天連在一起"},
+      {"name":"從勾掉的那一筆只複製到一天：不講一起勾","in":{"created":1,"linked":true,"together":1,"sourceIn":false},"out":"複製到 1 天"}
+    ],
+    "linkedReach": [
+      {
+        "name": "沒有同一組：null",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "peers": []
+        },
+        "out": null
+      },
+      {
+        "name": "三天",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-10",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            },
+            {
+              "id": "n3",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-11",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900030,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": {"days":3,"notes":3,"count":3,"unit":"天","label":"共 3 天"}
+      },
+      {
+        "name": "只剩一天：講筆",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "peers": [
+            {
+              "id": "n2",
+              "text": "王小明回電",
+              "customerId": null,
+              "customerName": null,
+              "date": "2026-11-09",
+              "done": false,
+              "entitlementId": null,
+              "linkId": null,
+              "doneAt": null,
+              "deletedAt": null,
+              "createdBy": "u-test",
+              "createdAt": {"$ts":[1793900020,0]},
+              "updatedAt": {"$ts":[1793900999,0]}
+            }
+          ]
+        },
+        "out": {"days":1,"notes":2,"count":2,"unit":"筆","label":"共 2 筆"}
+      }
+    ],
+    "noteActions": [
+      {
+        "name": "一般、沒掛人、沒日期",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": null
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","icon":"calendar"},
+          {"id":"who","label":"掛給誰","icon":"people"},
+          {"id":"edit","label":"改文字","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "掛了人、有日期",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": "c1",
+            "customerName": "王小明",
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": null
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","note":"11/9(一)","icon":"calendar"},
+          {"id":"who","label":"改掛給誰","note":"王小明","icon":"people"},
+          {"id":"edit","label":"改文字","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "掛了人但名字是空字串：那一行小字照樣是空字串",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": "c1",
+            "customerName": "",
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": null
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","icon":"calendar"},
+          {"id":"who","label":"改掛給誰","note":"","icon":"people"},
+          {"id":"edit","label":"改文字","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "已經勾掉",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": true,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": "2026-11-06T01:00:00.000Z",
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": null
+        },
+        "out": [
+          {"id":"untick","label":"拿回來，還沒做","icon":"todo"},
+          {"id":"date","label":"改日期","icon":"calendar"},
+          {"id":"who","label":"掛給誰","icon":"people"},
+          {"id":"edit","label":"改文字","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "連在一起三天",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": {"days":3,"notes":3,"count":3,"unit":"天","label":"共 3 天"}
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","note":"3 天一起","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","note":"只改這一天","icon":"calendar"},
+          {"id":"who","label":"掛給誰","note":"3 天一起改","icon":"people"},
+          {"id":"edit","label":"改文字","note":"3 天一起改","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "連在一起只剩一天（講筆）",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": "L",
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": {"days":1,"notes":2,"count":2,"unit":"筆","label":"共 2 筆"}
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","note":"2 筆一起","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","note":"只改這一筆","icon":"calendar"},
+          {"id":"who","label":"掛給誰","note":"2 筆一起改","icon":"people"},
+          {"id":"edit","label":"改文字","note":"2 筆一起改","icon":"pencil"},
+          {"id":"copy","label":"複製到別天","icon":"copy"}
+        ]
+      },
+      {
+        "name": "營養品的提醒：不給複製、多一顆看那一包",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": "e1",
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "reach": {"days":3,"notes":3,"count":3,"unit":"天","label":"共 3 天"}
+        },
+        "out": [
+          {"id":"tick","label":"做完了，勾掉","note":"會先問給了哪幾款","icon":"check","tone":"primary"},
+          {"id":"date","label":"改日期","note":"11/9(一)","icon":"calendar"},
+          {"id":"bag","label":"看那一包營養品","icon":"box"}
+        ]
+      }
+    ],
+    "dateChoices": [
+      {
+        "name": "有日期、不是今天",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-10",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": false
+        },
+        "out": [{"id":"today","label":"改成今天"},{"id":"pick","label":"改成某天"},{"id":"undate","label":"拿掉日期","note":"這一筆會留在隨手記裡"}]
+      },
+      {
+        "name": "已經是今天：沒有「改成今天」",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-09",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": false
+        },
+        "out": [{"id":"pick","label":"改成某天"},{"id":"undate","label":"拿掉日期","note":"這一筆會留在隨手記裡"}]
+      },
+      {
+        "name": "已經勾掉：沒有「改成今天」",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-10",
+            "done": true,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": false
+        },
+        "out": [{"id":"pick","label":"改成某天"},{"id":"undate","label":"拿掉日期","note":"這一筆會留在隨手記裡"}]
+      },
+      {
+        "name": "沒有日期：沒有「拿掉日期」",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": null,
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": false
+        },
+        "out": [{"id":"today","label":"改成今天"},{"id":"pick","label":"改成某天"}]
+      },
+      {
+        "name": "營養品的提醒：沒有「拿掉日期」",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-10",
+            "done": false,
+            "entitlementId": "e1",
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": false
+        },
+        "out": [{"id":"today","label":"改成今天"},{"id":"pick","label":"改成某天"}]
+      },
+      {
+        "name": "日曆上：講「從日曆拿掉」",
+        "in": {
+          "note": {
+            "id": "n1",
+            "text": "王小明回電",
+            "customerId": null,
+            "customerName": null,
+            "date": "2026-11-10",
+            "done": false,
+            "entitlementId": null,
+            "linkId": null,
+            "doneAt": null,
+            "deletedAt": null,
+            "createdBy": "u-test",
+            "createdAt": {"$ts":[1793900010,0]},
+            "updatedAt": {"$ts":[1793900999,0]}
+          },
+          "today": "2026-11-09",
+          "onCalendar": true
+        },
+        "out": [{"id":"today","label":"改成今天"},{"id":"pick","label":"改成某天"},{"id":"undate","label":"從日曆拿掉","note":"這一筆會留在隨手記裡"}]
+      }
+    ],
+    "normalizeAlias": [
+      {"name":"全形英文、大小寫","in":{"raw":"ＬｕＬｕ"},"out":"lulu"},
+      {"name":"中間的空白、全形空白、不換行空白、BOM 都拿掉","in":{"raw":"\u3000王\u00a0小 明\ufeff"},"out":"王小明"},
+      {"name":"NFKC：羅馬數字","in":{"raw":"Ⅻ"},"out":"xii"},
+      {"name":"null","in":{"raw":null},"out":""}
+    ],
+    "normalizeChartNo": [
+      {"name":"補零的去掉","in":{"raw":"00001234"},"out":"1234"},
+      {"name":"全形數字","in":{"raw":"０１２３"},"out":"123"},
+      {"name":"全部是 0","in":{"raw":"0000"},"out":"0"},
+      {"name":"中間有空白","in":{"raw":" 12 34 "},"out":"1234"},
+      {"name":"不是純數字的照原樣（不轉小寫）","in":{"raw":"A012"},"out":"A012"}
+    ],
+    "chartNosOf": [
+      {
+        "name": "那一格排第一、再來是短備註（兩種說法）、不重複",
+        "in": {
+          "customer": {"chartNo":"001234","marks":[{"text":"病歷號 5678"},{"text":"姓名欄的編號：01234"},{"text":"其他的備註"},{"text":"  "}]}
+        },
+        "out": ["1234","5678"]
+      },
+      {"name":"沒有 marks：讀舊的 notes 一行一行","in":{"customer":{"notes":"病歷號 99\n雜事\n\n"}},"out":["99"]},
+      {"name":"什麼都沒有","in":{"customer":{"chartNo":null}},"out":[]}
+    ],
+    "nameHas": [
+      {"name":"包含就算","in":{"name":"王小明","query":"小明"},"out":true},
+      {"name":"全形與大小寫","in":{"name":"ＬｕＬｕ","query":"lu"},"out":true},
+      {"name":"沒打字：算有（呼叫端自己擋空的）","in":{"name":"王小明","query":""},"out":true},
+      {"name":"不包含","in":{"name":"王小明","query":"大"},"out":false}
+    ],
+    "chartNoHas": [
+      {"name":"號碼的一段","in":{"customer":{"chartNo":"001234"},"query":"23"},"out":true},
+      {"name":"打的字補零也一樣","in":{"customer":{"chartNo":"001234"},"query":"0023"},"out":true},
+      {"name":"不是數字：不算","in":{"customer":{"chartNo":"001234"},"query":"王"},"out":false},
+      {"name":"沒打字：不算","in":{"customer":{"chartNo":"001234"},"query":""},"out":false},
+      {"name":"短備註裡的號碼也算","in":{"customer":{"marks":[{"text":"病歷號 5678"}]},"query":"67"},"out":true}
+    ],
+    "nameSuggestions": [
+      {
+        "name": "打一個姓：名字開頭是王的都列，刪掉的不列",
+        "in": {
+          "text": "王",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":1,"ids":["wdt","wx","wxm"]}
+      },
+      {
+        "name": "只比開頭、不比包含：打「明」不跳",
+        "in": {
+          "text": "明",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":1,"to":1,"ids":[]}
+      },
+      {
+        "name": "前面接著別的字：「請王小」用「王小」",
+        "in": {
+          "text": "請王小",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":1,"to":3,"ids":["wx","wxm"]}
+      },
+      {
+        "name": "全名完全一樣的排第一",
+        "in": {
+          "text": "王小",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":2,"ids":["wx","wxm"]}
+      },
+      {
+        "name": "到空白或標點為止：「回電，王」只看「王」",
+        "in": {
+          "text": "回電，王",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":3,"to":4,"ids":["wdt","wx","wxm"]}
+      },
+      {
+        "name": "游標在中間：只看游標前面",
+        "in": {
+          "text": "王小明回電",
+          "caret": 3,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":3,"ids":["wxm"]}
+      },
+      {
+        "name": "已經是現在掛的那一位的全名：不跳",
+        "in": {
+          "text": "王小明",
+          "caret": null,
+          "currentId": "wxm",
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":3,"to":3,"ids":[]}
+      },
+      {
+        "name": "全名是別人、不是現在掛的那一位：照跳",
+        "in": {
+          "text": "王小明",
+          "caret": null,
+          "currentId": "wdt",
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":3,"ids":["wxm"]}
+      },
+      {
+        "name": "一個字的名字",
+        "in": {
+          "text": "找林",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":1,"to":2,"ids":["lin"]}
+      },
+      {
+        "name": "全形半形、大小寫不算不一樣",
+        "in": {
+          "text": "call lu",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":5,"to":7,"ids":["lulu"]}
+      },
+      {
+        "name": "名字中間有空白的那一位：打「陳美」找得到",
+        "in": {
+          "text": "陳美",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":2,"ids":["space"]}
+      },
+      {
+        "name": "一次性客人也列（列誰照呼叫端給的名單）",
+        "in": {
+          "text": "客戶B",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":3,"ids":["guest"]}
+      },
+      {
+        "name": "空的框",
+        "in": {
+          "text": "",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":0,"ids":[]}
+      },
+      {
+        "name": "最後一個字是空白：不跳",
+        "in": {
+          "text": "王小明 ",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":4,"to":4,"ids":[]}
+      },
+      {
+        "name": "照 zh-Hant 排（筆畫：口 3 畫在中 4 畫前面，跟字碼的順序相反）",
+        "in": {
+          "text": "客戶",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":0,"to":2,"ids":["kk","kz","guest"]}
+      },
+      {
+        "name": "最多 6 位",
+        "in": {
+          "text": "王",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"w0","name":"王0"},
+            {"id":"w1","name":"王1"},
+            {"id":"w2","name":"王2"},
+            {"id":"w3","name":"王3"},
+            {"id":"w4","name":"王4"},
+            {"id":"w5","name":"王5"},
+            {"id":"w6","name":"王6"},
+            {"id":"w7","name":"王7"},
+            {"id":"w8","name":"王8"}
+          ]
+        },
+        "out": {"from":0,"to":1,"ids":["w0","w1","w2","w3","w4","w5"]}
+      },
+      {
+        "name": "表情符號在前面：位置照 UTF-16 算",
+        "in": {
+          "text": "😀王小",
+          "caret": null,
+          "currentId": null,
+          "people": [
+            {"id":"wxm","name":"王小明"},
+            {"id":"wdt","name":"王大同"},
+            {"id":"wx","name":"王小"},
+            {"id":"lin","name":"林"},
+            {"id":"lulu","name":"ＬｕＬｕ"},
+            {"id":"space","name":"陳 美玲"},
+            {"id":"gone","name":"王小華","deletedAt":"2026-11-01T00:00:00Z"},
+            {"id":"guest","name":"客戶B","oneTime":true},
+            {"id":"kz","name":"客戶中"},
+            {"id":"kk","name":"客戶口"}
+          ]
+        },
+        "out": {"from":2,"to":4,"ids":["wx","wxm"]}
+      }
+    ],
+    "links": [
+      {
+        "name": "兩條網址",
+        "in": {"origin":"https://example.web.app","id":"abc123"},
+        "out": {
+          "note": "https://example.web.app/#/todo/notes/note/abc123",
+          "newGive": "https://example.web.app/#/todo/notes/new/give"
+        }
+      }
+    ],
+    "writes": [
+      {
+        "name": "新增一筆：normalize 之後、doneAt null、伺服器時間、createdBy；稽核 after 不含伺服器那幾格",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {},
+          "call": "create",
+          "args": [{"text":" 王小明回電 ","customerId":"c1","customerName":"王小明","date":"2026-11-09"}]
+        },
+        "out": {
+          "writes": [
+            {
+              "op": "set",
+              "path": "notes/$1",
+              "data": {
+                "text": "王小明回電",
+                "customerId": "c1",
+                "customerName": "王小明",
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-widget",
+                "createdAt": "$server",
+                "updatedAt": "$server"
+              }
+            },
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.create",
+                "targetPath": "notes/$1",
+                "before": null,
+                "after": {
+                  "text": "王小明回電",
+                  "customerId": "c1",
+                  "customerName": "王小明",
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null
+                },
+                "note": null
+              }
+            }
+          ],
+          "result": "$1"
+        }
+      },
+      {
+        "name": "新增一筆沒掛人沒日期",
+        "in": {"uid":"u-widget","now":1793946600000,"store":{},"call":"create","args":[{"text":"記得帶健保卡"}]},
+        "out": {
+          "writes": [
+            {
+              "op": "set",
+              "path": "notes/$1",
+              "data": {
+                "text": "記得帶健保卡",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-widget",
+                "createdAt": "$server",
+                "updatedAt": "$server"
+              }
+            },
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.create",
+                "targetPath": "notes/$1",
+                "before": null,
+                "after": {
+                  "text": "記得帶健保卡",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": null,
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null
+                },
+                "note": null
+              }
+            }
+          ],
+          "result": "$1"
+        }
+      },
+      {
+        "name": "改字（沒連在一起）：整份 patch 寫下去、稽核 before 是整份",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "舊的",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900010,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "update",
+          "args": ["n1",{"text":" 新的 "}]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"text":"新的","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "舊的",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": null,
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900010,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"text":"新的"},
+                "note": null
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "改字（連在一起）：同一組活著的一起改，刪掉的不動",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900010,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900020,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n3": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-11",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": {"$ts":[1793900040,0]},
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900030,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "update",
+          "args": ["n1",{"text":"王小明回電（改）"}]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"text":"王小明回電（改）","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900010,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"text":"王小明回電（改）"},
+                "note": null
+              }
+            },
+            {"op":"update","path":"notes/n2","data":{"text":"王小明回電（改）","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n2",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-10",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900020,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"text":"王小明回電（改）"},
+                "note": null
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "改日期（連在一起）：只寫這一筆",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "update",
+          "args": ["n1",{"date":"2026-11-12","text":"王小明回電"}]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"date":"2026-11-12","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"date":"2026-11-12"},
+                "note": null
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "勾掉（沒連在一起）：doneAt 三位毫秒＋Z",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "setDone",
+          "args": ["n1",true]
+        },
+        "out": {
+          "writes": [
+            {
+              "op": "update",
+              "path": "notes/n1",
+              "data": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z","updatedAt":"$server"}
+            },
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": null,
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z"},
+                "note": null
+              }
+            }
+          ],
+          "result": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z","reach":null}
+        }
+      },
+      {
+        "name": "勾掉（連在一起）：已經勾了的那一筆不再寫；回 reach",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n3": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-11",
+                "done": true,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": "2026-11-05T01:00:00.000Z",
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "setDone",
+          "args": ["n2",true]
+        },
+        "out": {
+          "writes": [
+            {
+              "op": "update",
+              "path": "notes/n2",
+              "data": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z","updatedAt":"$server"}
+            },
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n2",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-10",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z"},
+                "note": null
+              }
+            },
+            {
+              "op": "update",
+              "path": "notes/n1",
+              "data": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z","updatedAt":"$server"}
+            },
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"done":true,"doneAt":"2026-11-06T06:30:00.000Z"},
+                "note": null
+              }
+            }
+          ],
+          "result": {
+            "done": true,
+            "doneAt": "2026-11-06T06:30:00.000Z",
+            "reach": {"days":3,"notes":3,"count":3,"unit":"天","label":"共 3 天"}
+          }
+        }
+      },
+      {
+        "name": "拿回來（連在一起）",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": true,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": "2026-11-05T01:00:00.000Z",
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": true,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": "2026-11-05T01:00:00.000Z",
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "setDone",
+          "args": ["n1",false]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"done":false,"doneAt":null,"updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-09",
+                  "done": true,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": "2026-11-05T01:00:00.000Z",
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"done":false,"doneAt":null},
+                "note": null
+              }
+            },
+            {"op":"update","path":"notes/n2","data":{"done":false,"doneAt":null,"updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n2",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-10",
+                  "done": true,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": "2026-11-05T01:00:00.000Z",
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"done":false,"doneAt":null},
+                "note": null
+              }
+            }
+          ],
+          "result": {"done":false,"doneAt":null,"reach":{"days":2,"notes":2,"count":2,"unit":"天","label":"共 2 天"}}
+        }
+      },
+      {
+        "name": "刪掉一列（連在一起）：勾法一樣的整組一起、勾法不一樣的不動",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n3": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-11",
+                "done": true,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": "2026-11-05T01:00:00.000Z",
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "removeRow",
+          "args": [{"id":"n1"},null]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"deletedAt":"$server","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.softDelete",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"deletedAt":"server","reason":null},
+                "note": null
+              }
+            },
+            {"op":"update","path":"notes/n2","data":{"deletedAt":"$server","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.softDelete",
+                "targetPath": "notes/n2",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-10",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"deletedAt":"server","reason":null},
+                "note": null
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "刪掉一筆（沒連在一起）",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "removeRow",
+          "args": [{"id":"n1"},null]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"deletedAt":"$server","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.softDelete",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": null,
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"deletedAt":"server","reason":null},
+                "note": null
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "複製到別天（預設連在一起）：它補 linkId、新的那幾筆一個 commit",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": "c1",
+                "customerName": "王小明",
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "copyTo",
+          "args": [{"id":"n1"},["2026-11-10","2026-11-11"],true]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n1","data":{"linkId":"n1","updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n1",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": "c1",
+                  "customerName": "王小明",
+                  "date": "2026-11-09",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"linkId":"n1"},
+                "note": null
+              }
+            },
+            {
+              "op": "set",
+              "path": "notes/$2",
+              "data": {
+                "text": "王小明回電",
+                "customerId": "c1",
+                "customerName": "王小明",
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-widget",
+                "createdAt": "$server",
+                "updatedAt": "$server"
+              }
+            },
+            {
+              "op": "set",
+              "path": "audit/$3",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.create",
+                "targetPath": "notes/$2",
+                "before": null,
+                "after": {
+                  "text": "王小明回電",
+                  "customerId": "c1",
+                  "customerName": "王小明",
+                  "date": "2026-11-10",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null
+                },
+                "note": null
+              }
+            },
+            {
+              "op": "set",
+              "path": "notes/$4",
+              "data": {
+                "text": "王小明回電",
+                "customerId": "c1",
+                "customerName": "王小明",
+                "date": "2026-11-11",
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-widget",
+                "createdAt": "$server",
+                "updatedAt": "$server"
+              }
+            },
+            {
+              "op": "set",
+              "path": "audit/$5",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.create",
+                "targetPath": "notes/$4",
+                "before": null,
+                "after": {
+                  "text": "王小明回電",
+                  "customerId": "c1",
+                  "customerName": "王小明",
+                  "date": "2026-11-11",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null
+                },
+                "note": null
+              }
+            }
+          ],
+          "result": {"created":2,"skipped":[],"linkId":"n1","together":3,"sourceIn":true}
+        }
+      },
+      {
+        "name": "複製到別天（不連在一起）",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-09",
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "copyTo",
+          "args": [{"id":"n1"},["2026-11-10"],false]
+        },
+        "out": {
+          "writes": [
+            {
+              "op": "set",
+              "path": "notes/$1",
+              "data": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": "2026-11-10",
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-widget",
+                "createdAt": "$server",
+                "updatedAt": "$server"
+              }
+            },
+            {
+              "op": "set",
+              "path": "audit/$2",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.create",
+                "targetPath": "notes/$1",
+                "before": null,
+                "after": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": "2026-11-10",
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": null,
+                  "doneAt": null
+                },
+                "note": null
+              }
+            }
+          ],
+          "result": {"created":1,"skipped":[],"linkId":null,"together":0,"sourceIn":false}
+        }
+      },
+      {
+        "name": "複製營養品的提醒：丟錯、不寫",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": "e1",
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "copyTo",
+          "args": [{"id":"n1"},["2026-11-10"],true]
+        },
+        "out": {"writes":[],"error":"營養品的提醒不給複製 —— 要約別天給，到客戶詳情的「營養品」那一段約時間"}
+      },
+      {
+        "name": "複製一筆剛被刪掉的：丟錯、不寫",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": null,
+                "doneAt": null,
+                "deletedAt": {"$ts":[1793900000,0]},
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "copyTo",
+          "args": [{"id":"n1"},["2026-11-10"],true]
+        },
+        "out": {"writes":[],"error":"這一筆剛剛被刪掉了，沒有東西可以複製"}
+      },
+      {
+        "name": "拆開這一天",
+        "in": {
+          "uid": "u-widget",
+          "now": 1793946600000,
+          "store": {
+            "notes": {
+              "n1": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              },
+              "n2": {
+                "text": "王小明回電",
+                "customerId": null,
+                "customerName": null,
+                "date": null,
+                "done": false,
+                "entitlementId": null,
+                "linkId": "n1",
+                "doneAt": null,
+                "deletedAt": null,
+                "createdBy": "u-test",
+                "createdAt": {"$ts":[1793900000,0]},
+                "updatedAt": {"$ts":[1793900999,0]}
+              }
+            }
+          },
+          "call": "unlink",
+          "args": ["n2"]
+        },
+        "out": {
+          "writes": [
+            {"op":"update","path":"notes/n2","data":{"linkId":null,"updatedAt":"$server"}},
+            {
+              "op": "set",
+              "path": "audit/$1",
+              "data": {
+                "at": "$server",
+                "actor": "u-widget",
+                "action": "notes.update",
+                "targetPath": "notes/n2",
+                "before": {
+                  "text": "王小明回電",
+                  "customerId": null,
+                  "customerName": null,
+                  "date": null,
+                  "done": false,
+                  "entitlementId": null,
+                  "linkId": "n1",
+                  "doneAt": null,
+                  "deletedAt": null,
+                  "createdBy": "u-test",
+                  "createdAt": {"$ts":[1793900000,0]},
+                  "updatedAt": {"$ts":[1793900999,0]}
+                },
+                "after": {"linkId":null},
+                "note": null
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

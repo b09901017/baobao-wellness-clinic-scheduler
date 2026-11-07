@@ -247,4 +247,5 @@
 | [0177](./0177-sheet-slot-notes-stack-under-each-date.md) | 試算表的記一句也疊在那一個日期那一欄的矩陣底下、塗淡色（附註照留、器材不疊） | 2026-11-06 | 現行 |
 | [0178](./0178-sheet-nothing-frozen.md) | 試算表什麼都不凍結（列也不凍結） | 2026-11-06 | 現行 |
 | [0179](./0179-linked-notes-one-doc-per-day.md) | 複製到別天、連在一起的隨手記：每一天一筆、共用一個 `linkId`；勾、改字、改掛給誰一起變，改日期、刪掉只這一筆 | 2026-11-06 | 現行 |
+| [0180](./0180-notes-widget-is-a-native-android-app.md) | 隨手記的桌面小工具是另一支原生 Android app（兩個版本接 staging／正式站），直接讀寫同一個 Firestore；隨手記的規則多一份 Kotlin 的，用共用情境檔 `tests/fixtures/notes-parity.json` 盯著兩份一樣 | 2026-11-06 | 現行 |
 | [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |

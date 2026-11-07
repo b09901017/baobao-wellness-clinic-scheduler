@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小工具挑選畫面的預覽（09）：跟小工具同一個半透明底（Palette.Light 的 glass） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#D9FAF7F0" />
+    <corners android:radius="24dp" />
+</shape>
