@@ -819,7 +819,7 @@ function guestRow(ctx, slot, i, { name, value, notMine, course, nthExams }) {
  * 一次都接不上時那一句講出來要她做什麼（會改變寫入結果，不收進 `tip()`）。
  */
 function guestExamField(ctx, draft, slot, i, { nth, notMine }) {
-  // 還沒選課（`courseId` 是 null）時不畫：`isFollowupCourse(null)` 是 true（不是健檢的課 `followupCourseId` 都是 null）——
+  // 還沒選課（`courseId` 是 null）時不畫（`isFollowupCourse(null)` 以前是 true，2026-11-07 起那一支自己擋了，這裡照樣先問）——
   // 段六手動驗收抓到的：一次性客人剛開的那一段就跳出「app 裡沒有接得上的健檢」
   if (nth || notMine || !slot.courseId || !isOneTimeSlot(slot) || !isFollowupCourse(slot.courseId, ctx.all.courses)) return '';
   const choices = oneTimeExamChoices({

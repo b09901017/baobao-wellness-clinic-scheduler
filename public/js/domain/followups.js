@@ -93,8 +93,12 @@ export function followupCourseIdOf(course) {
   return course?.followupCourseId ?? null;
 }
 
-/** 這個課程是不是某個課程的二返。設定頁要擋掉「二返自己再配一個二返」。 */
+/**
+ * 這個課程是不是某個課程的二返。設定頁要擋掉「二返自己再配一個二返」。
+ * **沒給課程（還沒選、壞資料）一律不是**：不是健檢的課 `followupCourseId` 都是 null，不先擋的話 null 對 null 回 true（backlog 18）。
+ */
 export function isFollowupCourse(courseId, courses = []) {
+  if (!courseId) return false;
   return courses.some((c) => !c.deletedAt && followupCourseIdOf(c) === courseId);
 }
 

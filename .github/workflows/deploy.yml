@@ -171,25 +171,14 @@ jobs:
       - name: 這一次要部署到哪裡
         run: echo "→ ${{ steps.target.outputs.name }}（${{ steps.target.outputs.project }}）"
 
-      # 兩個環境各自一把服務帳號金鑰，放在 repository secrets：
-      #   FIREBASE_SERVICE_ACCOUNT          → 正式
-      #   FIREBASE_SERVICE_ACCOUNT_STAGING  → staging
-      # 服務帳號金鑰絕對不能 commit，只能放 secrets。設定方式見 docs/STAGING.md。
-      - name: 部署 Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
-          projectId: ${{ steps.target.outputs.project }}
-          channelId: live
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # 上面那個 action 只部署 Hosting。Rules 是真正的安全防線，
-      # 必須跟著程式一起上線，不能靠人記得手動部署。
-      # 索引同理：漏了索引，用到它的查詢會在正式環境上直接失敗。
+      # **Rules 與索引先上，Hosting 最後**（2026-11-07，11/4 健檢 #6）。Rules 是真正的安全防線，
+      # 必須跟著程式一起上線，不能靠人記得手動部署；索引同理：漏了索引，用到它的查詢會在正式環境上直接失敗。
+      # 反過來排的話，新的程式先上線、它要的洞與索引晚一兩分鐘才到 —— 那一兩分鐘裡她存檔會被擋。
+      # 這幾步任何一步紅了，Hosting 就不部署（手機上照舊是上一版）—— 去 Actions 看是哪一步，修好再推一次。
       - name: 部署 Firestore Rules 與索引
         env:
           SA_JSON: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
@@ -204,6 +193,7 @@ jobs:
 
       # 療程單照片的 Rules（ADR-0101、0105）。**另外一步**，不跟 Firestore 擠同一行：
       # 那個專案還沒建 Storage 的預設 bucket 時這一步會紅，而 Firestore 的 Rules 照樣要推上去。
+      # 它也排在 Hosting 前面：紅了 Hosting 就不上（兩個環境的 bucket 2026-10-12 都建好了，這一步一直是綠的）。
       # 第一次（每個專案一次）先照 docs/STAGING.md「三之三」建 bucket、從本機推一次。
       - name: 部署 Storage Rules
         env:
@@ -216,3 +206,16 @@ jobs:
             --project "${{ steps.target.outputs.project }}" \
             --non-interactive
           rm -f "$RUNNER_TEMP/sa.json"
+
+      # 兩個環境各自一把服務帳號金鑰，放在 repository secrets：
+      #   FIREBASE_SERVICE_ACCOUNT          → 正式
+      #   FIREBASE_SERVICE_ACCOUNT_STAGING  → staging
+      # 服務帳號金鑰絕對不能 commit，只能放 secrets。設定方式見 docs/STAGING.md。
+      # **排在最後**：上面那幾步（Rules、索引、Storage）都過了才換程式。
+      - name: 部署 Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ github.ref == 'refs/heads/main' && secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          projectId: ${{ steps.target.outputs.project }}
+          channelId: live

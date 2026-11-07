@@ -127,3 +127,37 @@ test('F5 拍 Abovee、每一列都是 app 裡沒有的人：抬頭講「app 裡�
   await expect(page.locator('[data-abl-row="a0"] .abl-row__tag')).toHaveText('app 裡沒有');
   await expect(page.locator('[data-abl-sum]')).toHaveText('app 裡沒有 2 段');
 });
+
+test('F7 桌機用滑鼠把面板往上拖、放在灰底上：面板不關（backlog 21）；之後點灰底照樣關、點面板裡的按鈕照樣按得到', async ({ app, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.seed([...masterDocs()]);
+  await app.signIn('/calendar');
+  await page.locator(`[data-day="${TODAY}"]`).first().click();
+  await app.layer('[data-addmenu-toggle]');
+  const drawer = page.locator('.drawer-backdrop .drawer');
+  await expect(drawer).toBeVisible();
+
+  // 從面板的抬頭按下去、一路拖到螢幕最上面（面板最高 94dvh，上面那一截是灰底）再放開
+  const head = await drawer.boundingBox();
+  await page.mouse.move(head.x + head.width / 2, head.y + 12);
+  await page.mouse.down();
+  for (const y of [head.y - 40, head.y - 200, 30, 8]) {
+    // eslint-disable-next-line no-await-in-loop
+    await page.mouse.move(head.x + head.width / 2, y, { steps: 4 });
+  }
+  const under = await page.evaluate(() => document.elementFromPoint(195, 8)?.className ?? '');
+  expect(under, '放開的那一點在灰底上（不然這一條測不到）').toContain('drawer-backdrop');
+  await page.mouse.up();
+
+  // Chrome 把 click 派給共同祖先（灰底）—— 以前那一下就把面板關了
+  await expect(drawer).toBeVisible();
+  await expect(page.locator('.drawer-backdrop')).toHaveCount(1);
+
+  // 拖過之後只吞那一下：面板裡的按鈕照樣按得到
+  await page.locator('[data-addmenu-toggle]').click();
+  await expect(page.locator('[data-add="visit"]')).toBeVisible();
+
+  // 點灰底照樣關（不是把關掉的路整條拿掉）
+  await page.mouse.click(195, 8);
+  await expect(page.locator('.drawer-backdrop')).toHaveCount(0);
+});
