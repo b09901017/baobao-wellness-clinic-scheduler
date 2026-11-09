@@ -12,7 +12,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  aboveeEnd, mergedLine, mergedMark, mergedNotices, needsAttention, newRowSay, planAbovee, readAbovee, summarizeAbovee,
+  aboveeEnd, mergedLine, mergedMark, mergedNotices, needsAttention, newRowSay, photoDayPlan, planAbovee, readAbovee, recordedSay,
+  resolveItem, rowTag, summarizeAbovee,
 } from '../public/js/domain/aboveeImport.js';
 import { aboveeConsequences } from '../public/js/domain/consequences.js';
 import { slotNoteCells } from '../public/js/domain/sheetReport.js';
@@ -127,6 +128,18 @@ describe('照片上沒有那一欄（只拍了一半）', () => {
     assert.equal(items[0].merged.note, '合併扣課：IN 30＋SIS 30');
   });
 
+  test('照分鐘合成一段時也講一句（她 11/9 段四：「合成一段＋也講一句」）：進發現問題、短字「合併」、不說「Abovee 沒勾」', () => {
+    const items = half([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', 'SIS 30', '')]);
+    assert.equal(items.length, 1);
+    const [m] = items;
+    const p = photoDayPlan([{ ...m, checked: true }], ctx());
+    const said = p.mustSeeBy[m.key] ?? [];
+    assert.ok(said.some((t) => /看不到「合併扣課」那一欄.*60 分一次.*照分鐘當成合併扣課.*拆開成兩段/.test(t)), said.join('\n'));
+    assert.ok(said.every((t) => !/Abovee 沒勾|只勾了一列/.test(t)), said.join('\n'));
+    assert.ok((rowTag({ ...m, checked: true }, p)?.all ?? []).includes('合併'));
+    assert.equal(p.rows.reduce((n, x) => n + x.charge, 0), 1, '扣一次');
+  });
+
   test('治療師不一樣 → 不合', () => {
     const items = half([r('10:30 - 11:00', 'IN 30', '', '陳小芳'), r('11:00 - 11:30', 'SIS 30', '', '陳美玲')]);
     assert.equal(items.length, 2);
@@ -136,5 +149,140 @@ describe('照片上沒有那一欄（只拍了一半）', () => {
     const items = half([r('10:30 - 11:00', 'IN 30', ''), r('11:00 - 11:30', 'SIS 30', '')], ctx([pool('w-30', 30)]));
     assert.equal(items.length, 2);
     assert.equal(items.some((i) => i.mergeOrphan), false, '沒有那一欄就沒有「勾了卻找不到另一半」這回事');
+  });
+});
+
+// ---------- 照額度的分鐘（family-merge-round 05，ADR-0185）----------
+//
+// 她 11/9：「abovee 這個，主要是給櫃檯看的，所以有時候我可能會忘記勾，或是多勾…但是拍到 app 裡，真的要記錄扣額度時就不能出錯，所以要提醒」
+// → 有那一欄也不只看勾：額度的分鐘＝兩列加起來就合成一段、跟勾不一樣就講一句。
+//
+// 回歸表是 5～10 月重對的真實形狀（只留課程字、起訖、勾、額度分鐘；日期與人都拿掉）。
+// **一列幾分鐘取「課程寫的分鐘」與「起訖」較小的那個**：Abovee 常多排 15 分空檔（16:00–16:45 的「高能量 30」），
+// 也有課程字寫 60、起訖只有 30 的（「SIS 60」排 16:15–16:45）。
+
+describe('照額度的分鐘：跟勾不一樣就講一句', () => {
+  const plan = (items, c = ctx()) => photoDayPlan(items.map((i) => ({ ...i, checked: true })), c);
+  const tagOf = (items, c = ctx()) => {
+    const p = plan(items, c);
+    return items.map((i) => rowTag({ ...i, checked: true }, p)?.all ?? []);
+  };
+
+  // [說明, 兩列（起訖、課程字、勾）, 額度, 合不合, 要不要講]
+  const SHAPES = [
+    ['沒勾、30＋30（第二列多排 15 分）、額度 60 分一次 → 合、講（忘了勾的那一種）',
+      [['15:30 - 16:00', 'IN 30', ''], ['16:00 - 16:45', '高能量 30', '']], [pool('w-60', 60)], true, true],
+    ['勾了、30＋30（第二列多排 15 分）、額度 60 → 合、不講', [['13:00 - 13:30', '高能量 30', '是'], ['13:30 - 14:15', 'IN 30', '是']], [pool('w-60', 60)], true, false],
+    ['勾了、IN 30＋SIS 60（起訖各 30）、額度 60 → 合、不講', [['15:45 - 16:15', 'IN 30', '是'], ['16:15 - 16:45', 'SIS 60', '是']], [pool('w-60', 60)], true, false],
+    ['勾了、30＋30、額度 60 → 合、不講', [['10:30 - 11:00', 'IN 30', '是'], ['11:00 - 11:30', 'SIS 30', '是']], [pool('w-60', 60)], true, false],
+    ['沒勾、60＋60、額度 60 → 不合、不講', [['09:30 - 10:30', '高能量 60', ''], ['10:30 - 11:30', 'SIS 60', '']], [pool('w-60', 60)], false, false],
+    ['沒勾、60＋60 多排 15 分、額度 60 → 不合、不講', [['13:00 - 14:15', 'IN 60', ''], ['14:15 - 15:30', 'SIS 60', '']], [pool('w-60', 60)], false, false],
+    ['沒勾、30＋30、額度 30 分一次 → 不合、不講', [['10:00 - 10:30', 'SIS 30', ''], ['10:30 - 11:00', 'IN 30', '']], [pool('w-30', 30)], false, false],
+    ['沒勾、30＋30 多排 15 分、額度 30 → 不合、不講', [['10:00 - 10:30', 'SIS 30', ''], ['10:30 - 11:15', 'SIS 30', '']], [pool('w-30', 30)], false, false],
+    ['勾了、30＋30、額度 30 分一次 → 不合（各扣一次）、講', [['10:30 - 11:00', 'IN 30', '是'], ['11:00 - 11:30', 'SIS 30', '是']], [pool('w-30', 30)], false, true],
+  ];
+  for (const [label, rows, ents, merges, says] of SHAPES) {
+    test(label, () => {
+      const items = read(rows.map(([time, course, mark]) => r(time, course, mark)), ctx(ents));
+      assert.equal(items.length, merges ? 1 : 2, '合成幾列');
+      const tags = tagOf(items, ctx(ents));
+      assert.deepEqual(tags.map((t) => t.includes('合併')), items.map(() => says), `短標記：${JSON.stringify(tags)}`);
+    });
+  }
+
+  test('沒勾、額度 60 分一次：記成一段 15:30–16:30、扣一次、記一句自動寫、講「Abovee 沒勾」', () => {
+    const items = read([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', '高能量 30', '')]);
+    const [m] = items;
+    assert.equal(m.merged.note, '合併扣課：IN 30＋高能量雷射 30');
+    assert.equal(mergedLine(m), 'IN 30＋高能量雷射 30 → 記成一段 60 分、扣一次');
+    assert.equal(m.checked, true);
+    const p = plan(items);
+    const [s] = p.groups[0].visit.slots;
+    assert.equal(p.groups[0].visit.slots.length, 1);
+    assert.deepEqual([s.startsAt, s.endsAt, s.entitlementId, s.note], ['15:30', '16:30', 'w-60', '合併扣課：IN 30＋高能量雷射 30']);
+    assert.ok(p.mustSeeBy[m.key].some((t) => /Abovee 沒勾合併扣課.*60 分一次.*先當成一段/.test(t)), p.mustSeeBy[m.key].join('\n'));
+    assert.equal(p.rows.reduce((n, x) => n + x.charge, 0), 1, '扣一次');
+  });
+
+  test('按「拆開成兩段」（換回 merged.parts）→ 兩段各扣一次、不再講', () => {
+    const [m] = read([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', '高能量 30', '')]);
+    const p = plan(m.merged.parts);
+    assert.equal(p.groups[0].visit.slots.length, 2);
+    assert.equal(p.rows.reduce((n, x) => n + x.charge, 0), 2);
+    assert.ok(Object.values(p.mustSeeBy).flat().every((t) => !/合併扣課/.test(t)));
+  });
+
+  test('只勾了一列、旁邊那一列沒勾、額度 60 分一次 → 照分鐘合、講「只勾了一列」', () => {
+    const items = read([r('15:30 - 16:00', 'IN 30', '是'), r('16:00 - 16:30', 'SIS 30', '')]);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].mergeOrphan, undefined);
+    const p = plan(items);
+    assert.ok(p.mustSeeBy[items[0].key].some((t) => /只勾了一列/.test(t)), p.mustSeeBy[items[0].key].join('\n'));
+  });
+
+  test('三列：沒勾、勾、勾（額度 60）→ 勾了的那兩列照舊合成一對，沒勾的那一列不去搶（段四審查）', () => {
+    const items = read([r('10:00 - 10:30', 'SIS 30', ''), r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')]);
+    assert.equal(items.length, 2, '合成幾列');
+    const m = items.find((i) => i.merged);
+    assert.deepEqual(m.merged.parts.map((p) => p.startsAt), ['10:30', '11:00']);
+    assert.equal(m.mergeGuess ?? null, null, '勾得對的那一對不講');
+    assert.ok(items.every((i) => !i.mergeOrphan));
+  });
+
+  test('兩列都勾、額度 30 分一次：兩段各扣 (30) 那一筆、兩列都講「勾了合併扣課…30 分一次」', () => {
+    const c = ctx([pool('w-30', 30)]);
+    const items = read([r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')], c);
+    assert.deepEqual(items.map((i) => [i.entitlementId, i.checked, Boolean(i.merged), Boolean(i.mergeOrphan)]),
+      [['w-30', true, false, false], ['w-30', true, false, false]]);
+    const p = plan(items, c);
+    assert.equal(p.rows.reduce((n, x) => n + x.charge, 0), 2);
+    for (const i of items) assert.ok(p.mustSeeBy[i.key].some((t) => /勾了合併扣課.*30 分一次.*兩段/.test(t)), p.mustSeeBy[i.key].join('\n'));
+  });
+
+  test('身上沒有挑得到的額度：照勾（兩列都勾 → 合）', () => {
+    const items = read([r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')], ctx([]));
+    assert.equal(items.length, 1);
+  });
+
+  test('換一位：上一位的「照分鐘合／拆」那一句不留著', () => {
+    const c = ctx([pool('w-30', 30)]);
+    const [a] = read([r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')], c);
+    assert.ok(a.mergeSplit);
+    assert.equal(resolveItem(a, 'c-wang', c).mergeSplit, false);
+    const [m] = read([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', '高能量 30', '')]);
+    assert.ok(m.mergeGuess);
+    assert.equal(resolveItem(m, 'c-wang', ctx()).mergeGuess, null);
+  });
+});
+
+describe('app 上已經有一段 60 分，照片兩列（後一半認領也照分鐘）', () => {
+  const saved = (startsAt, endsAt, entitlementId = 'w-60', equipmentId = 'eq-indiba') => ({ id: 'v1', customerId: 'c-wang', date: '2026-08-27', status: 'pending_confirm',
+    slots: [{ entitlementId, courseId: 'course-recovery', equipmentId, startsAt, endsAt, status: 'pending_confirm' }] });
+  const withVisit = (visit, ents = [pool('w-60', 60)]) => ({ ...ctx(ents), visitsBy: { 'c-wang': [visit] } });
+  const brief = (items) => items.map((i) => `${i.startsAt} ${i.kind}${i.mergeOrphan ? '(orphan)' : ''}${i.halfOf ? '(half)' : ''}`);
+
+  test('沒勾、app 15:30–16:30 一段 60 分（TimeTree 排的）、第二列 16:00–16:45 → 認領成後一半、講一句，不多記一段', () => {
+    const items = read([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', '高能量 30', '')], withVisit(saved('15:30', '16:30')));
+    assert.deepEqual(brief(items), ['15:30 recorded', '16:00 recorded(half)']);
+    assert.match(recordedSay(items[1]), /Abovee 沒勾合併扣課/);
+    assert.equal(summarizeAbovee(items).new, 0);
+  });
+
+  test('勾了、app 13:00–14:00、第二列 13:30–14:15（多排 15 分）→ 照樣認領（以前變成找不到另一半）', () => {
+    const items = read([r('13:00 - 13:30', '高能量 30', '是'), r('13:30 - 14:15', 'IN 30', '是')], withVisit(saved('13:00', '14:00', 'w-60', 'eq-laser')));
+    assert.deepEqual(brief(items), ['13:00 recorded', '13:30 recorded(half)']);
+    assert.doesNotMatch(recordedSay(items[1]), /沒勾/);
+  });
+
+  test('沒勾、app 那一段只有 30 分（額度 30 分一次）→ 第二列是新的一段', () => {
+    const items = read([r('10:00 - 10:30', 'IN 30', ''), r('10:30 - 11:00', 'SIS 30', '')],
+      withVisit(saved('10:00', '10:30', 'w-30'), [pool('w-30', 30)]));
+    assert.deepEqual(brief(items), ['10:00 recorded', '10:30 new']);
+  });
+
+  test('沒勾、app 那一段蓋得住、可是那一筆額度是 90 分 → 分鐘對不起來，不認領', () => {
+    const items = read([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:30', 'SIS 30', '')],
+      withVisit(saved('15:30', '17:00', 'w-90'), [pool('w-90', 90)]));
+    assert.deepEqual(brief(items), ['15:30 recorded', '16:00 new']);
   });
 });

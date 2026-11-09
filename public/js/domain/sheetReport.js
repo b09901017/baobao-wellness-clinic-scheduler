@@ -30,7 +30,7 @@ import { readMarks } from './customerMarks.js';
 import { timeLabel } from './visitTime.js';
 // `syncBundle()` 裡有一個同名的區域函式（id → 名字），所以這裡改個名字進來 ——
 // 兩個 `nameOf` 擺在同一支裡，下一個讀的人要先停下來想一下是哪一個。
-import { nameOf as variantName, fullNameOf } from './naming.js';
+import { nameOf as variantName, fullNameOf, attendeeOf, attendeeTag } from './naming.js';
 import { giftKindOf, giftLabel, isExamNotMine, isOneTime, isOneTimeSlot } from './masterData.js';
 
 /** 每張表的第一列。SPEC 第 4.8 節要求每張分頁都要有這句。 */
@@ -770,8 +770,10 @@ export function syncBundle({
             status: shortStatus(slotStatus(v, slot)),
             // 送的／體驗接在課程後面（gift-and-trial 03，跟日曆那一種名字 `slotName()` 同一種寫法：`心臟科評估(體驗)`）。
             // 讀的是快照不是 `slotName()`，所以要自己接；`.gs` 照字印、不比對這一格（不用升 `SYNC_FORMAT`）
+            // 家人用這位客戶的額度那一段再接 `(先生來)`（ADR-0183，同日曆那一種名字；接在 `(體驗)` 後面）
             course: `${slot.courseName ?? nameOf('courses', slot.courseId) ?? ''}${
-              giftLabel(giftKindOf(slot, coursesById)) ? `(${giftLabel(giftKindOf(slot, coursesById))})` : ''}`,
+              giftLabel(giftKindOf(slot, coursesById)) ? `(${giftLabel(giftKindOf(slot, coursesById))})` : ''}${
+              attendeeTag(slot, 'short')}`,
             time: timeLabel(slot),
             equipment: nameOf('equipment', slot.equipmentId),
             ivProduct: nameOf('ivProducts', slot.ivProductId),
@@ -784,7 +786,9 @@ export function syncBundle({
             // 格式 7：**沒有額度的段**（n返、不算次數的課）的記一句印在這一行的最後面 ——
             // 有額度的印在那一筆額度底下那一格（`slotNoteCells()`），這裡不印第二次。
             // 換行收成「／」：來訪紀錄一段一列，一格塞兩行常常只看得到第一行（`.gs` 的 `renderNotes()`）
-            note: slot.entitlementId ? null : (logNote(v, slot)?.replace(/\s*\n\s*/g, '／') ?? null),
+            // 誰來的寫在那一句前面（`whoLines()`，ADR-0183）：只有誰來的、沒記一句時也印「先生來」
+            note: slot.entitlementId ? null
+              : (whoLines(slot, logNote(v, slot)).map((t) => t.replace(/\s*\n\s*/g, '／')).join('／') || null),
           })),
       })).filter((d) => d.items.length),
     };
@@ -873,6 +877,29 @@ function logNote(visit, slot) {
 }
 
 /**
+ * 一段在附註上要印的那幾行：**誰來的寫在記一句前面**（family-merge-round 02，ADR-0183）。
+ *
+ * - 本人那一段（沒有誰來的）：照舊只有那一句（`said`；舊資料退回整筆那一句的規則在呼叫端那一支裡）
+ * - 先生來、這一段自己記了一句：一行 `先生來：下次改週五`
+ * - 先生來、這一段自己沒記：`先生來`；整筆那一句（舊資料的退路）**另外一行** —— 同一天本人那一段也印得到它，
+ *   呼叫端去重之後只出現一次，不會變成「先生來：她說想換一台」又一行「她說想換一台」
+ *
+ * 字在這裡組好，`.gs` 照字印（附註那一格、ADR-0177 疊在日期底下那一份都是）—— 不改 `.gs`、不升 `SYNC_FORMAT`；
+ * 字變了指紋跟著變（`sheetFingerprint()` 雜湊整頁）。
+ *
+ * @param {object} slot
+ * @param {string|null} said 那一段原本要印的那一句（`slotNote()`／`logNote()`）
+ * @returns {string[]}
+ */
+function whoLines(slot, said) {
+  const who = attendeeOf(slot);
+  if (!who) return said ? [said] : [];
+  const own = String(slot?.note ?? '').trim();
+  if (own) return [`${who}來：${own}`];
+  return said ? [`${who}來`, said] : [`${who}來`];
+}
+
+/**
  * 那一段記了什麼（格式 5 起）。形狀跟 `equipmentCells()` 一模一樣。
  *
  * 讀那一句走 `domain/visits.js` 的 `slotNote()` —— **唯一那一支**，
@@ -892,8 +919,10 @@ export function slotNoteCells(entitlement, visits, dates) {
       for (const slot of v.slots ?? []) {
         if (slot.entitlementId !== entitlement.id) continue;
         if (!isLiveSlot(slot)) continue;
-        const text = slotNote(v, slot);
-        if (text && !lines.includes(text)) lines.push(text);
+        // 家人來的那一段，那一行前面帶「先生來」（`whoLines()`，ADR-0183）
+        for (const text of whoLines(slot, slotNote(v, slot))) {
+          if (text && !lines.includes(text)) lines.push(text);
+        }
       }
     }
     if (lines.length) out.push({ dateIndex, text: lines.join('\n') });

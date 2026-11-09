@@ -120,6 +120,8 @@ export const fullNameOf = (row) => trimmed(row?.name);
  *    她：「但是來訪以及試算表還是要標註(送的)、(體驗)」。`short` 用到的地方全部跟著帶
  *    （月曆、日／週那一列、讀取卡片、待辦那一行、提醒句、撞期句…）—— 一處帶一處不帶她會以為是兩種東西。
  *    **貼給客人的那一句不加**。沒有那一格的舊資料照 `giftKindOf()` 的退路讀（課程勾了不算次數 → 體驗）
+ * 6. **家人用這位客戶的額度那一段，她自己看的那一種最後接 `(先生來)`**（`attendeeTag()`，ADR-0183）——
+ *    接在 `(體驗)` 後面。貼給客人的那一句在這裡不接（`messages.js` 自己接 `（先生）`）
  *
  * 2026-09-08 之前這裡還有一種「課程全名(器材別稱)」的接法（`復能(SIS)`）。
  * 她明確不要，所以那一段連同它的 `sameThing()` 一起拿掉了 ——
@@ -180,7 +182,32 @@ export function slotName(
 
   if (!base) return '';
   const gift = giftLabel(giftKindOf(slot, course ? { [course.id]: course } : {}));
-  return `${withMinutes(base, slot, course)}${gift ? `(${gift})` : ''}`;
+  return `${withMinutes(base, slot, course)}${gift ? `(${gift})` : ''}${attendeeTag(slot, 'short')}`;
+}
+
+/**
+ * 這一段是誰來的（family-merge-round 01，ADR-0183）。**空的＝客戶本人**。
+ *
+ * 家人用這位客戶的額度時（先生用太太的），那一段記在被扣的那一位身上（太太），
+ * 這一格寫來的是誰（她自己打的字：「先生」）。次數、試算表、待辦照舊掛在太太身上 ——
+ * 這一格只是讓人看得出「這一段不是她本人」。讀一律走這一支（舊資料沒有這一格）。
+ */
+export const attendeeOf = (slot) => trimmed(slot?.attendee);
+
+/**
+ * 名字後面那一小段：她自己看的寫 `(先生來)`（半形括號，同 `(體驗)`：月曆一格每個字都很貴），
+ * 貼給客戶的寫 `（先生）`（她 2026-11-09：「照樣列、後面加（先生）」）。本人那一段回空字串。
+ *
+ * `slotName()` 的 `short` 自己接（月曆、日／週那一列、讀取卡片、提醒句全部跟著帶）；
+ * `line` **不**接在 `slotName()` 裡（設定頁的名稱預覽也讀它），貼給客戶的話由 `messages.js` 接這一支。
+ *
+ * @param {{attendee?: string}} slot
+ * @param {'short'|'line'} [context]
+ */
+export function attendeeTag(slot, context = 'short') {
+  const who = attendeeOf(slot);
+  if (!who) return '';
+  return context === 'line' ? `（${who}）` : `(${who}來)`;
 }
 
 /**
@@ -208,7 +235,7 @@ function withMinutes(base, slot, course) {
 /**
  * 一筆來訪要唸成什麼（好幾段時接起來）。
  *
- * 同一個名字只印一次 —— LINE 草稿上同一天兩段點滴不該說兩次。
+ * 同一個名字只印一次 —— LINE 草稿上同一天兩段點滴不該說兩次。家人那一段帶著 `（先生）`，所以跟本人那一段是兩個名字。
  *
  * **月檢視不再用這一支**：那裡改成一段一條色條（`domain/calendar.js` 的
  * `monthBars()`），而在那裡去重是錯的 —— 兩段點滴就是兩條。
@@ -219,7 +246,8 @@ export function visitNames(visit, master, context = 'short') {
   const seen = new Set();
   const out = [];
   for (const slot of visit?.slots ?? []) {
-    const name = slotName(slot, master, context);
+    // 貼給客人的那一句也要分得出先生那一段（`（先生）`，她 2026-11-09）；她自己看的那一種 `slotName()` 已經接了
+    const name = context === 'line' ? `${slotName(slot, master, context)}${attendeeTag(slot, 'line')}` : slotName(slot, master, context);
     if (!name || seen.has(name)) continue;
     seen.add(name);
     out.push(name);

@@ -1,6 +1,6 @@
 # 拍 Abovee：看起來是合併扣課卻沒勾、勾了卻不像，要提醒
 
-Status: idea（她 2026-11-09 要記成 issue；動到拍 Abovee 的判斷，開工走 /kickoff；細節等「重新對帳 5～10 月全部 Abovee」那一輪的結果出來再定）
+Status: in-progress（2026-11-09 kickoff：拆成 `.scratch/family-merge-round/issues/05、06`；她選「照額度的分鐘＋講一句」，見那一份 spec.md）
 動工前先讀：`public/js/domain/aboveeImport.js` 的 `mergeRows()`、`looksMerged()`、`obviousEntitlement()`、`claimHalves()`、
 `warningsByRow()`／`mustSee()`／`problemsPage()`；`.claude/rules/abovee.md`「拍 Abovee 記很多段」；
 ADR-0123（合併扣課怎麼認）、ADR-0170（「發現問題」那一頁）；`CONTEXT.md`「合併扣課」

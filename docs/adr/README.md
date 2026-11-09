@@ -46,6 +46,7 @@
 | [0119](./0119-a-course-ticks-its-own-systems.md) 課程自己勾壓哪幾個系統 | 「改了勾法不追溯」—— 已經談定的回頭重算 | [0140](./0140-changing-a-course-recomputes-the-tasks-of-agreed-visits.md) |
 | [0122](./0122-minutes-are-picked-at-booking.md) 約的時候選時長 | 「沒做的」第三條（EECP 的 20／60 是兩門課） | [0154](./0154-eecp-is-one-course.md) |
 | [0123](./0123-abovee-confirm-picks-like-the-board.md) 拍 Abovee 的確認層跟壓表一樣選得了 | 第 10 段（改了時間不替她做）與第 11 段（治療師／診間她按了才改） | [0149](./0149-the-abovee-photo-status-is-what-gets-recorded.md) |
+| [0123](./0123-abovee-confirm-picks-like-the-board.md) 拍 Abovee 的確認層跟壓表一樣選得了 | 第 09 段的「照片上有那一欄就照勾的」—— 照額度的分鐘（＝兩列加起來就合、勾了卻是單列的分鐘就拆），跟勾不一樣講一句；沒有那一欄照分鐘合的也講一句（不再「不講」） | [0185](./0185-abovee-merge-follows-entitlement-minutes.md) |
 | [0124](./0124-treatment-room-7-is-back.md) 治7 回來了 | 「治6、休息室1 等她第一次用到再自己加」 | [0127](./0127-bed-rooms-are-rooms.md) |
 | [0127](./0127-bed-rooms-are-rooms.md) 點滴8A／8B、VIP7A／7B 是四間各自的診間；點滴8、VIP7 是「沒選床位」 | 點滴8、VIP7 留著停用 —— 拿掉了 | [0155](./0155-bedless-rooms-go-and-the-merge-file-is-born-current.md) |
 | [0129](./0129-abovee-photo-checks-what-is-missing.md) 拍 Abovee 也講「app 有、這次照片上沒有」 | 「沒有多出來的段時只留那一行『對過 …』」—— 沒有就不畫 | [0170](./0170-abovee-confirm-shows-results-first-problems-on-a-tab.md) |
@@ -170,7 +171,7 @@
 | [0100](./0100-the-first-server-code-and-its-five-locks.md) | 第一支伺服器程式 —— 一支 Cloud Function、五道防護、自己數的上限 | 2026-09-17 | 現行 |
 | [0101](./0101-photos-and-privacy.md) | 照片與隱私 —— 哪些送出去、哪些留下來、什麼時候真的刪 | 2026-09-17 | 現行 |
 | [0102](./0102-new-customer-warnings-become-a-triangle.md) | 新增客戶那一頁的提醒收成 ⚠，存檔前再講一次 | 2026-09-17 | 現行 |
-| [0103](./0103-chart-number-helps-identify.md) | 認人時名字與病歷號一起比，對不上就不挑 | 2026-09-17 | 現行 |
+| [0103](./0103-chart-number-helps-identify.md) | 認人時名字與病歷號一起比，對不上就不挑 | 2026-09-17 | 部分被推翻 → ADR-0184（拍 Abovee 的「實際扣課病歷號」只照號碼認） |
 | [0104](./0104-many-slots-from-one-photo.md) | 照片一次記很多段 —— 確認層就是第一道、存檔前只問一次、直接標成壓完 | 2026-09-17 | 部分被推翻 → ADR-0149 |
 | [0105](./0105-treatment-sheets-kept-and-matched.md) | 療程單怎麼留、怎麼比 —— 同一張由規則認、拿不準就是新的一張、舊照片最後才刪、只比到最後一次簽名 | 2026-09-17 | 現行 |
 | [0106](./0106-a-deleted-task-counts-only-if-it-was-ticked.md) | 被刪掉的任務，勾過的才算做過 | 2026-09-23 | 現行 |
@@ -190,7 +191,7 @@
 | [0120](./0120-doctors-have-specialties.md) | 醫師有科別，課程指定哪一科 —— 排前面，不是限制 | 2026-10-05 | 現行 |
 | [0121](./0121-a-course-can-be-uncounted.md) | 一段可以不扣任何額度 —— 課程上的「不算次數」 | 2026-10-05 | 現行 |
 | [0122](./0122-minutes-are-picked-at-booking.md) | 約的時候選時長 | 2026-10-05 | 部分被推翻 → ADR-0154 |
-| [0123](./0123-abovee-confirm-picks-like-the-board.md) | 拍 Abovee 的確認層跟壓表一樣選得了 | 2026-10-05 | 部分被推翻 → ADR-0149 |
+| [0123](./0123-abovee-confirm-picks-like-the-board.md) | 拍 Abovee 的確認層跟壓表一樣選得了 | 2026-10-05 | 部分被推翻 → ADR-0149、ADR-0185（合併扣課照額度的分鐘） |
 | [0124](./0124-treatment-room-7-is-back.md) | 治7 回來了 | 2026-10-05 | 部分被推翻 → ADR-0127 |
 | [0125](./0125-the-health-check-does-not-build-a-twin.md) | 她已經有一筆同名的，資料健檢就不再建一筆 | 2026-10-05 | 現行 |
 | [0126](./0126-a-course-can-be-booked-nowhere.md) | 一門課可以哪個系統都不用壓 | 2026-10-06 | 現行 |
@@ -250,3 +251,6 @@
 | [0180](./0180-notes-widget-is-a-native-android-app.md) | 隨手記的桌面小工具是另一支原生 Android app（兩個版本接 staging／正式站），直接讀寫同一個 Firestore；隨手記的規則多一份 Kotlin 的，用共用情境檔 `tests/fixtures/notes-parity.json` 盯著兩份一樣 | 2026-11-06 | 現行 |
 | [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |
 | [0182](./0182-camera-stays-black-with-the-system-camera-below.md) | 拍照畫面出不來就照舊黑著、不換頁（底下那排照樣按得到系統相機）；快門不拍黑的 | 2026-11-08 | 現行 |
+| [0183](./0183-family-member-uses-a-customers-entitlement.md) | 家人用這位客戶的額度：那一段記在被扣的那一位身上，多寫「誰來的」（`slot.attendee`）；誰來的不一樣不算時間重疊，撞期照講 | 2026-11-09 | 現行 |
+| [0184](./0184-abovee-family-row-charges-the-payer-by-number.md) | 拍 Abovee 的家人那一列：照「實際扣課病歷號」認被扣的那一位（候選剛好一位，ADR-0103 的例外）、記在她身上、自動填誰來的；比對「已經記了」要誰來的一樣 | 2026-11-09 | 現行 |
+| [0185](./0185-abovee-merge-follows-entitlement-minutes.md) | 拍 Abovee 的合併扣課照額度的分鐘（＝兩列加起來就合成一段、勾了卻是單列的分鐘就拆兩段），跟勾不一樣講一句（沒有那一欄照分鐘合的也講）；一列幾分鐘取課程字與起訖較小的 | 2026-11-09 | 現行 |

@@ -23,7 +23,7 @@
 import { shortDate, daysBetween, addMonths } from './dates.js';
 import { isValidTime } from './visitTime.js';
 import { textFor, fill } from './messageTemplates.js';
-import { slotName, visitNames } from './naming.js';
+import { slotName, visitNames, attendeeTag } from './naming.js';
 import { asPending, liveSlots } from './visits.js';
 
 /** 這一則現在的字，換上變數。 */
@@ -92,7 +92,9 @@ function slotLines(visits = [], master = {}) {
       endsAt: s?.endsAt ?? '',
       // 貼給客戶的那一句**只講課程**（ADR-0077）：她點的是四選一、那天壓了
       // 超磁場，客戶看到的仍然是「復能」。客戶不需要知道是哪一台。
-      courseName: slotName(s, master, 'line'),
+      //
+      // 家人用這位客戶的額度那一段照樣列、後面加「（先生）」（她 2026-11-09，ADR-0183）
+      courseName: `${slotName(s, master, 'line')}${attendeeTag(s, 'line')}`,
     })))
     .sort((a, b) => a.date.localeCompare(b.date)
       // 沒有時間的排那一天的最後 —— 它不知道幾點，擺在有時間的前面會誤導

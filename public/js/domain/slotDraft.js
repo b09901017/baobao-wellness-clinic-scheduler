@@ -21,6 +21,7 @@ import { picksDoctor, canBeGift, GIFT_KINDS, examNotMineCourse, EXAM_NOT_MINE_LA
 import { courseIdForNth, examChoicesForNth, nthSlotFields, nthLabel, MIN_NTH, isOneTimeExamVisit } from './nthFollowup.js';
 import { endOf, isValidTime } from './visitTime.js';
 import { isFollowupCourse } from './followups.js';
+import { attendeeOf } from './naming.js';
 
 /**
  * 她選的那幾樣 → 一段時段。
@@ -79,6 +80,7 @@ export function slotFromPicks(picks, ctx) {
     equipmentId = null, ivProductId = null, startsAt = null,
     roomId = null, bed = null, therapistId = null, doctorId = null, nth = null,
     followupForVisitId = null, note = null, minutes = null, status = INITIAL_STATUS, cancelReason = null,
+    attendee = null,
   } = picks ?? {};
   const { courses = [], equipment = [], ivProducts = [], entitlements = [], visits = [] } = ctx ?? {};
   const fail = (error) => ({ slot: null, errors: [error], course: null, assigns: null });
@@ -202,7 +204,29 @@ export function slotFromPicks(picks, ctx) {
     ...(begins === 'cancelled' ? { cancelReason: String(cancelReason ?? '').trim() || null } : {}),
   };
 
-  return { slot, errors: [], course, assigns };
+  // 誰來的（ADR-0183）：家人用這位客戶的額度。只有寫了字的段有這一格 —— 本人那一段長得跟以前一模一樣
+  return { slot: withAttendee(slot, attendee ?? null), errors: [], course, assigns };
+}
+
+/** 「誰來的」最多幾個字（「先生」「女兒」「媽媽」，寫不到這麼長；擋的是貼錯一整句進來）。 */
+export const ATTENDEE_MAX = 20;
+
+/**
+ * 把「誰來的」放回一段上（ADR-0183）。**空的就把那一格拿掉**（＝本人），不寫空字串 ——
+ * 本人那一段長得跟以前一模一樣，舊資料讀回來、存回去一個字都不變。
+ *
+ * 給「從畫面讀回來、組時段的那幾條路有的不帶這一格」的入口用（來訪編輯器的 `readDraft()` 五條出口）：
+ * 讀完再套一次，哪一條路都不會把它掉了。`value` 是 `undefined`（那一格沒畫出來）時留原本的。
+ *
+ * @param {object} slot 組好的那一段
+ * @param {string|null|undefined} value 她打的字
+ * @param {object} [before] 原本那一段（`value` 是 `undefined` 時讀它的）
+ */
+export function withAttendee(slot, value, before = slot) {
+  if (!slot) return slot;
+  const who = attendeeOf({ attendee: value === undefined ? before?.attendee : value }).slice(0, ATTENDEE_MAX);
+  const { attendee: _old, ...rest } = slot;
+  return who ? { ...rest, attendee: who } : rest;
 }
 
 /**

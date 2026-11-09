@@ -26,9 +26,10 @@ paths:
 - **app 上那一格只有取消掉的段、Abovee 上還掛著的，算新的一段、不預設打勾**（`appCancelledHere`，課程一不一樣都是；同一門課的多一格 `appCancelledSame`，句子不一樣、排進要你看；ADR-0144 推翻 ADR-0116 那一格）—— 取消之後同格重約的要記得進去，她勾了才寫，取消的那一段不救回來。
 - **確認框的句子在 `consequences.js` 的 `aboveeConsequences()`**，跟壓表與日曆新增共用 `registrationsWhenSettled()`、`settledDayLine()` —— 以前寫在畫面裡，#129 的 22 與補登過去那一天它都沒跟上。
 - **2026-10-05 確認層跟壓表一樣選得了**（ADR-0123）：每一列「換一位」（`domain/customers.js` 的 `searchCustomers()`）；「要做什麼」那一排＝`slotOptionsFor(…, { includeUsedUp: true })`，她按一顆與翻譯時預選**走同一支 `pickOption()`**（n返 與送的／體驗在挑額度之前分流；照片上的品項優先；送的／體驗走 `giftRow()`，照片上那一台屬於這門課才留）。
-- **預約來源寫「體驗」**（抄字第十一欄，2026-10-14，ADR-0148）：判斷只有 `isTrialRow()`，`resolveItem()` 預選那門課的體驗、**不看身上有沒有額度**；健檢與二返（`canBeGift()` 是 false）照舊挑額度、`warningsByRow()` 多一句 `trialSay()`（**進 `mustSee`**）；「換一位」照樣是體驗（照片上的字）；合併扣課跳過送的／體驗的列（`mergeOrphan` 也不標）。
+- **預約來源寫「體驗」**（抄字的「預約來源」那一欄，2026-10-14，ADR-0148）：判斷只有 `isTrialRow()`，`resolveItem()` 預選那門課的體驗、**不看身上有沒有額度**；健檢與二返（`canBeGift()` 是 false）照舊挑額度、`warningsByRow()` 多一句 `trialSay()`（**進 `mustSee`**）；「換一位」照樣是體驗（照片上的字）；合併扣課跳過送的／體驗的列（`mergeOrphan` 也不標）。
 - 抄不到那一欄（Function 沒重新部署）就是不是體驗，行為跟以前一樣。
-- **合併扣課**是 `mergeRows()`（`readAbovee()` 最後一步：一對記成一段、記一句自動寫、第二台的提醒 `mergedNotices()`；勾了找不到另一半的 `mergeOrphan` 不打勾），抄字第十欄，**Function 沒重新部署之前抄不到那一欄**。
+- **合併扣課**是 `mergeRows()`（`readAbovee()` 最後一步：一對記成一段、記一句自動寫、第二台的提醒 `mergedNotices()`；勾了找不到另一半的 `mergeOrphan` 不打勾），抄字的「合併扣課」那一欄，**Function 沒重新部署之前抄不到那一欄**。
+- **算不算一對照額度的分鐘，不只看勾**（ADR-0185，推翻 ADR-0123 那一點）：判斷只有 `looksMerged()`（額度分鐘＝兩列加起來）；沒勾全卻合了是合起來那一列的 `mergeGuess`（`none`／`one`；**照片上沒有那一欄照分鐘合的是 `noColumn`，也講一句**、句子不說「沒勾」 —— 她 11/9 段四），兩列都勾卻拆了是兩列的 `mergeSplit`（`{ with: 另一列的 key, tail }` —— 另一半是誰只看它，不照時間猜）；**兩列都勾的那幾對先配、剩下的才照分鐘配**（一格一格往下配的話「沒勾＋勾」會把勾得對的那一對拆散，段四審查）；句子只在 `mergeMinutesSay()`（`warningsByRow()` 的 `mergeMinutes` → 進 `mustSee`、短字「合併」）。**一列幾分鐘只問 `rowMinutes()`**（課程字與起訖取較小的 —— Abovee 多排 15 分空檔）、做到幾點問 `rowEnd()`；`claimHalves()` 的「蓋得住」與沒勾的後一半（`slotFitsPair()` → `halfGuess`，`recordedBaseSay()` 講一句）也讀它們。這三個旗標在 `resolveItem()` 的 `next` 與 `asRecorded()` 都清。月底對帳拿同一支判斷（不另寫一套）。
 - **搬了時間**是 `flagMoved()`：拿得準的那一對（剛好一對、舊的時間在照片範圍裡 —— 範圍跟「app 有、這次照片上沒有」同一支 `photoBounds()`、舊的還開著；**app 上新的那個時間取消過的列不算**（`appCancelledHere`：多半是日曆先改了、Abovee 還沒改，照 ADR-0144 走，2026-10-16 中途發現 17））→ 「已經記了」＋`move`＋`adoptMove`（預設勾），`applyPhotoMove()` 走 `rebookSlot(…, { status })`（新的那一段照照片的狀態、時長照舊、治療師診間照照片，`movedSlotFields()`）；改完撞期、重疊、二返簽不成 → `checkMoves()` 不先勾、講一句（**不是不准改**）。
 - **它的 kind 是 `recorded`，不可以再被當成新的一段記一次**（舊的沒取消、新的多一段＝多扣一次）。
 - 拿不準的照舊（新的、不預設打勾、去日曆改期）；不同天的改期認不出來。
@@ -55,6 +56,9 @@ paths:
 - 讀照片的最後一步是 `linkBatchExams()`（一次都接不上 → `noExam`、不預設打勾、「先去約健檢」；**一列一列接**，後面那一列看得到前面那一列先選好的那一次 —— 各看各的話一次健檢、兩列二返會各選同一次、存的時候互相擋住）；**先選好哪一次只有一支**（`onlyOpen()`：讀照片那一下、她自己按一顆的 `pickOption(…, items)`、換一位的 `resolveItem(…, items)` —— 少傳 `items` 就只看資料庫，同一列按一次換一個答案）；她勾起／拿掉一列只重算旗標（`refreshNoExam()`），不動勾與選擇。
 - **接的那一次健檢那一天這一次記不進去，二返那一列也先不記、講出來**（`stuckLinks()`）—— 照樣存就是她選好的那一次被安靜地存成沒接上。
 - **一次性客人的列**（`guest`／`guestCourseId`／`guestSecond`／`bothSeconds`，後三格也在那三處清）見「一次性客人」那一節（`one-time-guests.md`）
+- **家人用別人的額度的那一列**（抄字「實際扣課病歷號」「關係」，family-merge-round 03，ADR-0184）：判斷與認被扣的那一位只在 `familyOf()`（有字、跟病歷號不一樣；**只照號碼、候選剛好一位**，ADR-0103 的例外 —— 月底對帳 `paidByOf()` 同一個認法）→ 列上的 `family`（照片上的事，換一位不清）；記在誰身上是 `ownerOf()`、「誰來的」是 `attendeeFor()`（列上的 `attendee`，每次 `resolveItem()` 重算：換成來的那一位本人就清掉）→ `picksOf()` 交給 `slotFromPicks()`。照片指到誰問 `photoPickOf()`（`pickedByHand()` 讀它：認不得被扣的那一位時誰都不是照片指到的 → 不先勾、`needsAttention()`）；那一句是 `familySay()`（`nearSay()` 的第一句，**不進 `mustSee`**）。
+- **比對「app 上已經有這一段了嗎」一律問誰來的有沒有字一樣**（`sameAttendee()` 比 app 那一段、`sameWho()` 比兩列；不比字）：`existingAt()`、`alreadyInApp()`、`claimHalves()`（＋`appSlotOf()` 先認認領的那一段）、`mergeRows()`（排序也分開）、`claimTimeless()`（本人先認、家人認剩下的）、`flagMoved()`／`movedSlots()`、`looksRepeated()`、`rebookedHere()`、`absentFromPhoto()` 的 `onPhoto()`。**新增一種比對也要問**，不然先生那一列會認領太太自己同一個時間那一段、漏記一次。
+- 舊資料（家人那一段誰來的空著，8/27 那種）只在 `existingAt()` 的 `spare` 放寬：照片上別列沒認領的才算（`takenSlots()`；讀照片那一下 `withOldFamilySlots()` 等每一列都認完再認一次）→ `oldFamily`，`recordedSay()` 講一聲。抄不到那兩欄（Function 沒重新部署）就沒有家人那一列，行為跟以前一樣。
 
 ## 照片上的人是 app 裡的哪一位
 
@@ -62,6 +66,7 @@ paths:
 - `numberOnly`／`conflict`／`ambiguous` 的 `customer` 一律是 null —— **對不上時不自動挑人**，挑一個「最像的」就是把一段時間記到別人身上，而畫面上看起來是認得的。
 - **名字對上剛好一位、照片上有號碼、那一位一個號碼都沒有是 `nameNoChart`**（ADR-0160，從 `nameOnly` 分出來）：`customer` 照舊是他，但拍 Abovee **不先勾**（`aboveeImport.js` 的 `unverified()` 擋在 `recognized` 那一層 —— 改狀態、改期、扣法、治療師／診間的預設勾一起管到）、排進要你看、講一句（`chartNoSay()`，兩個確認層共用；療程單那一句是「照常存」）；她勾了（療程單：存了）存的時候順便把號碼記上（`chartNoWrites()`：只寫空著的、換一位的不寫、同一位兩個號碼不寫、寫去掉前面 0 的）。
 - **唯一的例外是 `nearName`**（ADR-0128，她：「直接算吻合」）：病歷號對上剛好一位、名字跟他差一個字（`masterData.js` 的 `oneCharOff()`：三個字以上、一樣長；兩個字的不放寬）→ 認得，**而且畫面一定講出來**（`nearNameSay()`，兩個確認層共用 —— 拍 Abovee 走 `aboveeImport.js` 的 `nearSay()`）。
+- **例外：拍 Abovee 的「實際扣課病歷號」只照號碼認、候選剛好一位就是他**（ADR-0184，`aboveeImport.js` 的 `familyOf()`）—— 那是 Abovee 系統帶出來的號碼，不是手打的名字。
 - 病歷號讀 `customer.chartNo`、**還寫成短備註的照樣認**（`chartNosOf()`：那一格排第一、再讀 `CHART_NO_PREFIX` 那幾則，ADR-0160）—— 回傳形狀沒變，`merge.mjs`、月底對帳照舊 import 它
 
 ## 主檔的 `aboveeNames`（Abovee 上的寫法）
@@ -78,5 +83,7 @@ paths:
 ## 月底對帳 skill 讀的那幾支（`readAbovee()` 每一列的 `kind`／`reason`／`statusChange`／`existing`、`absentFromPhoto()`、`counts()`、`syncBundle()` 額度列的順序）
 
 - `.claude/skills/month-end-reconciliation/scripts/reconcile.mjs` 照它們分類、數次數（2026-10-16）—— 改了形狀或新增一種 `reason` 要回去對它的分類表，`tests/month-end-reconciliation.test.js` 用假資料整支跑一次盯著。
+- **抄字的 `COLS` 有「實際扣課病歷號」「關係」**（family-merge-round 04）：家人那一列在 `readAbovee()` 裡就記在被扣的那一位身上 —— 對帳自己的 `paidByOf()` 只剩畫面上講「扣誰的號碼」與舊表那一步；它自己比對「同一個時間那一段」的地方（`coveringSlot()`）也問誰來的一樣。
+- **合併扣課那一塊**（family-merge-round 06）：拿同一份抄字、這個月的來訪拿掉再叫一次 `readAbovee()`，讀它的 `mergeGuess`／`mergeSplit`（一對照 `.with` 配、`.tail` 那一列不另算）／`mergeOrphan` —— 改了這三個旗標的意思或名字要回去對 `reconcile.mjs` 的 `mergeChecks`；次數照 Abovee 的勾算（`mergeGuess` 算兩次、`mergeSplit` 的後一列不算、`halfGuess` 算進前一列那一段）。
 - **它叫 `absentFromPhoto()` 一定傳 `{ everyone: true }`**（一整個月、每一位都要對；不傳就照照片上幾位只對那一兩位，ADR-0153）。
 - 那支 skill **只讀 Firebase**（`snapshot.mjs` 把寫入的入口換成丟錯），有真名的東西只在 `.local/references/月底對帳/`

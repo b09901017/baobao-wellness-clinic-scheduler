@@ -17,7 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 const D = (f) => import(pathToFileURL(resolve(REPO, 'public/js/domain', f)).href);
 
-const { readAbovee, absentFromPhoto, statusFromAbovee, mergedMark } = await D('aboveeImport.js');
+const { readAbovee, absentFromPhoto, statusFromAbovee, mergedMark, aboveeEnd } = await D('aboveeImport.js');
 const { counts, slotOutcome, isProduct } = await D('entitlements.js');
 const { syncBundle } = await D('sheetReport.js');
 const { slotStatus, isActive, isLiveSlot, markFor } = await D('visits.js');
@@ -26,7 +26,7 @@ const { giftKindOf, giftLabel, isOneTime, isOneTimeSlot } = await D('masterData.
 const { nthOf } = await D('nthFollowup.js');
 const { todayISO } = await D('dates.js');
 const { bookingSystemOf } = await D('taskRules.js');
-const { identifyCustomer } = await D('identify.js');
+const { identifyCustomer, chartNosOf, normalizeChartNo } = await D('identify.js');
 
 // ---------- 參數 ----------
 
@@ -73,6 +73,7 @@ const customers = snap.customers.filter(alive);
 const customersById = Object.fromEntries(snap.customers.map((c) => [c.id, c]));
 const entitlementsBy = groupBy(snap.entitlements.filter(alive), 'parentId');
 const entitlementsById = Object.fromEntries(snap.entitlements.map((e) => [e.id, e]));
+const liveEntsOf = (customerId) => entitlementsBy[customerId] ?? [];
 const visitsAlive = snap.visits.filter(alive);
 const visitsBy = groupBy(visitsAlive, 'customerId');
 const visitsById = Object.fromEntries(snap.visits.map((v) => [v.id, v]));
@@ -109,8 +110,8 @@ const fullDay = (date) => inRange(date) && !gapDays.has(date)
 const seen = (key) => rows.some((r) => r[key] != null && r[key] !== '-');
 const COLS = [
   ['預約狀態', 'status'], ['預約日期', 'date'], ['預約時段', 'time'], ['姓名', 'name'], ['病歷號', 'chartNo'],
-  ['課程', 'course'], ['合併扣課', 'merged'], ['預約來源', 'source'], ['診間', 'room'], ['服務資源', 'resource'],
-  ['取消原因', 'cancelReason'],
+  ['課程', 'course'], ['合併扣課', 'merged'], ['實際扣課病歷號', 'actualChartNo'], ['關係', 'relation'],
+  ['預約來源', 'source'], ['診間', 'room'], ['服務資源', 'resource'], ['取消原因', 'cancelReason'],
 ].filter(([, key]) => ['status', 'date', 'time', 'name', 'chartNo', 'course'].includes(key) || seen(key));
 
 const transcript = {
@@ -307,13 +308,18 @@ function baseOfItem(item) {
     date: item.date, time: r.time ?? '', startsAt: item.startsAt ?? null,
     customerId, name: customerId ? customersById[customerId]?.name ?? r.name : r.name,
     abovee: { status: r.status ?? '', course: r.course ?? '', resource: r.resource ?? '', src: rowOf(item)?.src ?? null,
-      row: rowOf(item)?.row ?? null, paidBy: paidByOf(rowOf(item)) },
+      row: rowOf(item)?.row ?? null, paidBy: paidByOf(rowOf(item)),
+      // 家人用這一位的額度（family-merge-round 04）：來的是誰（照片上的名字＋關係）—— 結果頁那一格接「王小明（夫妻）來」
+      attendee: item.attendee ?? null },
     app: hit ? { status: slotStatus(hit.visit, hit.slot), name: slotName(hit.slot, master, 'short'), time: hit.slot.startsAt ?? '', visitId: hit.visit.id, slotIndex: hit.index }
       : null,
     courseId: item.course?.courseId ?? null,
     sheet: customerId && entId ? { mark: sheetMark(customerId, entId, item.date), label: entitlementsById[entId]?.label ?? '' } : null,
   };
 }
+
+/** 家人那一列講「誰」：照片上的名字＋關係（`家人（王小明，夫妻）`）。 */
+const familyWho = (item) => `家人（${item.row?.name || '？'}${item.family?.relation ? `，${item.family.relation}` : ''}）`;
 
 /** Abovee 上「實際扣課病歷號」跟這一列的病歷號不一樣（用家人的額度）—— app 上那一段可能記在家人身上，要講出來。 */
 function paidByOf(row) {
@@ -349,6 +355,8 @@ function coveringSlot(item) {
   if (start == null) return null;
   for (const other of items) {
     if (other === item || other.customerId !== item.customerId || other.date !== item.date || other.kind !== 'recorded' || other.photoStatus !== 'done') continue;
+    // 家人那一列不是本人那一段的後一半（誰來的有沒有字要一樣，family-merge-round 04）
+    if (Boolean(other.attendee) !== Boolean(item.attendee)) continue;
     const hit = appSlotOf(other);
     const [s0, s1] = [minutesOf(hit?.slot?.startsAt), minutesOf(hit?.slot?.endsAt)];
     if (s0 == null || s1 == null || !(s0 <= start && start < s1)) continue;
@@ -377,14 +385,8 @@ for (const item of items) {
       who.rows.push({ date: item.date, time: item.row?.time ?? '', course: item.row?.course ?? '', status: item.row?.status ?? '',
         paidBy: paidByOf(rowOf(item))?.name ?? null });
       strangers.set(k, who);
-      // 家人用名單上那一位的號碼做完的（實際扣課病歷號）：Abovee 扣的是那一位 —— 那一位那天 app 上沒有這一段的話，就是 app 少扣一次
-      // （app 還做不到扣家人的額度，.scratch/family-charge；記在那一位身上、同一個時間的那一段算有記）
-      const paid = paidByOf(rowOf(item));
-      if (ps === 'done' && paid?.customerId && !appSlotAt(paid.customerId, item.date, item.startsAt)) {
-        push('fix', 'familyMissing', { ...base, customerId: paid.customerId, name: paid.name },
-          `家人（${item.row?.name ?? ''}${paid.relation ? `，${paid.relation}` : ''}）用這一位的號碼做了「${item.row?.course ?? ''}」，app 上這一位那天沒有這一段 —— app 少扣一次`,
-          'app 還做不到扣家人的額度（.scratch/family-charge），先記著');
-      }
+      // 家人用名單上那一位的號碼做的（實際扣課病歷號）不會走到這裡：`readAbovee()` 讀那兩欄、認得被扣的那一位就把那一列記在他身上
+      //（family-merge-round 04，ADR-0184）—— 有沒有記照一般的列分（底下 `familyMissing`／已經記了）。號碼認不得的才在這裡
     }
     continue;
   }
@@ -421,6 +423,12 @@ for (const item of items) {
     }
     if (item.diffs) {
       push('note', 'diffs', base, '治療師或診間跟 Abovee 不一樣', '不影響次數；要改去日曆');
+    }
+    // 沒勾合併扣課、app 那一段（扣的那一筆是兩列加起來的分鐘）包著它（`halfGuess`，family-merge-round 05）：
+    // 列在「合併扣課」那一塊（`mergeChecks`，底下），這裡不再另講一件
+    // 家人那一列對到的是誰來的空著的舊段（8/27 那種，family-merge-round 04）：次數對，只是 app 上看不出不是本人
+    if (item.oldFamily) {
+      push('note', 'familyNoAttendee', base, `${familyWho(item)}來的，app 那一段沒寫「誰來的」`, '不影響次數；要的話去日曆那一段補「誰來的」');
     }
     continue;
   }
@@ -486,8 +494,9 @@ for (const item of items) {
         push('note', 'mergedOneSlot', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）標了合併扣課，app 記成一段`, '一致，不影響次數');
         continue;
       }
+      // 沒標、而且 app 那一段扣的那一筆**不是**兩列加起來的分鐘（是的話 `claimHalves()` 已經認成後一半、列在「合併扣課」那一塊）
       push('fix', 'mergeUnmarked', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）沒標合併扣課，app 記成一段`,
-        '回 Abovee 把這兩列標「合併扣課」（不然 Abovee 扣兩次）');
+        '確認那天是一次還是兩次：兩次的話 app 補一段；一次的話回 Abovee 標「合併扣課」');
       continue;
     }
   }
@@ -496,7 +505,12 @@ for (const item of items) {
       `${photoWord(item)}，app 上這個時間的那一段已經取消了`, ps === 'done' ? '那天有做的話：在 app 補記這一段（拍一次 Abovee）' : '不影響次數');
     continue;
   }
-  if (ps === 'done') {
+  if (ps === 'done' && item.attendee) {
+    // 家人用這一位的額度（family-merge-round 04）：Abovee 扣的是這一位，app 上這一位那天沒有家人那一段
+    push('fix', 'familyMissing', base,
+      `${familyWho(item)}用這一位的額度做了「${item.row?.course ?? ''}」，app 上這一位那天沒有這一段 —— app 少扣一次`,
+      '在 app 拍一次 Abovee 補記（會記在這一位身上、「誰來的」自動寫好）');
+  } else if (ps === 'done') {
     // 一次性客人沒有額度：app 沒有這一段不是「少算一次」，只是日曆上少了那一次來訪
     push('fix', 'missing', base, `${photoWord(item)}，app 上沒有這一段 —— ${guestItem(item) ? '一次性客人，不扣次數' : 'app 少算一次'}`,
       '在 app 拍一次 Abovee 補記，或去日曆新增');
@@ -544,6 +558,116 @@ for (const m of issues.filter((i) => i.type === 'missing')) {
   m.todo = '以 Abovee 為準，去日曆改這一段的時間';
 }
 
+// ---------- 合併扣課：勾跟額度的分鐘對不起來（family-merge-round 06）----------
+// 她 11/9：Abovee 是給櫃檯看的，合併扣課可能忘了勾、也可能多勾。**判斷照 app 拍 Abovee 同一支**（`readAbovee()` → `mergeRows()`，ADR-0185），
+// 不在這裡另寫一套：拿同一份抄字、**假裝 app 上這個月什麼都還沒記**（全部是新的列）再讀一次 —— 有記的那幾段會被認成「已經記了」、
+// 不經過合併那一步。額度剩幾次照月初的樣子算（這個月的來訪拿掉）。看哪幾列被照分鐘合（`mergeGuess`：可能忘了勾）、
+// 照分鐘拆（`mergeSplit`）或勾了找不到另一半（`mergeOrphan`）—— 後兩種是可能多勾。只列出來，不改 app。
+const mergeChecks = [];
+{
+  const before = Object.fromEntries(Object.entries(visitsBy).map(([id, list]) => [id, list.filter((v) => !inMonth(v.date))]));
+  const fresh = readAbovee([transcript], { ...ctx, visitsBy: before }).items;
+  const partKeys = (it) => String(it.key).split('+');
+  /** 那幾列在這一次（真的 app）對到的 app 段（去重；合併扣課的後一半沒有自己的段） */
+  const appOf = (keys) => {
+    const seenSlot = new Set();
+    const out = [];
+    for (const key of keys) {
+      const mine = items.find((i) => partKeys(i).includes(key));
+      const hit = mine ? appSlotOf(mine) : null;
+      if (!hit || seenSlot.has(`${hit.visit.id}:${hit.index}`)) continue;
+      seenSlot.add(`${hit.visit.id}:${hit.index}`);
+      out.push(appView(hit.visit, hit.slot, hit.index));
+    }
+    return out;
+  };
+  const add = (type, parts, note, say) => {
+    const first = parts[0];
+    const keys = parts.map((p) => p.key);
+    const app = appOf(keys);
+    const customerId = first.customerId ?? null;
+    const out = push('fix', type, {
+      date: first.date, time: first.row?.time ?? '', startsAt: first.startsAt ?? null, customerId,
+      name: customerId ? customersById[customerId]?.name ?? first.row?.name : first.row?.name,
+      abovee: { status: first.row?.status ?? '', course: parts.map((p) => p.row?.course ?? '').join('＋'), resource: first.row?.resource ?? '',
+        src: rowOf(first)?.src ?? null, row: rowOf(first)?.row ?? null, attendee: first.attendee ?? null, note },
+      app: app[0] ?? null, apps: app, courseId: first.course?.courseId ?? null,
+    }, say, type === 'mergeForgot'
+      ? '確認那天是一次還是兩次：一次的話 Abovee 補勾「合併扣課」；兩次的話 app 那一段拆成兩段'
+      : '確認那天是一次還是兩次：兩次的話 Abovee 拿掉「合併扣課」的勾；一次的話 app 那兩段併成一段');
+    return out;
+  };
+  for (const it of fresh) {
+    if (!inRange(it.date) || it.cancelled) continue;
+    if (it.mergeGuess && it.merged) {
+      const [a, b] = it.merged.parts;
+      // `noColumn`（抄字沒有那一欄）在這裡走不到 —— `COLS` 一定有「合併扣課」；照樣給一句對的，免得以後抄字換了講成「沒標」
+      const note = { one: '只標了一列合併扣課', noColumn: '抄字沒有合併扣課那一欄' }[it.mergeGuess] ?? '兩列都沒標合併扣課';
+      mergeChecks.push(add('mergeForgot', it.merged.parts, `${note}（額度 ${it.merged.minutes} 分一次）`,
+        `Abovee 兩列（${a.row?.course ?? ''}、${b.row?.course ?? ''}）${note}，這位的額度是 ${it.merged.minutes} 分一次 —— 看起來是一次`));
+    } else if (it.mergeSplit) {
+      // 一對只列一次：前一列帶後一列。另一半是 `mergeRows()` 配的那一列（`mergeSplit.with`），不照時間猜 ——
+      // 四列連著都勾時照時間猜會配出中間那一對（段四審查）
+      if (it.mergeSplit.tail) continue;
+      const tail = fresh.find((o) => o.key === it.mergeSplit.with);
+      if (!tail) continue;
+      const minutes = Number(liveEntsOf(it.customerId).find((e) => e.id === it.entitlementId)?.durationMin) || null;
+      mergeChecks.push(add('mergeExtra', [it, tail], `兩列都標了合併扣課（額度 ${minutes ?? '?'} 分一次）`,
+        `Abovee 兩列（${it.row?.course ?? ''}、${tail.row?.course ?? ''}）都標了合併扣課，可是這位的額度是 ${minutes ?? '?'} 分一次 —— 看起來是兩次`));
+    } else if (it.mergeOrphan) {
+      mergeChecks.push(add('mergeExtra', [it], '標了合併扣課，找不到另一半',
+        `Abovee 這一列（${it.row?.course ?? ''}）標了合併扣課，旁邊沒有另一半 —— 看起來是單獨一段`));
+    }
+  }
+}
+
+// ---------- 她答過的（`.local/references/月底對帳/她答過的.md`，`run.mjs` 給 `--answered`）----------
+// 對到的那幾件標 `answered`（她怎麼說、什麼時候答的）：照樣列在那一塊、看得出是答過的，**不算在「要看的 N 件」裡**。
+// 對法：日期一樣、種類（那一張表的「種類」欄，寫這裡的 type；可以寫好幾個，用頓號隔開）一樣、而且病歷號一樣（那一格空著就看「誰」裡有沒有這一位的名字）。
+// 那一份沒有「種類」那一欄的列一件都對不到 —— 寧可再問一次，不可以把新的一件安靜地標成答過了。
+const answeredRows = opt.answered && opt.answered !== 'none' ? readAnswered(opt.answered) : [];
+for (const i of [...issues, ...minor]) {
+  const hit = answeredRows.find((a) => answers(a, i));
+  if (hit) i.answered = { said: hit.said, when: hit.when };
+}
+
+function readAnswered(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  let head = null;
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim().startsWith('|')) {
+      head = null; // 一張表結束
+      continue;
+    }
+    const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    if (!head) {
+      head = cells;
+      continue;
+    }
+    const get = (name) => (head.indexOf(name) >= 0 ? cells[head.indexOf(name)] ?? '' : '');
+    const types = get('種類').replace(/`/g, '').split(/[、,，\s]+/).filter(Boolean);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(get('日期')) || !types.length) continue;
+    out.push({ date: get('日期'), who: get('誰'), types, chartNo: get('病歷號').replace(/`/g, ''), said: get('她怎麼說'), when: get('什麼時候答的') });
+  }
+  return out;
+}
+
+function answers(a, issue) {
+  if (a.date !== issue.date || !a.types.includes(issue.type)) return false;
+  if (a.chartNo) {
+    const mine = chartNosOf(customersById[issue.customerId] ?? {}).map(normalizeChartNo);
+    return mine.includes(normalizeChartNo(a.chartNo));
+  }
+  return Boolean(issue.name) && a.who.includes(issue.name);
+}
+
 // ---------- 次數：每一位、每一筆額度，這個月做了幾次 ----------
 
 const people = new Map();
@@ -557,27 +681,15 @@ const bucketIn = (person, key) => {
 };
 
 /**
- * 家人用這一位的號碼做的那一列算進這一位哪一格：app 上這一位同一天、同一個時間、同一門課的那一段（記在付錢那一位身上的）→ 那一段的格子；
- * 沒有那一段 → 這一位那門課只有一筆額度就是它；都不是 → 照那一列的課程。
- */
-function familyBucket(item, payerId) {
-  const at = appSlotAt(payerId, item.date, item.startsAt);
-  const slot = at ? visitsById[at.visitId]?.slots?.[at.slotIndex] : null;
-  if (slot && (!item.course?.courseId || slot.courseId === item.course.courseId)) return bucketOfSlot(slot);
-  // 單一課程的額度看 `courseId`；三選一那種池子沒有 `courseId`，看那一列的器材在不在它的選項裡
-  const eq = item.course?.equipmentId ?? null;
-  const same = (entitlementsBy[payerId] ?? []).filter((e) => !e.deletedAt && !isProduct(e)
-    && ((e.courseId && e.courseId === item.course?.courseId) || (!e.courseId && eq && (e.optionEquipmentIds ?? []).includes(eq))));
-  return same.length === 1 ? `e:${same[0].id}` : bucketOfItem(item);
-}
-
-/**
  * Abovee 這一列扣的是哪一格：照它在 app 上對到的那一段（沒對到就是 app 預選的那一筆）—— 除了扣法不一樣的（`chargeChange`）：
  * 照片是體驗、app 扣著額度 → Abovee 那一次算在體驗那一格（Abovee 沒扣額度，2026-11-09 全部重對：7/8 那一列預約來源寫體驗、以前算成扣了）；
  * 照片是正式課、app 記成體驗／送的 → 算在 app 會挑的那一筆額度（挑不出就照課程）。
  */
 function aboveeBucket(item) {
-  const hit = appSlotOf(item);
+  // 合併扣課的後一半沒有自己的段：算進前一列對到的那一段（沒勾的那一種 Abovee 另扣了一次，`halfGuess`）
+  const first = item.halfOf ? items.find((o) => o !== item && o.customerId === item.customerId && o.date === item.date
+    && o.startsAt === item.halfOf && Boolean(o.attendee) === Boolean(item.attendee)) : null;
+  const hit = appSlotOf(first ?? item);
   const ch = item.chargeChange;
   const courseId = hit?.slot?.courseId ?? item.course?.courseId ?? '?';
   if (ch?.to === 'trial') return `gift:${courseId}:trial`;
@@ -589,17 +701,20 @@ function aboveeBucket(item) {
 // 兩條（2026-11-09 全部重對抓到的）：
 // - 合併扣課的後一半被 `claimHalves()` 認成「已經記了」（`halfOf`，app 那一段蓋得住它）→ 那一對在 Abovee 只扣一次、前一列算過了。
 //   以前這一列沒有 `slotIndex`、掉進「沒有扣額度」那一格多算一次（三個數字只加額度那幾格，所以總數沒露出來，每一位的表上會多一列 ✗）
-// - 實際扣課病歷號是名單上另一位（家人用他的號碼）→ 算到被扣的那一位（她 11/9：「是扣誰的就扣誰的」）；來的人不在名單上也算
+// - 實際扣課病歷號是名單上另一位（家人用他的號碼）→ 算到被扣的那一位（她 11/9：「是扣誰的就扣誰的」）；來的人不在名單上也算。
+//   family-merge-round 04 起 `readAbovee()` 讀那兩欄、那一列本來就記在被扣的那一位身上（`item.customerId`），對到的也是他身上「誰來的」那一段
 for (const item of items) {
-  const paid = paidByOf(rowOf(item));
-  const family = Boolean(paid?.customerId && paid.customerId !== item.customerId);
-  const who = family ? paid.customerId : item.customerId;
+  const who = item.customerId;
   if (!who || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
   // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
   if (guestItem(item)) continue;
-  if (mergedTails.has(item) || item.halfOf) continue;
-  const b = bucketIn(personOf(who, family ? paid.name : item.row?.name), family ? familyBucket(item, who) : aboveeBucket(item));
-  b.abovee += 1;
+  // 沒勾的後一半（`halfGuess`，family-merge-round 05）不跳過：Abovee 那一列真的另扣了一次
+  if (mergedTails.has(item) || (item.halfOf && !item.halfGuess)) continue;
+  // Abovee 照勾扣（ADR-0185 之後 app 照額度的分鐘合／拆，Abovee 不會跟著變）：照分鐘合成一列的（`mergeGuess`）Abovee 扣了兩次；
+  // 兩列都勾、照分鐘拆成兩列的（`mergeSplit`）Abovee 只扣一次 —— 後一列（`mergeRows()` 配的那一對的 `tail`）不另算
+  if (item.mergeSplit?.tail) continue;
+  const b = bucketIn(personOf(who, item.row?.name), aboveeBucket(item));
+  b.abovee += item.mergeGuess && item.merged ? item.merged.parts.length : 1;
   b.aboveeBooked = true;
 }
 // app：這個月每一段做完的
@@ -658,7 +773,7 @@ const peopleOut = [...people.values()].map((p) => {
     const abovee = b.aboveeBooked ? b.abovee : null;
     return { ...b, abovee, ok: (abovee == null || abovee === b.app) && sheetOk && remainOk };
   }).sort((a, b) => Number(a.ok) - Number(b.ok) || a.label.localeCompare(b.label, 'zh-TW'));
-  const mine = issues.filter((i) => i.customerId === p.customerId);
+  const mine = issues.filter((i) => i.customerId === p.customerId && !i.answered);
   const alias = [...strangers.values()].filter((x) => x.maybe.has(p.customerId)).map((x) => x.name);
   return { customerId: p.customerId, name: p.name, buckets, issues: mine.length, alias, ok: buckets.every((b) => b.ok) && !mine.length };
 }).sort((a, b) => Number(a.ok) - Number(b.ok) || a.name.localeCompare(b.name, 'zh-TW'));
@@ -764,7 +879,7 @@ for (let d = 1; d <= Number(monthEnd.slice(8)); d += 1) {
     abovee: aboveeRows.length,
     aboveeDone: aboveeRows.filter((r) => statusFromAbovee(r.status).status === 'done').length,
     app: appSlots.length,
-    fix: issues.filter((i) => i.date === date).length,
+    fix: issues.filter((i) => i.date === date && !i.answered).length,
     note: minor.filter((i) => i.date === date).length,
   });
 }
@@ -797,7 +912,7 @@ const result = {
     aboveeStatus,
     matched: items.filter((i) => i.kind === 'recorded').length,
     appSlotsInMonth: days.reduce((n, d) => n + d.app, 0),
-    fix: issues.length, note: minor.length, cache: cacheIssues.length, strangers: strangers.size,
+    fix: issues.filter((i) => !i.answered).length, answered: [...issues, ...minor].filter((i) => i.answered).length, note: minor.length, cache: cacheIssues.length, strangers: strangers.size,
     gaps: gaps.length, legacyRows: legacyOut.rows.length, timetreeMissing: timetreeOut.missing.length,
     people: peopleOut.length, peopleOk: peopleOut.filter((p) => p.ok).length,
     totals,
@@ -810,6 +925,7 @@ const result = {
   days,
   unverified,
   gaps,
+  mergeChecks: mergeChecks.map((i) => i.id),
   legacy: legacyOut,
   timetree: timetreeOut,
 };

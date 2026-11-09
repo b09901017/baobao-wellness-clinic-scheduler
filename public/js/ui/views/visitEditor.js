@@ -33,7 +33,7 @@ import {
 import { isConfigured } from '../../data/sheetSync.js';
 import { icon } from '../icons.js';
 import { splitFlags, isOneTime } from '../../domain/customers.js';
-import { slotName, fullNameOf } from '../../domain/naming.js';
+import { slotName, fullNameOf, attendeeOf } from '../../domain/naming.js';
 import * as flagsUi from '../components/flags.js';
 import {
   orderedRoomSlots, staffWithRole, picksDoctor, doctorChoicesFor, ivChoicesFor,
@@ -44,7 +44,7 @@ import {
   NTH_PICK, giftPick, giftCourseIdOf, arrangeSlotOptions, giftOptions, foldOpen, defaultGiftCourse, trialFromMinutes,
   NOT_MINE_PICK, notMineOption, guestOptions, guestPick, guestCourseIdOf, ONE_TIME_SECOND_PICK, oneTimeSecondOptions,
 } from '../../domain/slotOptions.js';
-import { slotFromPicks } from '../../domain/slotDraft.js';
+import { slotFromPicks, withAttendee, ATTENDEE_MAX } from '../../domain/slotDraft.js';
 import { endOf, nextStart, isValidTime, timeLabel, toMinutes, DEFAULT_GAP_MIN } from '../../domain/visitTime.js';
 import { todayISO, isValidDate, shortDate } from '../../domain/dates.js';
 import * as f from '../components/form.js';
@@ -478,6 +478,16 @@ function paint(ctx, draft) {
   // 「送的／體驗…」與「別的課當體驗」的分類（gift-and-trial 04）：只改屬性，不重畫。
   // 開著還是收著記在 ctx 上、照第幾段記（staging-polish 03）：改時間、換治療師都會重畫，收起來的要撐得過去
   form.addEventListener('click', (e) => giftFold.toggle(e, (key, open) => { (ctx.giftOpen ??= {})[key] = open; }));
+  // 「誰來的」那一塊開著還是收著（`toggle` 不冒泡，用 capture）；收著那一行跟著她打的字換
+  form.addEventListener('toggle', (e) => {
+    const fold = e.target.closest?.('[data-slotwho]');
+    if (fold) (ctx.whoOpen ??= {})[fold.dataset.slotwho] = fold.open;
+  }, true);
+  form.addEventListener('input', (e) => {
+    if (!/^s\d+-who$/.test(e.target.name ?? '')) return;
+    const now = e.target.closest('[data-slotwho]')?.querySelector('[data-slotwho-now]');
+    if (now) now.textContent = e.target.value.trim() || '本人';
+  });
 
   form.addEventListener('change', async (e) => {
     // 那幾句話不影響畫面上算出來的任何東西，所以不要為了它們重畫。
@@ -488,6 +498,8 @@ function paint(ctx, draft) {
     // **2026-09-09 起是逐段的**（`s0-note`、`s1-note`…，ADR-0084）。
     // 只比 `=== 'note'` 的話那個豁免會整個失效，而症狀是「打完字按儲存沒反應」。
     if (/^s\d+-note$/.test(e.target.name ?? '')) return;
+    // 「誰來的」同一個理由（打完字就按儲存）。收著那一行的字由底下的 `input` 跟著換；抬頭的 `(先生來)` 下一次重畫才跟上
+    if (/^s\d+-who$/.test(e.target.name ?? '')) return;
 
     const next = readDraft(ctx, form, draft);
     if (e.target.name === 'date' && next.date !== draft.date) {
@@ -514,6 +526,7 @@ function paint(ctx, draft) {
       next.slots.splice(Number(btn.dataset.delSlot), 1);
       // 照第幾段記的開或收對不上了 —— 全部回到預設
       ctx.giftOpen = {};
+      ctx.whoOpen = {};
       paint(ctx, next);
     }),
   );
@@ -694,7 +707,25 @@ function slotCard(ctx, draft, slot, i) {
       ${picksDoctor(course) ? doctorField(all, course, slot, i) : ''}
       ${examField(ctx, draft, ent, slot, i)}
       ${guestExamField(ctx, draft, slot, i, { nth, notMine })}
+      ${attendeeField(ctx, slot, i)}
     </section>`;
+}
+
+/**
+ * 「誰來的」（ADR-0183）：家人用這位客戶的額度時，這一段是誰來的（她自己打：先生）。
+ *
+ * **不常用，預設收著**（`.foldout`，收著的那一行印現在的值：空的寫「本人」）。開著還是收著記在 ctx 上、照第幾段記
+ * （同「送的／體驗」那一塊）：改時間、換治療師都會重畫。清掉就回到本人。
+ * 這一格沒有會被擋下的值（`maxlength` 打不進去，domain 不驗），所以不用接「裡面有錯時自己打開」那兩條路。
+ */
+function attendeeField(ctx, slot, i) {
+  const who = attendeeOf(slot);
+  return `
+      <details class="foldout slotwho" data-slotwho="${i}" ${ctx.whoOpen?.[i] ? 'open' : ''}>
+        <summary>誰來的<span class="foldout__now" data-slotwho-now>${esc(who || '本人')}</span></summary>
+        <input type="text" name="s${i}-who" value="${esc(who)}" maxlength="${ATTENDEE_MAX}"
+               aria-label="第 ${i + 1} 段是誰來的" placeholder="家人用這位的額度時寫，例：先生" />
+      </details>`;
 }
 
 /**
@@ -1121,7 +1152,13 @@ function readDraft(ctx, form, draft) {
 
   const coursesById = Object.fromEntries(all.courses.map((c) => [c.id, c]));
 
-  const slots = draft.slots.map((slot, i) => {
+  // **「誰來的」讀完再套一次**（ADR-0183）：底下五條出口有幾條走 `slotFromPicks()` 重組一段，不帶這一格 ——
+  // 不在這裡補的話，她把一段換成體驗、n返，先生那一段就變回本人。沒畫出來的那幾段整段回原本的那一個
+  const slots = draft.slots.map((slot, i) => (isEditable(ctx, i)
+    ? withAttendee(readSlot(slot, i), v[`s${i}-who`], slot)
+    : slot));
+
+  function readSlot(slot, i) {
     // **沒有被畫出來的那幾段一個欄位都不碰**（ADR-0085）。
     //
     // 底下那一段是靠 `key()` 保留原值的：欄位沒畫出來時 `v[...]` 是
@@ -1265,7 +1302,7 @@ function readDraft(ctx, form, draft) {
       // 存檔時被「不可以同時指定額度」擋下來。扣額度的段一律 null
       giftKind: null,
     };
-  });
+  }
 
   return {
     ...draft,

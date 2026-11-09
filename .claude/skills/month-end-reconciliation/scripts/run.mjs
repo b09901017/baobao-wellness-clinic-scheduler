@@ -136,7 +136,9 @@ step('5/6 比對（舊表與 TimeTree 一起）');
 node('legacy.mjs', ['--snapshot', join(P, 'app-快照.json'), '--month', M, '--out', join(P, '舊表與行事曆.json'),
   ...(xlsx ? ['--xlsx', xlsx] : []), ...(ics ? ['--ics', ics] : []), '--aliases', join(refs, 'aliases.json')]);
 node('reconcile.mjs', ['--abovee', join(P, 'abovee.json'), '--snapshot', join(P, 'app-快照.json'), '--month', M,
-  '--legacy', join(P, '舊表與行事曆.json'), '--out', join(P, '比對.json'), ...(opt.today ? ['--today', opt.today] : [])]);
+  '--legacy', join(P, '舊表與行事曆.json'), '--out', join(P, '比對.json'), ...(opt.today ? ['--today', opt.today] : []),
+  // 她答過的（family-merge-round 06）：對到的那幾件標「答過了」、不算進要看的
+  ...(existsSync(join(opt.root, '她答過的.md')) ? ['--answered', join(opt.root, '她答過的.md')] : [])]);
 
 step('6/6 那一頁');
 const out = join(D, '結果', `對帳結果-${M}.html`);
