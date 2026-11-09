@@ -339,6 +339,9 @@ function appSlotAt(customerId, date, startsAt) {
 }
 const minutesOf = (hhmm) => (/^\d{2}:\d{2}/.test(hhmm ?? '') ? Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)) : null);
 /** 這一列（Abovee 課程完成、app 這個時間沒有）是不是被同一位同一天前一列在 app 上那一段蓋住了：那一段從前一列開始、到這一列開始之後才結束 */
+/** 兩列都標了合併扣課、後一列落單的那幾列（`mergedOneSlot`）：Abovee 那一對只扣一次，數次數時不另算 */
+const mergedTails = new Set();
+
 function coveringSlot(item) {
   const start = minutesOf(item.startsAt);
   if (start == null) return null;
@@ -462,6 +465,7 @@ for (const item of items) {
       // 兩列都標了合併扣課：Abovee 扣一次、app 一段扣一次 —— 一致。app 拍 Abovee 只把「兩列都是新的」配成一對
       // （`mergeRows()`），前一列已經被 app 那一段認走時後一列會落單（`mergeOrphan`），這裡不要講成「沒標」（2026-11-09 補截的 10/28）
       if (cover.marked && mergedMark(item.row?.merged)) {
+        mergedTails.add(item); // 次數那一步這一列不另算一次（那一對在 Abovee 也只扣一次）
         push('note', 'mergedOneSlot', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）標了合併扣課，app 記成一段`, '一致，不影響次數');
         continue;
       }
@@ -540,6 +544,7 @@ for (const item of items) {
   if (!item.customerId || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
   // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
   if (guestItem(item)) continue;
+  if (mergedTails.has(item)) continue;
   const hit = appSlotOf(item);
   const b = bucketIn(personOf(item.customerId, item.row?.name), hit ? bucketOfSlot(hit.slot) : bucketOfItem(item));
   b.abovee += 1;

@@ -278,6 +278,8 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     const r = runRaw(snapshot(CLEAN), abovee(rows));
     assert.deepEqual(types(r), []);
     assert.ok(r.minor.some((i) => i.type === 'mergedOneSlot'), JSON.stringify(r.minor.map((i) => i.type)));
+    // 那一對在 Abovee 只扣一次：次數也只算一次（2026-11-09 重對時抓到兩列各加了 1，三個數字變成 99≠98）
+    assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
   });
 
   /** 三張截圖：a（滿頁兩列）、b（跟 a 一模一樣）、c；app 在 a 的最後一列與 c 的第一列之間多一段 */
