@@ -57,4 +57,4 @@ kickoff（11/9）照建議：
   - 「誰來的」字樣：`王小明（夫妻）`（照片上的名字＋全形括號關係，最多 20 字）；名字空著寫「家人」。
 - **測試**：`tests/abovee-family-charge.test.js`（25 支：抄字、10/29、本人同一天也來、8/27 舊段、換一位、改期／合併／app 有照片沒有不搶、認不得、舊照片不變、改成 Abovee 的改對那一段）。
 - `sw.js` v322。
-- **staging Function**：見下一行（部署完補）。
+- **staging Function 11/9 部署了**（`npx firebase deploy --only functions --project staging`，`extract(asia-east1)` 更新成功；沒登入叫它回 UNAUTHENTICATED）。**正式的沒部署**，跟著上 `main` 時照 `docs/STAGING.md` 帶 `--project prod`。
