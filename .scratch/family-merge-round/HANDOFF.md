@@ -62,13 +62,14 @@
 
 （段末寫進來，主控問）
 
-- 段一：上面「中途發現／段一」四條，**收成一題「照建議」**：1 修（段三或段四順手）、2 與 3 不動、4 記進 backlog。都不擋段二。
+- ~~段一：上面「中途發現／段一」四條，收成一題「照建議」~~ → 她 11/9 答了（見「她已經決定的」）。
 
 ## 她已經決定的
 
 見 `spec.md`「談定的」。之後新答的補在這裡：
 
 - 2026-11-09：貼給客戶的話（`messages.js`）裡，先生用太太額度的那一段**照樣列、後面加「（先生）」**（括號印「誰來的」那一格）。
+- 2026-11-09：段一中途發現四條**照建議**：1 修（`scheduling.js` 的 `sameTimeVisit()` 加 `isLiveSlot(s) && !attendeeOf(s)`，**段三順手做**，先寫失敗的測試，一個 commit）；2、3 不動；4 記進記憶 backlog（主控記了）。
 
 ## 段二要知道的（段一留下的）
 
@@ -120,7 +121,7 @@
 ```
 這一輪：用家人的額度＋拍 Abovee 合併扣課照額度的分鐘。分支 claude/family-charge-merge-check（主資料夾，不開 worktree），上一段：段二做完 03、04。
 
-這一段做 .scratch/family-merge-round/issues/05（合併扣課照額度分鐘、跟勾不一樣就講一句，補 ADR 推翻 ADR-0123 那一點）→ 06（月底對帳多一塊合併扣課＋讀 .local/references/月底對帳/她答過的.md）；不做 07。
+這一段做 .scratch/family-merge-round/issues/05（合併扣課照額度分鐘、跟勾不一樣就講一句，補 ADR 推翻 ADR-0123 那一點）→ 06（月底對帳多一塊合併扣課＋讀 .local/references/月底對帳/她答過的.md）→ 順手修 HANDOFF「中途發現／段一」第 1 條（她說修：scheduling.js 的 sameTimeVisit() 不看取消掉的段與誰來的不一樣的段，先寫失敗的測試，一個 commit）；不做 07。
 
 先讀：CLAUDE.md、docs/agents/lessons.md、spec.md、HANDOFF.md（「每一段共同的規矩」「過目抓到的」「中途發現」）、issues/03 的「做完時留下的」、issues/05、06、.scratch/abovee-merge-check/issues/01-remind-when-merge-looks-wrong-on-photo.md 整份、.claude/rules/abovee.md、docs/adr/README.md 索引。
 
