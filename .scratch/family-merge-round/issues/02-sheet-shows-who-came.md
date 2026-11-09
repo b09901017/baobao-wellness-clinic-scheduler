@@ -1,6 +1,6 @@
 # 試算表：家人來的那一格附註帶「先生來」
 
-Status: todo
+Status: done
 Blocked by: 01
 動工前先讀：`.claude/rules/sheet.md`（`SYNC_FORMAT` 與 `.gs`、指紋）、`public/js/domain/sheetReport.js` 的 `slotNoteOf()`、格式 5／7 的註解、ADR-0084、ADR-0175、ADR-0177
 
@@ -36,4 +36,13 @@ kickoff（11/9）照建議：
 
 ## 做完時留下的
 
-（做完寫：附註長什麼樣、`SYNC_FORMAT` 有沒有升、`.gs` 要不要重貼）
+- **附註長這樣**（`sheetReport.js` 的 `whoLines()`，兩個落點都走它：有額度的段 `slotNoteCells()`、沒額度的段來訪紀錄那一行的 `note`）：
+  - 只有誰來的：`先生來`（以前沒記一句就沒有附註，現在有）
+  - 誰來的＋這一段記了一句：一行 `先生來：下次改週五`
+  - 太太本人一段＋先生一段同一格：`腰比較緊` 換行 `先生來`（太太那一行不帶）
+  - 舊資料那一句還在整筆身上（`visit.note`）：先生那一行只寫 `先生來`、整筆那一句另外一行，去重之後只印一次
+- 來訪紀錄那一行的課程後面也接 `(先生來)`（跟日曆同一種名字，`attendeeTag()`；接在 `(體驗)` 後面）—— issue 沒要求，順手讓那一頁兩處講同一件事。
+- **`SYNC_FORMAT` 沒升（還是 8）、`.gs` 不用重貼**：形狀沒變、字在 app 組好；指紋雜湊整頁所以跟著變（測試釘著）。沒改 `slotNoteOf()`。
+- 舊資料（沒有誰來的）整頁一個字都不變（測試比 `attendee: ''` 與沒有那一格兩份整頁 deepEqual）。
+- 測試 `tests/sheet-attendee.test.js`；`sheet.md`「試算表的註記」補一條；`sw.js` v321。
+- 順手看到（沒改）：手動貼上那一條路（`customerReport()`）本來就不印記一句，所以也不會有「先生來」—— 跟自動推送不一樣是原本就這樣（格式 5 起），記進 HANDOFF 中途發現。
