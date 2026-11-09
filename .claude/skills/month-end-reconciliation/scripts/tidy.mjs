@@ -64,7 +64,12 @@ for (const f of readdirSync(src).filter((x) => x.toLowerCase().endsWith('.png') 
   }
   // 鉛筆：最左邊那一欄（x < 60）的按鈕 —— 裁到它右邊再空 5px
   const lefts = pairs.filter(([a]) => a.x < 60);
-  const left = lefts.length >= 2 ? Math.max(...lefts.map(([, b]) => b.x)) + 5 : 0;
+  // 鉛筆只露出右邊那一條藍邊（截圖從按鈕中間開始，2026-11-09 補截的那幾張）：成對認不出來，
+  // 但那一條會被切成一塊高高的「墨」、被當成狀態徽章拿去比顏色 —— 貼著左邊（x < 12）、至少兩列都有的直邊也裁掉
+  const slivers = runs.filter((r) => r.x < 12);
+  const sliverRows = new Set(slivers.map((r) => r.y0));
+  const left = lefts.length >= 2 ? Math.max(...lefts.map(([, b]) => b.x)) + 5
+    : sliverRows.size >= 2 ? Math.max(...slivers.map((r) => r.x)) + 5 : 0;
   if (left) pencils += 1;
   for (const [a, b] of pairs) {
     if (a.x < left) continue;

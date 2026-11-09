@@ -110,9 +110,11 @@ describe('提示詞：被切掉一半的欄不要抄；格式一格都沒有變'
     assert.match(aboveeList.prompt, /不要抄/);
   });
 
-  test('欄位（schema）：那十一欄、那五格（ADR-0099：不長出翻譯欄位）', () => {
+  test('欄位（schema）：那十三欄、那五格（ADR-0099：不長出翻譯欄位）', () => {
     // 2026-10-14 多「預約來源」（gift-and-trial 06）：照抄原字，「是不是體驗」是 domain 的事 —— 不是翻譯欄
-    assert.deepEqual([...ABOVEE_COLUMNS], ['預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '合併扣課', '預約來源', '診間', '服務資源', '取消原因']);
+    // 2026-11-09 多「實際扣課病歷號」「關係」（family-merge-round 03）：照抄原字，扣誰的是 domain 的事（`familyOf()`）
+    assert.deepEqual([...ABOVEE_COLUMNS], ['預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '合併扣課', '實際扣課病歷號', '關係',
+      '預約來源', '診間', '服務資源', '取消原因']);
     assert.deepEqual(Object.keys(aboveeList.schema.properties).sort(), ['columns', 'dateFromText', 'dateToText', 'pageText', 'rows']);
     assert.deepEqual(Object.keys(TRANSCRIPT_FIELDS.aboveeList).sort(), ['columns', 'dateFromText', 'dateToText', 'pageText', 'rows']);
   });

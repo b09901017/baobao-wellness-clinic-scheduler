@@ -679,6 +679,8 @@ export function openAboveeConfirm({ photos, release, ctx: given, onFinish, onOpe
         ${seenChip(r.time, { photo: left })}
         ${seenChip([r.name, r.chartNo].filter(Boolean).join(' '), { photo: left })}
         ${seenChip(r.course, { photo: left })}
+        ${/* 實際扣課病歷號＋關係（family-merge-round 03）：平常空著就不畫 */''}
+        ${seenChip([r.actualChartNo, r.relation].filter(Boolean).join(' '), { photo: right })}
         ${seenChip(r.source, { photo: right })}
         ${seenChip(r.room, { photo: right })}
         ${seenChip(r.resource, { photo: right })}

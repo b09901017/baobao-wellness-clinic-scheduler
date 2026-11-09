@@ -63,7 +63,11 @@ export const TRANSCRIPT_FIELDS = Object.freeze({
 
 export const TRANSCRIPT_KINDS = Object.freeze(Object.keys(TRANSCRIPT_FIELDS));
 
-/** Abovee 列表只抄這十一欄（照片上沒有的那一欄不會出現在 `columns`）。「合併扣課」2026-10-05、「預約來源」2026-10-14 加的。 */
+/**
+ * Abovee 列表只抄這十三欄（照片上沒有的那一欄不會出現在 `columns`）。「合併扣課」2026-10-05、「預約來源」2026-10-14、
+ * 「實際扣課病歷號」「關係」2026-11-09（家人用別人的額度，family-merge-round 03）加的。
+ */
 export const ABOVEE_COLUMNS = Object.freeze([
-  '預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '合併扣課', '預約來源', '診間', '服務資源', '取消原因',
+  '預約狀態', '預約日期', '預約時段', '姓名', '病歷號', '課程', '合併扣課', '實際扣課病歷號', '關係', '預約來源', '診間', '服務資源',
+  '取消原因',
 ]);
