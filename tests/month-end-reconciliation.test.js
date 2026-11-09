@@ -282,6 +282,40 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
   });
 
+  test('兩列都標了合併扣課、app 一段剛好蓋住兩列（後一列被認成已經記了）→ 那一對只算一次，每一位的表上沒有多一列', () => {
+    // 2026-11-09 全部重對：8/27、8/31、9/11 那三對的後一列掉進「沒有扣額度」那一格各多算一次（總數只加額度那幾格，所以沒露出來）
+    const rows = [...THREE.slice(0, 2),
+      ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30', merged: '是' }],
+      ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:00', merged: '是' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), []);
+    assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
+    assert.ok(r.people.every((p) => p.ok), JSON.stringify(r.people.flatMap((p) => p.buckets.map((b) => [b.label, b.abovee, b.app]))));
+  });
+
+  test('家人用名單上那一位的號碼做完（實際扣課病歷號）、那一位 app 上沒有這一段 → 算到那一位，一件「app 少扣一次」', () => {
+    const r = runRaw(snapshot(CLEAN), abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
+    assert.deepEqual(types(r), ['10-20 familyMissing']);
+    assert.equal(r.issues[0].customerId, 'c-wang');
+    assert.deepEqual(r.summary.totals, { abovee: 4, app: 3, sheet: 3 });
+    assert.equal(r.strangers.length, 1); // 來的人照舊列在「app 裡沒有這個人」
+  });
+
+  test('家人用那一位的號碼、app 記在那一位身上同一個時間 → 次數對、不講少扣', () => {
+    const r = runRaw(snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-20': 'done' } }),
+      abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
+    assert.ok(!types(r).some((t) => t.includes('familyMissing')), JSON.stringify(types(r)));
+    assert.equal(r.summary.totals.abovee, r.summary.totals.app);
+  });
+
+  test('Abovee 那一列預約來源寫體驗（不扣額度）、app 那一段扣著額度 → 一件「扣法不一樣」，Abovee 那一次不算進額度', () => {
+    // 2026-11-09 全部重對（驗證那一邊抓到的）：7/8 那一列寫體驗，以前照 app 那一段算成 Abovee 也扣了一次
+    const rows = [...THREE.slice(0, 2), ['10-16', '王小明', '課程完成', { source: '體驗' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), ['10-16 charge']);
+    assert.deepEqual(r.summary.totals, { abovee: 2, app: 3, sheet: 3 });
+  });
+
   /** 三張截圖：a（滿頁兩列）、b（跟 a 一模一樣）、c；app 在 a 的最後一列與 c 的第一列之間多一段 */
   function paged({ twin }) {
     const data = abovee([['10-02', '王小明', '課程完成'], ['10-09', '王小明', '課程完成'], ['10-16', '王小明', '課程完成']]);
