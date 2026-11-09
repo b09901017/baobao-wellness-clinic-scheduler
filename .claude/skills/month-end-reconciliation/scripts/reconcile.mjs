@@ -423,6 +423,17 @@ for (const item of items) {
     if (item.diffs) {
       push('note', 'diffs', base, '治療師或診間跟 Abovee 不一樣', '不影響次數；要改去日曆');
     }
+    // 沒勾合併扣課、app 那一段（扣的那一筆是兩列加起來的分鐘）包著它 —— 拍 Abovee 照分鐘認成後一半（family-merge-round 05，`halfGuess`）。
+    // app 扣一次、Abovee 扣兩次：跟以前 `coveringSlot()` 那一件同一種
+    if (item.halfGuess) {
+      const first = items.find((o) => o !== item && o.customerId === item.customerId && o.date === item.date
+        && o.startsAt === item.halfOf && Boolean(o.attendee) === Boolean(item.attendee));
+      const hit = first ? appSlotOf(first) : null;
+      if (hit) base.app = appView(hit.visit, hit.slot, hit.index);
+      base.abovee.with = { course: first?.row?.course ?? '', time: String(first?.row?.time ?? '').slice(0, 5) };
+      push('fix', 'mergeUnmarked', base, `Abovee 兩列（${base.abovee.with.course}、${item.row?.course ?? ''}）沒標合併扣課，app 記成一段`,
+        '回 Abovee 把這兩列標「合併扣課」（不然 Abovee 扣兩次）');
+    }
     // 家人那一列對到的是誰來的空著的舊段（8/27 那種，family-merge-round 04）：次數對，只是 app 上看不出不是本人
     if (item.oldFamily) {
       push('note', 'familyNoAttendee', base, `${familyWho(item)}來的，app 那一段沒寫「誰來的」`, '不影響次數；要的話去日曆那一段補「誰來的」');
@@ -591,7 +602,8 @@ for (const item of items) {
   if (!who || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
   // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
   if (guestItem(item)) continue;
-  if (mergedTails.has(item) || item.halfOf) continue;
+  // 沒勾的後一半（`halfGuess`，family-merge-round 05）不跳過：Abovee 那一列真的另扣了一次
+  if (mergedTails.has(item) || (item.halfOf && !item.halfGuess)) continue;
   const b = bucketIn(personOf(who, item.row?.name), aboveeBucket(item));
   b.abovee += 1;
   b.aboveeBooked = true;

@@ -274,11 +274,11 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
   test('兩列都標了合併扣課、app 一段蓋住兩列（前一列已經被那一段認走）→ 一致，不是「沒標合併扣課」', () => {
     const rows = [...THREE.slice(0, 2),
       ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30', merged: '是' }],
-      // 後一列超出 app 那一段（10:00–11:00）：`claimHalves()` 認不走、`mergeRows()` 又只配兩列都是新的 → 落單（2026-11-09 真的那一件）
+      // 後一列 Abovee 多排了 15 分（10:30–11:15，2026-11-09 真的那一件）：以前 `claimHalves()` 拿起訖比、認不走 → 落單；
+      // family-merge-round 05 起做到幾點照課程字的 30 分（`rowEnd()`），app 那一段（10:00–11:00）蓋得住 → 已經記了
       ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:15', merged: '是' }]];
     const r = runRaw(snapshot(CLEAN), abovee(rows));
     assert.deepEqual(types(r), []);
-    assert.ok(r.minor.some((i) => i.type === 'mergedOneSlot'), JSON.stringify(r.minor.map((i) => i.type)));
     // 那一對在 Abovee 只扣一次：次數也只算一次（2026-11-09 重對時抓到兩列各加了 1，三個數字變成 99≠98）
     assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
   });

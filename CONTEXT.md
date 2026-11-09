@@ -295,7 +295,8 @@ _Avoid_: 待確認（那是來訪的狀態）、草稿、未啟用（它照樣�
 **合併扣課**:
 Abovee 上兩列各半小時、合起來扣一次 60 分的那種排法（例：IN 30＋SIS 30）。在 app 裡是**一段** 60 分、
 扣一次，「記一句」自動寫著 `合併扣課：IN 30＋SIS 30`；器材記第一台。只有拍 Abovee 會遇到它
-（`docs/adr/0123-abovee-confirm-picks-like-the-board.md`）。
+（`docs/adr/0123-abovee-confirm-picks-like-the-board.md`）。**算不算一對看那一筆額度的分鐘是不是兩列加起來**，
+Abovee 上的「合併扣課」那一格是給櫃檯看的、可能忘了勾或多勾（`docs/adr/0185-abovee-merge-follows-entitlement-minutes.md`）。
 _Avoid_: 合併課、併課、雙機
 
 **課程的分類**:

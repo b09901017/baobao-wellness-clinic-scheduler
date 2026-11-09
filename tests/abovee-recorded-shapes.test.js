@@ -67,11 +67,16 @@ describe('合併扣課記好之後，同一頁再拍一次', () => {
     assert.deepEqual(brief(plain), ['10:30 recorded', '11:00 new']);
   });
 
-  test('有那一欄、後一列沒勾：不當成後一半（那是另外一段）', () => {
+  // family-merge-round 05（ADR-0185 推翻 ADR-0123「有那一欄就只看勾」）：沒勾的後一列，app 那一段扣的那一筆是兩列加起來的分鐘 →
+  // 照分鐘認成後一半、講一句；分鐘對不起來（那一筆 30 分一次）才是另外一段
+  test('有那一欄、後一列沒勾：app 那一段扣 60 分一次 → 照分鐘當成後一半、講一句；扣 30 分一次 → 另外一段', () => {
     const photo = { ...withColumn, rows: [withColumn.rows[0], row('確認前往', '2026-10-21', '11:00 - 11:30', 'SIS 30', '')] };
-    const saved = { id: 'v1', customerId: 'c1', date: '2026-10-21', status: 'pending_confirm',
-      slots: [{ entitlementId: 'P', courseId: 'course-recovery', equipmentId: 'eq-indiba', startsAt: '10:30', endsAt: '11:30', status: 'pending_confirm' }] };
-    assert.deepEqual(brief(readAbovee([photo], ctx([saved])).items), ['10:30 recorded', '11:00 new']);
+    const saved = (entitlementId) => ({ id: 'v1', customerId: 'c1', date: '2026-10-21', status: 'pending_confirm',
+      slots: [{ entitlementId, courseId: 'course-recovery', equipmentId: 'eq-indiba', startsAt: '10:30', endsAt: '11:30', status: 'pending_confirm' }] });
+    const sixty = readAbovee([photo], ctx([saved('P')])).items;
+    assert.deepEqual(brief(sixty), ['10:30 recorded', '11:00 recorded']);
+    assert.match(recordedSay(sixty[1]), /Abovee 沒勾合併扣課/);
+    assert.deepEqual(brief(readAbovee([photo], ctx([saved('P30')], [POOL30])).items), ['10:30 recorded', '11:00 new']);
   });
 
   test('後一列是別的課（IN 30 之後接 ILIB）：不當成後一半', () => {
