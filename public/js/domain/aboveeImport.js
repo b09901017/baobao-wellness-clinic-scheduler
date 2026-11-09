@@ -2437,6 +2437,7 @@ function looksMerged(a, b, ctx) {
  * | 照片上 | 額度 | 記成 | 旗標 |
  * |---|---|---|---|
  * | 兩列都沒勾（或只勾一列） | 分鐘＝兩列加起來（`looksMerged()`） | 一段、扣一次 | 合起來那一列 `mergeGuess`（`'none'`／`'one'`） |
+ * | 沒有那一欄（只拍了一半、或舊照片） | 分鐘＝兩列加起來（`looksMerged()`） | 一段、扣一次 | `mergeGuess: 'noColumn'`（她 11/9 段四：也講一句） |
  * | 兩列都勾 | 合起來挑不到分鐘＝加起來的、兩列各自挑得到分鐘一樣的 | 兩段、各扣一次 | 兩列都 `mergeSplit`（`{ with: 另一列的 key, tail }`） |
  * | 其餘 | —— | 照勾（跟以前一樣） | —— |
  *
@@ -2479,8 +2480,8 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
         return;
       }
     } else if (looksMerged(a, b, ctx)) {
-      // 沒有那一欄照舊靠它認、不講；有那一欄卻沒勾全 → 照分鐘合、講一句
-      merged = mergedItem(a, b, ctx, { guess: hasColumn ? (marks ? 'one' : 'none') : null });
+      // 有那一欄卻沒勾全 → 照分鐘合、講一句；沒有那一欄也照分鐘合、也講一句（`'noColumn'`，她 11/9 段四：「合成一段＋也講一句」）
+      merged = mergedItem(a, b, ctx, { guess: hasColumn ? (marks ? 'one' : 'none') : 'noColumn' });
     }
     if (!merged) return;
     used.add(a.key);
@@ -2508,7 +2509,7 @@ function fitsMinutes(item, minutes, ctx) {
 }
 
 /**
- * 一對換成一列。`guess`：照分鐘合的、Abovee 沒勾全（`'none'` 兩列都沒勾、`'one'` 只勾一列）——
+ * 一對換成一列。`guess`：照分鐘合的、Abovee 沒勾全（`'none'` 兩列都沒勾、`'one'` 只勾一列、`'noColumn'` 照片上沒有那一欄）——
  * 要放在 `resolveItem()` 之後（它清掉整張一起看的旗標，換一位時那一句就不留著）。
  */
 function mergedItem(a, b, ctx, { guess = null } = {}) {
@@ -2531,6 +2532,10 @@ function mergedItem(a, b, ctx, { guess = null } = {}) {
  */
 export function mergeMinutesSay(item) {
   // 分鐘就是那一筆額度的分鐘：照分鐘合的是兩列加起來（`looksMerged()`），拆開的是單列（`fitsMinutes()`）
+  // 照片上沒有那一欄：沒有勾可以比，不說「沒勾」（她 11/9 段四：「舊照片照分鐘合的也在『發現問題』講一句」）
+  if (item?.mergeGuess === 'noColumn' && item.merged) {
+    return [`照片上看不到「合併扣課」那一欄，這位的額度是 ${item.merged.minutes} 分一次 —— 照分鐘當成合併扣課、記成一段扣一次；是兩次的話按「拆開成兩段」`];
+  }
   if (item?.mergeGuess && item.merged) {
     const said = item.mergeGuess === 'one' ? 'Abovee 只勾了一列合併扣課' : 'Abovee 沒勾合併扣課';
     return [`${said}，這位的額度是 ${item.merged.minutes} 分一次 —— 先當成一段、扣一次；是兩次的話按「拆開成兩段」`];

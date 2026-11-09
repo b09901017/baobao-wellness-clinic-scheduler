@@ -601,7 +601,8 @@ const mergeChecks = [];
     if (!inRange(it.date) || it.cancelled) continue;
     if (it.mergeGuess && it.merged) {
       const [a, b] = it.merged.parts;
-      const note = it.mergeGuess === 'one' ? '只標了一列合併扣課' : '兩列都沒標合併扣課';
+      // `noColumn`（抄字沒有那一欄）在這裡走不到 —— `COLS` 一定有「合併扣課」；照樣給一句對的，免得以後抄字換了講成「沒標」
+      const note = { one: '只標了一列合併扣課', noColumn: '抄字沒有合併扣課那一欄' }[it.mergeGuess] ?? '兩列都沒標合併扣課';
       mergeChecks.push(add('mergeForgot', it.merged.parts, `${note}（額度 ${it.merged.minutes} 分一次）`,
         `Abovee 兩列（${a.row?.course ?? ''}、${b.row?.course ?? ''}）${note}，這位的額度是 ${it.merged.minutes} 分一次 —— 看起來是一次`));
     } else if (it.mergeSplit) {

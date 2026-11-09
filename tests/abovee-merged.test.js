@@ -128,6 +128,18 @@ describe('照片上沒有那一欄（只拍了一半）', () => {
     assert.equal(items[0].merged.note, '合併扣課：IN 30＋SIS 30');
   });
 
+  test('照分鐘合成一段時也講一句（她 11/9 段四：「合成一段＋也講一句」）：進發現問題、短字「合併」、不說「Abovee 沒勾」', () => {
+    const items = half([r('15:30 - 16:00', 'IN 30', ''), r('16:00 - 16:45', 'SIS 30', '')]);
+    assert.equal(items.length, 1);
+    const [m] = items;
+    const p = photoDayPlan([{ ...m, checked: true }], ctx());
+    const said = p.mustSeeBy[m.key] ?? [];
+    assert.ok(said.some((t) => /看不到「合併扣課」那一欄.*60 分一次.*照分鐘當成合併扣課.*拆開成兩段/.test(t)), said.join('\n'));
+    assert.ok(said.every((t) => !/Abovee 沒勾|只勾了一列/.test(t)), said.join('\n'));
+    assert.ok((rowTag({ ...m, checked: true }, p)?.all ?? []).includes('合併'));
+    assert.equal(p.rows.reduce((n, x) => n + x.charge, 0), 1, '扣一次');
+  });
+
   test('治療師不一樣 → 不合', () => {
     const items = half([r('10:30 - 11:00', 'IN 30', '', '陳小芳'), r('11:00 - 11:30', 'SIS 30', '', '陳美玲')]);
     assert.equal(items.length, 2);
