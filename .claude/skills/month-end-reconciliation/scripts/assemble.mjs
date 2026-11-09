@@ -8,6 +8,10 @@
 // - **兩張一模一樣**（同一頁截了兩次）：後面那一張不算，記在 `meta.duplicates`。
 // - **兩張重疊的列**：上一張最後 k 列跟下一張最前 k 列每一格都一樣 → 下一張那 k 列不要（印出來）。
 //   只認「頭尾相接」那一種，不去重別的 —— 同一個人同一個時間兩門課是兩列，長得很像但都是真的。
+// - **補截的單日清單**（抄本有 `# 單日 YYYY-MM-DD`：她把某一天單獨篩出來重截，2026-11-09 補 10 月那一次）：
+//   那一天以單日那幾張為準，整月那幾張裡同一天的列不算（它們跟單日清單在中間重疊，頭尾相接的去重抓不到）。
+//   被蓋掉的列每一列都要在單日那幾張裡找得到（免費的交叉核對：兩次抄同一列）；單日那幾張拍到「共 N 筆」就要剛好 N 列。
+//   整月那幾張每一張原本的頭尾（`meta.edges`）留著 —— 比對那一步算「兩頁接縫之間有沒有少截」要用原本的接縫。
 // - 檢查：日期由早到晚、時段的格式、同一個病歷號只對一個名字、還有沒有 `??`。檢查只講、不改 —— 改是看了截圖之後的事。
 // - 有 `--verify`（pixel_verify.py 的結果）就把每一列每一格的驗證結果接上去。
 //
@@ -32,6 +36,7 @@ export function parseTsv(text, file) {
       else if (tag === '起') out.meta.from = value;
       else if (tag === '訖') out.meta.to = value;
       else if (tag === '頁') out.meta.page = value;
+      else if (tag === '單日') out.day = isoDate(value);
       else out.notes.push(line.slice(1).trim());
       return;
     }
@@ -79,31 +84,86 @@ export function assemble(files, { month, verify = null, from = null, to = null, 
   // 比對那一步拿 `duplicates` 去講「這一張後面可能少截一頁」（`reconcile.mjs` 的 `gaps`）
   const duplicates = [];
   const kept = [];
+  // 整月那幾張每一張原本的第一列與最後一列（被單日清單蓋掉之前）：`reconcile.mjs` 算接縫用
+  const edges = {};
+  const pointOf = (r) => `${isoDate(r.date) ?? r.date} ${String(r.time).slice(0, 5)}`;
+  // 單日清單：日期 → { shots, page, rows }
+  const days = {};
   let prev = [];
+  let prevDay = null;
   for (const { file, text } of files) {
     const t = parseTsv(text, file);
     problems.push(...t.problems);
     const shot = t.shot || basename(file).replace(/\.tsv$/, '.png');
-    const twin = t.rows.length ? kept.find((k) => k.rows.length === t.rows.length && k.rows.every((r, i) => sameRow(r, t.rows[i]))) : null;
+    const day = t.day ?? null;
+    const twin = t.rows.length ? kept.find((k) => k.day === day && k.rows.length === t.rows.length && k.rows.every((r, i) => sameRow(r, t.rows[i]))) : null;
     if (twin) {
       duplicates.push({ shot, sameAs: twin.shot });
       notes.push(`${shot}：跟 ${twin.shot} 一模一樣（同一頁截了兩次），只算一次 —— ${twin.shot} 後面那一頁可能沒截到`);
       continue;
     }
-    kept.push({ shot, rows: t.rows });
-    shots.push(shot);
+    kept.push({ shot, rows: t.rows, day });
     // 這張抄了幾列（去掉重疊之前）—— 逐像素驗證照它切列
     rowsPerShot[shot] = t.rows.length;
-    for (const k of ['from', 'to', 'page']) meta[k] ??= isoDate(t.meta[k]) ?? t.meta[k] ?? null;
     notes.push(...t.notes.map((x) => `${shot}：${x}`));
-    const skip = overlap(prev, t.rows);
+    if (day) {
+      const d = (days[day] ??= { shots: [], page: null, rows: [] });
+      d.shots.push(shot);
+      d.page ??= t.meta.page ?? null;
+      const off = t.rows.find((r) => isoDate(r.date) !== day);
+      if (off) problems.push(`${shot}：標了單日 ${day}，卻有一列是 ${isoDate(off.date) ?? off.date}`);
+      // 同一天的第二頁接在第一頁後面：頭尾相接的照樣去重
+      const skip = prevDay === day ? overlap(prev, t.rows) : 0;
+      if (skip) notes.push(`${shot}：最前面 ${skip} 列跟上一張最後 ${skip} 列一樣（重疊），沒有重複算`);
+      t.rows.forEach((r, i) => { if (i >= skip) d.rows.push({ src: shot, row: i + 1, ...r, date: isoDate(r.date) ?? r.date }); });
+      prev = t.rows;
+      prevDay = day;
+      continue;
+    }
+    shots.push(shot);
+    if (t.rows.length) edges[shot] = { first: pointOf(t.rows[0]), last: pointOf(t.rows[t.rows.length - 1]) };
+    for (const k of ['from', 'to', 'page']) meta[k] ??= isoDate(t.meta[k]) ?? t.meta[k] ?? null;
+    const skip = prevDay ? 0 : overlap(prev, t.rows);
     if (skip) notes.push(`${shot}：最前面 ${skip} 列跟上一張最後 ${skip} 列一樣（重疊），沒有重複算`);
     t.rows.forEach((r, i) => {
       if (i < skip) return;
-      rows.push({ id: `A${String(rows.length + 1).padStart(3, '0')}`, src: shot, row: i + 1, ...r, date: isoDate(r.date) ?? r.date });
+      rows.push({ src: shot, row: i + 1, ...r, date: isoDate(r.date) ?? r.date });
     });
     prev = t.rows;
+    prevDay = null;
   }
+
+  // ---------- 單日清單蓋掉整月那幾張的同一天 ----------
+  const dayMeta = {};
+  if (Object.keys(days).length) {
+    // 比一列是不是同一列：逐像素之前抄的字可能打了 ??，所以不比名字，只比時段、病歷號、課程、狀態
+    const same = (a, b) => ['time', 'chartNo', 'course', 'status'].every((k) => String(a[k]).replace(/\?\?/g, '') === String(b[k]).replace(/\?\?/g, ''));
+    for (const [day, d] of Object.entries(days)) {
+      const replaced = rows.filter((r) => r.date === day);
+      const left = [...d.rows];
+      const missing = [];
+      for (const r of replaced) {
+        const at = left.findIndex((x) => same(x, r));
+        if (at < 0) missing.push(r);
+        else left.splice(at, 1);
+      }
+      for (const r of missing) problems.push(`${r.src} 第 ${r.row} 列（${day}）在單日清單裡找不到 —— 兩次抄的不一樣，回截圖看`);
+      const total = Number(String(d.page ?? '').match(/(\d+)\s*筆/)?.[1] ?? NaN);
+      if (Number.isFinite(total) && total !== d.rows.length) problems.push(`${day} 單日清單寫共 ${total} 筆，抄出來 ${d.rows.length} 列`);
+      notes.push(`${day}：以單日清單（${d.shots.join('、')}，${d.rows.length} 列）為準，整月那幾張同一天的 ${replaced.length} 列不算（都在單日清單裡找到了${missing.length ? `，除了 ${missing.length} 列` : ''}）`);
+      dayMeta[day] = { shots: d.shots, rows: d.rows.length, total: Number.isFinite(total) ? total : null, replaced: replaced.length, missing: missing.length };
+    }
+    const merged = [...rows.filter((r) => !days[r.date]), ...Object.values(days).flatMap((d) => d.rows)];
+    // 照日期排；同一天保留原本的先後（Abovee 本來就照時間排）
+    const order = new Map(merged.map((r, i) => [r, i]));
+    merged.sort((a, b) => String(a.date).localeCompare(String(b.date)) || order.get(a) - order.get(b));
+    rows.length = 0;
+    rows.push(...merged);
+  }
+  rows.forEach((r, i) => { r.id = `A${String(i + 1).padStart(3, '0')}`; });
+  const ordered = rows.map(({ id, ...rest }) => ({ id, ...rest }));
+  rows.length = 0;
+  rows.push(...ordered);
 
   // ---------- 逐像素驗證的結果 ----------
   let pixel = null;
@@ -176,7 +236,7 @@ export function assemble(files, { month, verify = null, from = null, to = null, 
   if (complete === false) problems.push(`Abovee 上寫共 ${total} 筆，抄出來 ${rows.length} 列 —— 少截了或重複了`);
 
   return {
-    meta: { month, shots, rowsPerShot, duplicates, from: meta.from, to: meta.to, page: meta.page, total: Number.isFinite(total) ? total : null, complete, pixel },
+    meta: { month, shots, rowsPerShot, duplicates, edges, days: dayMeta, from: meta.from, to: meta.to, page: meta.page, total: Number.isFinite(total) ? total : null, complete, pixel },
     problems, notes, rows,
   };
 }
@@ -201,7 +261,8 @@ if (isMain) {
   mkdirSync(dirname(resolve(opt.out)), { recursive: true });
   writeFileSync(opt.out, JSON.stringify(out, null, 1));
   if (out.meta.duplicates.length) console.log(`另有 ${out.meta.duplicates.length} 張跟別張一模一樣（同一頁截了兩次），沒有重複算`);
-  console.log(`${out.meta.shots.length} 張、${out.rows.length} 列；Abovee 上的總筆數：${out.meta.total ?? '沒拍到'}${
+  const dayShots = Object.values(out.meta.days).reduce((n, d) => n + d.shots.length, 0);
+  console.log(`${out.meta.shots.length + dayShots} 張${dayShots ? `（其中 ${dayShots} 張是補截的單日清單）` : ''}、${out.rows.length} 列；Abovee 上的總筆數：${out.meta.total ?? '沒拍到'}${
     out.meta.complete ? (out.meta.total ? '（拍齊了）' : '（她說整個月都截了）') : '（沒拍齊：只信第一列到最後一列之間，頭尾那兩天不算次數）'}`);
   if (out.meta.pixel) console.log(`逐像素：${out.meta.pixel.ok}/${out.meta.pixel.cells} 格吻合，${out.meta.pixel.rowsOk}/${out.meta.pixel.rows} 列全部吻合`);
   console.log(`要看的 ${out.problems.length} 件、備註 ${out.notes.length} 件`);

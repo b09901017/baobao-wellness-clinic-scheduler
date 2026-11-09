@@ -17,7 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 const D = (f) => import(pathToFileURL(resolve(REPO, 'public/js/domain', f)).href);
 
-const { readAbovee, absentFromPhoto, statusFromAbovee } = await D('aboveeImport.js');
+const { readAbovee, absentFromPhoto, statusFromAbovee, mergedMark } = await D('aboveeImport.js');
 const { counts, slotOutcome, isProduct } = await D('entitlements.js');
 const { syncBundle } = await D('sheetReport.js');
 const { slotStatus, isActive, isLiveSlot, markFor } = await D('visits.js');
@@ -239,14 +239,25 @@ for (const v of visitsAlive) {
   });
 }
 const shotRows = (shot) => rows.filter((r) => r.src === shot).sort((a, b) => a.row - b.row);
-const shotOrder = (abovee.meta?.shots ?? []).filter((shot) => rows.some((r) => r.src === shot));
-const pageSize = Math.max(0, ...Object.values(abovee.meta?.rowsPerShot ?? {}));
+// 接縫照每一張原本的頭尾（`meta.edges`）：補截的單日清單蓋掉的那幾列不在 `rows` 裡了，但接縫還是原本那一條
+const edges = abovee.meta?.edges ?? {};
+const shotOrder = (abovee.meta?.shots ?? []).filter((shot) => edges[shot] || rows.some((r) => r.src === shot));
+const firstOf = (shot) => edges[shot]?.first ?? pointOf(shotRows(shot)[0]);
+const lastOf = (shot) => edges[shot]?.last ?? pointOf(shotRows(shot).at(-1));
+// 補截的單日清單（`meta.days`）：那一天整天都在截圖上，接縫落在那幾天裡就不是少截
+const wholeDays = new Set(Object.keys(abovee.meta?.days ?? {}));
+const coveredByDays = (from, to) => {
+  for (let d = from.slice(0, 10); d <= to.slice(0, 10); d = addDays(d, 1)) if (!wholeDays.has(d)) return false;
+  return true;
+};
+const pageSize = Math.max(0, ...Object.entries(abovee.meta?.rowsPerShot ?? {}).filter(([s]) => shotOrder.includes(s)).map(([, n]) => n));
 const twinOf = new Map((abovee.meta?.duplicates ?? []).map((d) => [d.sameAs, d.shot]));
 const gaps = [];
 for (let i = 0; i + 1 < shotOrder.length; i += 1) {
-  const [a, b] = [shotRows(shotOrder[i]), shotRows(shotOrder[i + 1])];
-  const from = pointOf(a[a.length - 1]);
-  const to = pointOf(b[0]);
+  const a = shotRows(shotOrder[i]);
+  const from = lastOf(shotOrder[i]);
+  const to = firstOf(shotOrder[i + 1]);
+  if (wholeDays.size && coveredByDays(from, to)) continue;
   const inside = loose.filter((x) => x.key >= from && x.key <= to).sort((x, y) => x.key.localeCompare(y.key));
   const full = (abovee.meta?.rowsPerShot?.[shotOrder[i]] ?? a.length) >= pageSize;
   const twin = twinOf.get(shotOrder[i]) ?? null;
@@ -336,7 +347,8 @@ function coveringSlot(item) {
     const hit = appSlotOf(other);
     const [s0, s1] = [minutesOf(hit?.slot?.startsAt), minutesOf(hit?.slot?.endsAt)];
     if (s0 == null || s1 == null || !(s0 <= start && start < s1)) continue;
-    return { app: appView(hit.visit, hit.slot, hit.index), first: { course: other.row?.course ?? '', time: String(other.row?.time ?? '').slice(0, 5) } };
+    return { app: appView(hit.visit, hit.slot, hit.index), first: { course: other.row?.course ?? '', time: String(other.row?.time ?? '').slice(0, 5) },
+      marked: mergedMark(other.row?.merged) };
   }
   return null;
 }
@@ -447,6 +459,12 @@ for (const item of items) {
     if (cover) {
       base.app = cover.app;
       base.abovee.with = cover.first;
+      // 兩列都標了合併扣課：Abovee 扣一次、app 一段扣一次 —— 一致。app 拍 Abovee 只把「兩列都是新的」配成一對
+      // （`mergeRows()`），前一列已經被 app 那一段認走時後一列會落單（`mergeOrphan`），這裡不要講成「沒標」（2026-11-09 補截的 10/28）
+      if (cover.marked && mergedMark(item.row?.merged)) {
+        push('note', 'mergedOneSlot', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）標了合併扣課，app 記成一段`, '一致，不影響次數');
+        continue;
+      }
       push('fix', 'mergeUnmarked', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）沒標合併扣課，app 記成一段`,
         '回 Abovee 把這兩列標「合併扣課」（不然 Abovee 扣兩次）');
       continue;
@@ -714,7 +732,8 @@ const result = {
   meta: {
     month: MONTH, today: TODAY, from: FROM, to: TO, generatedAt: new Date().toISOString(),
     project: snap.meta?.projectId ?? null, emulator: snap.meta?.emulator ?? null, readAt: snap.meta?.readAt ?? null,
-    shots: abovee.meta?.shots ?? [], aboveeRows: rows.length, droppedOutsideMonth: allRows.length - rows.length,
+    // 補截的單日清單那幾張也算進「幾張截圖」
+    shots: [...(abovee.meta?.shots ?? []), ...Object.values(abovee.meta?.days ?? {}).flatMap((d) => d.shots ?? [])], days: abovee.meta?.days ?? {}, aboveeRows: rows.length, droppedOutsideMonth: allRows.length - rows.length,
     complete: COMPLETE, firstRowDate, lastRowDate, pixel: abovee.meta?.pixel ?? null,
   },
   summary: {

@@ -138,6 +138,7 @@ const QUIET = [
   ['missingNoShow', 'Abovee「客戶失約」、app 上沒有'],
   ['appCancelled', 'Abovee 還沒結案、app 那一段取消了'],
   ['diffs', '治療師或診間不一樣'],
+  ['mergedOneSlot', '合併扣課的兩列，app 記成一段（兩邊都扣一次）'],
   ['missingFuture', '還沒到的預約，app 上還沒有'],
   ['extraFuture', '還沒到的預約，Abovee 上還沒有'],
   ['unknownCourse', 'Abovee 取消了、課程 app 認不出來'],

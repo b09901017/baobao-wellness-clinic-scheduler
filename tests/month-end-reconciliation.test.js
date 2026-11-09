@@ -270,6 +270,16 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     assert.equal(r.issues[0].abovee.with.course, 'SIS 30');
   });
 
+  test('兩列都標了合併扣課、app 一段蓋住兩列（前一列已經被那一段認走）→ 一致，不是「沒標合併扣課」', () => {
+    const rows = [...THREE.slice(0, 2),
+      ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30', merged: '是' }],
+      // 後一列超出 app 那一段（10:00–11:00）：`claimHalves()` 認不走、`mergeRows()` 又只配兩列都是新的 → 落單（2026-11-09 真的那一件）
+      ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:15', merged: '是' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), []);
+    assert.ok(r.minor.some((i) => i.type === 'mergedOneSlot'), JSON.stringify(r.minor.map((i) => i.type)));
+  });
+
   /** 三張截圖：a（滿頁兩列）、b（跟 a 一模一樣）、c；app 在 a 的最後一列與 c 的第一列之間多一段 */
   function paged({ twin }) {
     const data = abovee([['10-02', '王小明', '課程完成'], ['10-09', '王小明', '課程完成'], ['10-16', '王小明', '課程完成']]);
@@ -296,6 +306,19 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     assert.equal(r.gaps.length, 1);
     assert.equal(r.gaps[0].twin, null);
     assert.equal(runRaw(snapshot(CLEAN), paged({ twin: false })).gaps.length, 0);
+  });
+
+  test('同一頁截了兩次，但少的那一天補截了整天的單日清單（meta.days）→ 不是「可能少截」', () => {
+    const data = paged({ twin: true });
+    // 接縫在 10/09 → 10/16 之間；10/09～10/16 每一天都有單日清單才算補齊
+    const days = {};
+    for (let d = 9; d <= 16; d += 1) days[`2026-10-${String(d).padStart(2, '0')}`] = { shots: ['d.png'], rows: 1 };
+    data.meta.days = days;
+    data.meta.edges = { 'a.png': { first: '2026-10-02 10:00', last: '2026-10-09 10:00' }, 'c.png': { first: '2026-10-16 10:00', last: '2026-10-16 10:00' } };
+    const r = runRaw(snapshot(CLEAN), data);
+    assert.equal(r.gaps.length, 0);
+    delete days['2026-10-12'];
+    assert.equal(runRaw(snapshot(CLEAN), data).gaps.length, 1);
   });
 
   test('舊表：多勾（Abovee 與 app 都沒做完）與少勾（兩邊都做完、舊表沒勾）才列；跟 app 一樣的不列', () => {
@@ -381,3 +404,36 @@ describe('合成抄本：同一頁截了兩次', () => {
     assert.deepEqual(out.meta.shots, ['a.png']);
   });
 });
+
+describe('合成抄本：補截的單日清單（`# 單日`）', () => {
+  const head = '預約狀態\t預約日期\t預約時段\t姓名\t病歷號\t課程\t合併扣課\t實際扣課病歷號\t關係\t預約來源\t診間\t服務資源\t取消原因';
+  const row = (date, time, course = 'SIS 60', status = '課程完成') => `${status}\t${date}\t${time}\t王小明\t00001234\t${course}\t\t\t\t顧客會\t\t\t-`;
+  const tsv = (shot, rows, tags = '') => `# 截圖\t${shot}\n${tags}${head}\n${rows.join('\n')}\n`;
+  // 整月那一張只截到 10/09 早上；10/09 單獨篩出來重截了兩頁（共 3 筆），其中一列跟整月那一張重疊在中間
+  const month = tsv('a.png', [row('2026-10-02', '10:00 - 11:00'), row('2026-10-09', '09:00 - 10:00'), row('2026-10-16', '10:00 - 11:00')]);
+  const day1 = tsv('d1.png', [row('2026-10-09', '08:00 - 09:00', 'IN 60'), row('2026-10-09', '09:00 - 10:00')], '# 單日\t2026-10-09\n# 頁\t共 3 筆，第 1 / 2 頁\n');
+  const day2 = tsv('d2.png', [row('2026-10-09', '14:00 - 15:00', 'ILIB 60')], '# 單日\t2026-10-09\n');
+
+  test('那一天以單日清單為準：整月那一張同一天的列不重複算，照日期排，接縫留著', async () => {
+    const { assemble } = await import('../.claude/skills/month-end-reconciliation/scripts/assemble.mjs');
+    const out = assemble([{ file: '01_a.tsv', text: month }, { file: '02_d1.tsv', text: day1 }, { file: '03_d2.tsv', text: day2 }], { month: '2026-10' });
+    assert.deepEqual(out.problems, []);
+    assert.deepEqual(out.rows.map((r) => `${r.date.slice(5)} ${r.time.slice(0, 5)} ${r.src}`),
+      ['10-02 10:00 a.png', '10-09 08:00 d1.png', '10-09 09:00 d1.png', '10-09 14:00 d2.png', '10-16 10:00 a.png']);
+    assert.deepEqual(out.rows.map((r) => r.id), ['A001', 'A002', 'A003', 'A004', 'A005']);
+    assert.deepEqual(out.meta.days['2026-10-09'], { shots: ['d1.png', 'd2.png'], rows: 3, total: 3, replaced: 1, missing: 0 });
+    assert.deepEqual(out.meta.shots, ['a.png']);
+    assert.deepEqual(out.meta.edges['a.png'], { first: '2026-10-02 10:00', last: '2026-10-16 10:00' });
+    assert.deepEqual(out.meta.rowsPerShot, { 'a.png': 3, 'd1.png': 2, 'd2.png': 1 });
+  });
+
+  test('整月那一張的列在單日清單裡找不到、或筆數跟「共 N 筆」不一樣 → 要看', async () => {
+    const { assemble } = await import('../.claude/skills/month-end-reconciliation/scripts/assemble.mjs');
+    const wrong = tsv('d1.png', [row('2026-10-09', '08:00 - 09:00', 'IN 60'), row('2026-10-09', '09:00 - 10:00', 'IN 60')], '# 單日\t2026-10-09\n# 頁\t共 3 筆\n');
+    const out = assemble([{ file: '01_a.tsv', text: month }, { file: '02_d1.tsv', text: wrong }], { month: '2026-10' });
+    assert.equal(out.problems.length, 2, out.problems.join('\n'));
+    assert.match(out.problems[0], /找不到/);
+    assert.match(out.problems[1], /共 3 筆，抄出來 2 列/);
+  });
+});
+
