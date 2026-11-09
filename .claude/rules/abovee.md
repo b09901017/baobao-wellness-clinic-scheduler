@@ -29,7 +29,7 @@ paths:
 - **預約來源寫「體驗」**（抄字的「預約來源」那一欄，2026-10-14，ADR-0148）：判斷只有 `isTrialRow()`，`resolveItem()` 預選那門課的體驗、**不看身上有沒有額度**；健檢與二返（`canBeGift()` 是 false）照舊挑額度、`warningsByRow()` 多一句 `trialSay()`（**進 `mustSee`**）；「換一位」照樣是體驗（照片上的字）；合併扣課跳過送的／體驗的列（`mergeOrphan` 也不標）。
 - 抄不到那一欄（Function 沒重新部署）就是不是體驗，行為跟以前一樣。
 - **合併扣課**是 `mergeRows()`（`readAbovee()` 最後一步：一對記成一段、記一句自動寫、第二台的提醒 `mergedNotices()`；勾了找不到另一半的 `mergeOrphan` 不打勾），抄字的「合併扣課」那一欄，**Function 沒重新部署之前抄不到那一欄**。
-- **算不算一對照額度的分鐘，不只看勾**（ADR-0185，推翻 ADR-0123 那一點）：判斷只有 `looksMerged()`（額度分鐘＝兩列加起來）；沒勾全卻合了是合起來那一列的 `mergeGuess`（`none`／`one`），兩列都勾卻拆了是兩列的 `mergeSplit`；句子只在 `mergeMinutesSay()`（`warningsByRow()` 的 `mergeMinutes` → 進 `mustSee`、短字「合併」）。**一列幾分鐘只問 `rowMinutes()`**（課程字與起訖取較小的 —— Abovee 多排 15 分空檔）、做到幾點問 `rowEnd()`；`claimHalves()` 的「蓋得住」與沒勾的後一半（`slotFitsPair()` → `halfGuess`，`recordedBaseSay()` 講一句）也讀它們。這三個旗標在 `resolveItem()` 的 `next` 與 `asRecorded()` 都清。月底對帳拿同一支判斷（不另寫一套）。
+- **算不算一對照額度的分鐘，不只看勾**（ADR-0185，推翻 ADR-0123 那一點）：判斷只有 `looksMerged()`（額度分鐘＝兩列加起來）；沒勾全卻合了是合起來那一列的 `mergeGuess`（`none`／`one`），兩列都勾卻拆了是兩列的 `mergeSplit`（`{ with: 另一列的 key, tail }` —— 另一半是誰只看它，不照時間猜）；**兩列都勾的那幾對先配、剩下的才照分鐘配**（一格一格往下配的話「沒勾＋勾」會把勾得對的那一對拆散，段四審查）；句子只在 `mergeMinutesSay()`（`warningsByRow()` 的 `mergeMinutes` → 進 `mustSee`、短字「合併」）。**一列幾分鐘只問 `rowMinutes()`**（課程字與起訖取較小的 —— Abovee 多排 15 分空檔）、做到幾點問 `rowEnd()`；`claimHalves()` 的「蓋得住」與沒勾的後一半（`slotFitsPair()` → `halfGuess`，`recordedBaseSay()` 講一句）也讀它們。這三個旗標在 `resolveItem()` 的 `next` 與 `asRecorded()` 都清。月底對帳拿同一支判斷（不另寫一套）。
 - **搬了時間**是 `flagMoved()`：拿得準的那一對（剛好一對、舊的時間在照片範圍裡 —— 範圍跟「app 有、這次照片上沒有」同一支 `photoBounds()`、舊的還開著；**app 上新的那個時間取消過的列不算**（`appCancelledHere`：多半是日曆先改了、Abovee 還沒改，照 ADR-0144 走，2026-10-16 中途發現 17））→ 「已經記了」＋`move`＋`adoptMove`（預設勾），`applyPhotoMove()` 走 `rebookSlot(…, { status })`（新的那一段照照片的狀態、時長照舊、治療師診間照照片，`movedSlotFields()`）；改完撞期、重疊、二返簽不成 → `checkMoves()` 不先勾、講一句（**不是不准改**）。
 - **它的 kind 是 `recorded`，不可以再被當成新的一段記一次**（舊的沒取消、新的多一段＝多扣一次）。
 - 拿不準的照舊（新的、不預設打勾、去日曆改期）；不同天的改期認不出來。
@@ -84,6 +84,6 @@ paths:
 
 - `.claude/skills/month-end-reconciliation/scripts/reconcile.mjs` 照它們分類、數次數（2026-10-16）—— 改了形狀或新增一種 `reason` 要回去對它的分類表，`tests/month-end-reconciliation.test.js` 用假資料整支跑一次盯著。
 - **抄字的 `COLS` 有「實際扣課病歷號」「關係」**（family-merge-round 04）：家人那一列在 `readAbovee()` 裡就記在被扣的那一位身上 —— 對帳自己的 `paidByOf()` 只剩畫面上講「扣誰的號碼」與舊表那一步；它自己比對「同一個時間那一段」的地方（`coveringSlot()`）也問誰來的一樣。
-- **合併扣課那一塊**（family-merge-round 06）：拿同一份抄字、這個月的來訪拿掉再叫一次 `readAbovee()`，讀它的 `mergeGuess`／`mergeSplit`／`mergeOrphan` —— 改了這三個旗標的意思或名字要回去對 `reconcile.mjs` 的 `mergeChecks`；次數照 Abovee 的勾算（`mergeGuess` 算兩次、`mergeSplit` 的後一列不算、`halfGuess` 算進前一列那一段）。
+- **合併扣課那一塊**（family-merge-round 06）：拿同一份抄字、這個月的來訪拿掉再叫一次 `readAbovee()`，讀它的 `mergeGuess`／`mergeSplit`（一對照 `.with` 配、`.tail` 那一列不另算）／`mergeOrphan` —— 改了這三個旗標的意思或名字要回去對 `reconcile.mjs` 的 `mergeChecks`；次數照 Abovee 的勾算（`mergeGuess` 算兩次、`mergeSplit` 的後一列不算、`halfGuess` 算進前一列那一段）。
 - **它叫 `absentFromPhoto()` 一定傳 `{ everyone: true }`**（一整個月、每一位都要對；不傳就照照片上幾位只對那一兩位，ADR-0153）。
 - 那支 skill **只讀 Firebase**（`snapshot.mjs` 把寫入的入口換成丟錯），有真名的東西只在 `.local/references/月底對帳/`
