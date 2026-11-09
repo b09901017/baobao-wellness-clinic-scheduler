@@ -1,6 +1,6 @@
 # 用家人的額度：扣誰的就扣誰的，標註是誰來的
 
-Status: idea（她 2026-11-09 要記成 issue；動到額度與來訪的資料形狀，開工走 /kickoff）
+Status: in-progress（2026-11-09 kickoff：拆成 `.scratch/family-merge-round/issues/01～04、07`，她選的答案在那一份 spec.md）
 動工前先讀：`public/js/domain/visits.js` 的 `validateVisit()`（額度只拿這位客戶的）、`entitlements.js` 的 `counts()`、
 `functions/transcripts/aboveeList.js`（拍 Abovee 抄幾欄）、`aboveeImport.js` 的 `readAbovee()`、
 `.claude/skills/month-end-reconciliation/scripts/reconcile.mjs` 的 `paidByOf()`（月底對帳已經讀那兩欄）
