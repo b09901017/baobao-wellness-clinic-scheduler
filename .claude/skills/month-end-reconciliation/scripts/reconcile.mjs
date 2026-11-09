@@ -90,6 +90,8 @@ const cell = (v) => (v == null || v === '-' ? '' : String(v).replace(/\?\?/g, ''
 
 const allRows = abovee.rows ?? [];
 const rows = allRows.filter((r) => inMonth(String(r.date ?? '').trim().replaceAll('/', '-')));
+/** 一個 item 的那一列（`key` 是 `a<第幾列>`；合併扣課的一對是 `a5+a6`，拿前一列） */
+const rowOf = (item) => rows[Number(String(item?.key ?? '').split('+')[0].slice(1))];
 
 // **截圖拍到哪裡**（冷測試 2026-10-16 抓到的）：她說「截到 10/9」，最後一張卻停在 10/9 早上 —— 那天下午的段截圖上本來就沒有。
 // 所以沒拍到「共 N 筆」（`meta.complete` 是 true 才算拍齊；她說了整個月都截了也算）時，只信第一列到最後一列之間：
@@ -304,8 +306,8 @@ function baseOfItem(item) {
   return {
     date: item.date, time: r.time ?? '', startsAt: item.startsAt ?? null,
     customerId, name: customerId ? customersById[customerId]?.name ?? r.name : r.name,
-    abovee: { status: r.status ?? '', course: r.course ?? '', resource: r.resource ?? '', src: rows[Number(item.key.slice(1))]?.src ?? null,
-      row: rows[Number(item.key.slice(1))]?.row ?? null, paidBy: paidByOf(rows[Number(item.key.slice(1))]) },
+    abovee: { status: r.status ?? '', course: r.course ?? '', resource: r.resource ?? '', src: rowOf(item)?.src ?? null,
+      row: rowOf(item)?.row ?? null, paidBy: paidByOf(rowOf(item)) },
     app: hit ? { status: slotStatus(hit.visit, hit.slot), name: slotName(hit.slot, master, 'short'), time: hit.slot.startsAt ?? '', visitId: hit.visit.id, slotIndex: hit.index }
       : null,
     courseId: item.course?.courseId ?? null,
@@ -373,8 +375,16 @@ for (const item of items) {
       const who = strangers.get(k) ?? { name: item.row?.name ?? '', chartNo: item.row?.chartNo ?? '', rows: [], maybe: new Map() };
       for (const m of maybeAt(item)) who.maybe.set(m.customerId, m.name);
       who.rows.push({ date: item.date, time: item.row?.time ?? '', course: item.row?.course ?? '', status: item.row?.status ?? '',
-        paidBy: paidByOf(rows[Number(item.key.slice(1))])?.name ?? null });
+        paidBy: paidByOf(rowOf(item))?.name ?? null });
       strangers.set(k, who);
+      // 家人用名單上那一位的號碼做完的（實際扣課病歷號）：Abovee 扣的是那一位 —— 那一位那天 app 上沒有這一段的話，就是 app 少扣一次
+      // （app 還做不到扣家人的額度，.scratch/family-charge；記在那一位身上、同一個時間的那一段算有記）
+      const paid = paidByOf(rowOf(item));
+      if (ps === 'done' && paid?.customerId && !appSlotAt(paid.customerId, item.date, item.startsAt)) {
+        push('fix', 'familyMissing', { ...base, customerId: paid.customerId, name: paid.name },
+          `家人（${item.row?.name ?? ''}${paid.relation ? `，${paid.relation}` : ''}）用這一位的號碼做了「${item.row?.course ?? ''}」，app 上這一位那天沒有這一段 —— app 少扣一次`,
+          'app 還做不到扣家人的額度（.scratch/family-charge），先記著');
+      }
     }
     continue;
   }
@@ -539,14 +549,37 @@ const bucketIn = (person, key) => {
   return person.buckets.get(key);
 };
 
-// Abovee：課程完成的列，算進它在 app 上對到的那一段的桶（沒對到就算進 app 預選的那一筆）
+/**
+ * 家人用這一位的號碼做的那一列算進這一位哪一格：app 上這一位同一天、同一個時間、同一門課的那一段（記在付錢那一位身上的）→ 那一段的格子；
+ * 沒有那一段 → 這一位那門課只有一筆額度就是它；都不是 → 照那一列的課程。
+ */
+function familyBucket(item, payerId) {
+  const at = appSlotAt(payerId, item.date, item.startsAt);
+  const slot = at ? visitsById[at.visitId]?.slots?.[at.slotIndex] : null;
+  if (slot && (!item.course?.courseId || slot.courseId === item.course.courseId)) return bucketOfSlot(slot);
+  // 單一課程的額度看 `courseId`；三選一那種池子沒有 `courseId`，看那一列的器材在不在它的選項裡
+  const eq = item.course?.equipmentId ?? null;
+  const same = (entitlementsBy[payerId] ?? []).filter((e) => !e.deletedAt && !isProduct(e)
+    && ((e.courseId && e.courseId === item.course?.courseId) || (!e.courseId && eq && (e.optionEquipmentIds ?? []).includes(eq))));
+  return same.length === 1 ? `e:${same[0].id}` : bucketOfItem(item);
+}
+
+// Abovee：課程完成的列，算進它在 app 上對到的那一段的桶（沒對到就算進 app 預選的那一筆）。
+// 兩條（2026-11-09 全部重對抓到的）：
+// - 合併扣課的後一半被 `claimHalves()` 認成「已經記了」（`halfOf`，app 那一段蓋得住它）→ 那一對在 Abovee 只扣一次、前一列算過了。
+//   以前這一列沒有 `slotIndex`、掉進「沒有扣額度」那一格多算一次（三個數字只加額度那幾格，所以總數沒露出來，每一位的表上會多一列 ✗）
+// - 實際扣課病歷號是名單上另一位（家人用他的號碼）→ 算到被扣的那一位（她 11/9：「是扣誰的就扣誰的」）；來的人不在名單上也算
 for (const item of items) {
-  if (!item.customerId || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
+  const paid = paidByOf(rowOf(item));
+  const family = Boolean(paid?.customerId && paid.customerId !== item.customerId);
+  const who = family ? paid.customerId : item.customerId;
+  if (!who || item.photoStatus !== 'done' || !fullDay(item.date)) continue;
   // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
   if (guestItem(item)) continue;
-  if (mergedTails.has(item)) continue;
+  if (mergedTails.has(item) || item.halfOf) continue;
   const hit = appSlotOf(item);
-  const b = bucketIn(personOf(item.customerId, item.row?.name), hit ? bucketOfSlot(hit.slot) : bucketOfItem(item));
+  const b = bucketIn(personOf(who, family ? paid.name : item.row?.name),
+    family ? familyBucket(item, who) : hit ? bucketOfSlot(hit.slot) : bucketOfItem(item));
   b.abovee += 1;
   b.aboveeBooked = true;
 }
@@ -632,7 +665,7 @@ if (extra?.legacy?.file) {
   const groups = extra.legacy.groups ?? {};
   const groupOf = new Map(Object.entries(groups).flatMap(([g, ids]) => ids.map((id) => [id, g])));
   // 用家人額度的那一列（實際扣課病歷號是別人的）算在付錢的那一位：舊表勾在那一位的分頁。那一列的人不在 app 裡也算
-  const payerOf = (item) => paidByOf(rows[Number(item.key.slice(1))])?.customerId ?? item.customerId ?? null;
+  const payerOf = (item) => paidByOf(rowOf(item))?.customerId ?? item.customerId ?? null;
   const ticks = extra.legacy.ticks.filter((t) => inRange(t.date) && groups[t.group]);
   legacyOut.ticks = ticks.length;
   const keys = new Set(ticks.map((t) => `${t.group}|${t.date}`));
