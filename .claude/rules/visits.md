@@ -88,11 +88,21 @@ paths:
 - **送的／體驗那一段交 `giftCourseId` ＋ `giftKind`**（ADR-0148）：沒給或看不懂的 `giftKind` 是體驗、額度或 n返 同時給了那兩條贏；每一段都寫 `giftKind`（一般的段 `null`）。
 - **換成扣額度或 n返 時那一格要清掉、沒換時要留著**（`followupNth` 當初同一個坑）：編輯器 `readDraft()`／`readFreeSlot()`、拍 Abovee 的 `next`／`base`／`asRecorded()`、壓表的 `resetCourseBoundPicks()`
 
+## 一段來訪的「誰來的」（`slot.attendee`，家人用這位客戶的額度）
+
+- **記在被扣額度的那一位身上**（ADR-0183）：額度、次數、試算表、待辦照舊掛在她身上，`validateVisit()` 一行都不用為它改。
+- **讀只走 `naming.js` 的 `attendeeOf()`**（空的＝本人；去頭尾空白）；本人那一段**不寫這一格**（`slotDraft.js` 的 `withAttendee()` 清成空就拿掉那個鍵）—— 舊資料讀回來、存回去一個字都不變。
+- 名字只在 `naming.js`：`slotName()` 的 `short` 最後接 `(先生來)`（`attendeeTag()`，接在 `(體驗)` 後面）；`line` **不接在 `slotName()` 裡**（設定頁的名稱預覽也讀它），貼給客戶的那幾則走 `visitNames(…, 'line')` 與 `messages.js` 的 `slotLines()` 接 `（先生）`。
+- **判斷「是不是同一個人」要問它**：`overlapWarnings()`（誰來的不一樣不算重疊）、`conflictWarnings()`（同一筆裡誰來的不一樣的段當成別人，算診間人頭與治療師；ADR-0133「同一位客戶另一段」那一句跳過誰來的不一樣的）。新增一種「同一個人同時兩段」的判斷也要問。
+- **組時段的入口都要帶得過去**：`slotFromPicks()` 收 `attendee`；來訪編輯器 `readDraft()` 五條出口讀完再套一次 `withAttendee()`（有幾條走 `slotFromPicks()` 重組、不帶這一格）；`rebookSlot()`、`applyPhotoMove()` 是 `...old` 帶過去。拍 Abovee 的 `picksOf()` 要自己加（family-merge-round 03）。
+- 日曆 `markClashes()`、資料健檢 `checkConflicts()` 照舊跳過同一筆 —— 同一筆裡家人與本人的撞期只在存檔前講
+
 ## 一段來訪在畫面上叫什麼
 
 - 只寫在 `domain/naming.js` 的 `slotName()`。
 - **「她自己看」那一種的順序是品項 → 器材 → 課程**（營養點滴印那天打的品項，2026-09-08）—— `master` 是三份（`courses`、`equipment`、`ivProducts`），少帶一份那一頁的點滴就會寫「營養點滴」而別頁寫「雪」，有測試盯著每一個組 master 的地方（`master: {` 與 `master = {` 兩種寫法都掃）。
 - **進度追蹤那一列的名字在 `domain/progress.js` 的 `dayFor()` 算好**，不是把三個 id 搬給畫面 —— `slotName()` 還要 `followupNth`（少了它一段三返會印成「二返」）與起訖時間，搬一份子集就是在別的地方重寫一次「它要哪幾格」。
+- **家人用這位客戶的額度那一段，`short` 最後接 `(先生來)`**（見上一節）。
 - **全站只有三種名字**（ADR-0078）：額度是「當初買了什麼」（`復能-三選一(30)`，另一支算）、`short` 是「那天做了什麼」（`SIS(30)`，月曆／日週那一列／讀取卡片／來訪編輯器抬頭都是它；**送的／體驗的段後面接 `(體驗)`／`(送的)`**，`IN(30)(體驗)`，ADR-0148）、`line` 是貼給客人的那一句（**不加**那個括號）（`復能`、`靜脈雷射`），一個器材字都不寫（ADR-0077）。
 - **「一般」那一種（`復能(SIS)`）2026-09-08 拿掉了** —— 認不得的情境退回 `short`，不要吐空字串。
 - 器材主檔兩格名字：**全名是她叫它什麼**（額度讀它）、**別稱是月曆那一格的縮寫**（月曆讀它）。

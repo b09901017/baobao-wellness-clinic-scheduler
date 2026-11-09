@@ -1,6 +1,6 @@
 # 一段來訪多一格「誰來的」：家人用被扣那一位的額度
 
-Status: todo
+Status: done
 Blocked by: —
 動工前先讀：`spec.md`「談定的」、`.claude/rules/visits.md`、`.claude/rules/visit-editing.md`、`.claude/rules/consequences.md`（稽核的句子與欄位）、
 `.claude/rules/app-env.md`（備份加欄位）、`public/js/domain/visits.js` 的 `validateVisit()` 與 `overlapWarnings()`、`firestore.rules` 來訪那一段（`d.slots is list`）
@@ -44,4 +44,12 @@ kickoff（11/9）她選「記在被扣的人身上＋寫誰來的」，其餘照
 
 ## 做完時留下的
 
-（做完寫：欄位名、畫面上在哪、ADR 號碼、牽連查到哪幾處）
+- **欄位**：`slot.attendee`（字串）。**空的＝本人，本人那一段不寫這一格**（不寫空字串）。讀只走 `naming.js` 的 `attendeeOf()`；放回一段走 `slotDraft.js` 的 `withAttendee(slot, value, before)`（空的就拿掉那個鍵、`value === undefined` 留原本的、最多 `ATTENDEE_MAX` 20 字）。
+- **ADR-0183**（記在被扣的那一位身上、為什麼不建名字卡）；`SPEC.md` 時段那一段、`CONTEXT.md`「誰來的」（_Avoid_：代扣、借用額度、陪同…）；`.claude/rules/visits.md` 新一節「一段來訪的『誰來的』」。
+- **名字**：`slotName()` 的 `short` 最後接 `(先生來)`（`attendeeTag()`，半形括號、接在 `(體驗)` 後面）—— 月曆、日／週那一列、讀取卡片、客戶頁（`visitCourseLabel()`）、進度、提醒句全部跟著帶。`line` 不接在 `slotName()` 裡（設定頁的名稱預覽也讀它）；貼給客戶的走 `visitNames(…, 'line')`（提醒那一則）與 `messages.js` 的 `slotLines()`（確認時間那一則）接 `（先生）`。
+- **重疊／撞期**：`overlapWarnings()` 誰來的不一樣就跳過；`conflictWarnings()` 把同一筆裡誰來的不一樣的段放進 `clashes`（`family: true`），診間照 `roomCapacityOf()` 算人頭、治療師照比，句子寫「客戶A的先生那一段」／「客戶A本人那一段」；ADR-0133「同一位客戶另一段」那一句跳過 family 與別筆誰來的不一樣的段。都還是 `conflict` → `mustSee`。
+- **編輯器**：每一段最下面一塊 `<details class="foldout slotwho" data-slotwho="i">`，收著那一行 `[data-slotwho-now]` 寫現在的值（空的寫「本人」），輸入框 `name="s${i}-who"`。開／收記在 `ctx.whoOpen`（刪一段時清掉）；打字不觸發重畫（同記一句：打完字就按儲存那一下不被吃掉），收著那一行由 `input` 事件跟著換，抬頭的 `(先生來)` 下一次重畫才跟上。`readDraft()` 五條出口讀完再套一次 `withAttendee()`（`readFreeSlot`／`readGuestSlot`／`readNotMineSlot` 走 `slotFromPicks()`，原本會掉）。
+- **組時段**：`slotFromPicks()` 收 `attendee`（03 要把它加進 `aboveeImport.js` 的 `picksOf()`）。
+- **牽連查過、不用改的**：`firestore.rules` 只驗 `slots is list`；`validateVisit()` 沒有白名單、次數照被扣那一位算（單元測試釘著）；`rebookSlot()`（改期）`...next`、`applyPhotoMove()` `...old`；備份整份文件；稽核只記到 `slots`（「改了 時段」），不用加 `FIELD_LABELS`。
+- **測試**：`tests/slot-attendee.test.js`（名字、重疊、撞期、次數、`slotFromPicks()`、貼給客戶的話）、E2E `100-slot-attendee`（編輯器填 → 存 → 日曆那一列與讀取卡片 `(先生來)` → 清掉回本人、一道確認框都不跳），登記進 `related.js`。
+- `sw.js` v320。

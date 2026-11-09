@@ -23,7 +23,7 @@ import {
 import {
   examStatusIn, examChoicesFor, PICKABLE_EXAM, claimedExams, holdsExam, closeBlocks, isFollowupCourse,
 } from './followups.js';
-import { slotName, fullNameOf } from './naming.js';
+import { slotName, fullNameOf, attendeeOf } from './naming.js';
 // 一次性客人的那一對額度（ADR-0172 決定三）：只有「二返接哪一次健檢」那幾道吃投影
 import { withOneTimeChain } from './oneTimeChain.js';
 import {
@@ -2136,7 +2136,13 @@ function examNotMineWarnings(visit, {
   return out;
 }
 
-/** 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。 */
+/**
+ * 同一次來訪裡自己跟自己重疊。她一次填三段，很容易把時間填錯。
+ *
+ * **「誰來的」不一樣的兩段不算**（`attendeeOf()`，ADR-0183）：先生用太太的額度那一段記在太太身上，
+ * 太太自己 14:30 一段、先生 14:30 一段是兩個人，不是她填錯（空的＝本人，也算一種）。
+ * 那兩段同診間／同治療師的撞期由 `conflictWarnings()` 講（它認得同一筆裡別人的段）。
+ */
 function overlapWarnings(visit, { slotLabel = null } = {}) {
   const out = [];
   // 帶著原本的位置：以前濾掉時間不完整的那一段之後重新編號，後面每一段都差一號
@@ -2144,6 +2150,7 @@ function overlapWarnings(visit, { slotLabel = null } = {}) {
     .filter(({ s }) => isLiveSlot(s) && isValidTime(s.startsAt) && isValidTime(s.endsAt));
   for (let i = 0; i < slots.length; i += 1) {
     for (let j = i + 1; j < slots.length; j += 1) {
+      if (attendeeOf(slots[i].s) !== attendeeOf(slots[j].s)) continue;
       if (overlaps(slots[i].s, slots[j].s)) {
         // 呼叫端自己叫名字時兩段各用自己的（「09:00 的 SIS(60) 跟 這一段 時間重疊」）；沒給就照舊那一句
         out.push({
@@ -2359,6 +2366,14 @@ function conflictWarnings(visit, {
 
     // 那一天別人排的、跟這一段撞在一起的每一格
     const clashes = [];
+    // **同一筆裡「誰來的」不一樣的段也是別人**（ADR-0183）：太太本人一段、先生一段同時佔同一張床還是撞。
+    // 誰來的一樣的兩段是同一個人自己重疊 —— 那一句是 `overlapWarnings()` 的，這裡不算（不然一件事出兩句）
+    for (const [j, theirs] of (visit.slots ?? []).entries()) {
+      if (j === i || attendeeOf(theirs) === attendeeOf(slot)) continue;
+      if (!isLiveSlot(theirs) || !isValidTime(theirs.startsAt) || !isValidTime(theirs.endsAt)) continue;
+      if (!overlaps(slot, theirs)) continue;
+      clashes.push({ other: visit, theirs, family: true });
+    }
     for (const other of sameDayVisits) {
       if (other.id === visit.id || !isActive(other)) continue;
       for (const theirs of other.slots ?? []) {
@@ -2373,7 +2388,11 @@ function conflictWarnings(visit, {
     // 這一格已經被底下哪一句講過了。同一位客戶那一句只補**沒講過的**（ADR-0133）
     const said = new Set();
 
-    const whoOf = ({ other }) => (other.customerId === visit.customerId
+    // 同一筆裡的別人：「客戶A的先生那一段」／「客戶A本人那一段」—— 講得出是誰的額度、誰來的
+    const familyOf = (theirs) => (attendeeOf(theirs)
+      ? `${visit.customerName ?? '這位客戶'}的${attendeeOf(theirs)}那一段`
+      : `${visit.customerName ?? '這位客戶'}本人那一段`);
+    const whoOf = ({ other, theirs, family }) => (family ? familyOf(theirs) : other.customerId === visit.customerId
       ? `${other.customerName ?? '這位客戶'}那天的另一次來訪`
       : (other.customerName ?? '另一位客戶'));
 
@@ -2425,6 +2444,8 @@ function conflictWarnings(visit, {
     // **上面已經因為這一格講過話的不再講**：同一件事不出兩句（那是我方的建議，她回「照你的建議」）。
     for (const c of clashes) {
       if (!visit.customerId || c.other.customerId !== visit.customerId || said.has(c)) continue;
+      // 同一筆裡誰來的不一樣、或別筆那一段是另一個人來的：不是同一個人排了兩段（ADR-0183）
+      if (c.family || attendeeOf(c.theirs) !== attendeeOf(slot)) continue;
       say(
         `${at}：這位客戶 ${c.theirs.startsAt}–${c.theirs.endsAt} 已經有另一段`
         + `（${slotName(c.theirs, master, 'short')}・${shortStatus(slotStatus(c.other, c.theirs))}）`,

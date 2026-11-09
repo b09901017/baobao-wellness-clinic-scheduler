@@ -250,3 +250,4 @@
 | [0180](./0180-notes-widget-is-a-native-android-app.md) | 隨手記的桌面小工具是另一支原生 Android app（兩個版本接 staging／正式站），直接讀寫同一個 Firestore；隨手記的規則多一份 Kotlin 的，用共用情境檔 `tests/fixtures/notes-parity.json` 盯著兩份一樣 | 2026-11-06 | 現行 |
 | [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |
 | [0182](./0182-camera-stays-black-with-the-system-camera-below.md) | 拍照畫面出不來就照舊黑著、不換頁（底下那排照樣按得到系統相機）；快門不拍黑的 | 2026-11-08 | 現行 |
+| [0183](./0183-family-member-uses-a-customers-entitlement.md) | 家人用這位客戶的額度：那一段記在被扣的那一位身上，多寫「誰來的」（`slot.attendee`）；誰來的不一樣不算時間重疊，撞期照講 | 2026-11-09 | 現行 |

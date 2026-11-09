@@ -675,6 +675,11 @@ export const COVERAGE = {
     'public/js/ui/components/aboveeConfirm.js', 'public/js/domain/aboveeImport.js', 'public/css/app.css',
     'tests-e2e/fixtures/ai/aboveeList-days.json', 'tests-e2e/fixtures/ai/aboveeList-glance.json',
   ],
+  // 一段多一格「誰來的」：家人用被扣那一位的額度（family-merge-round 01，ADR-0183）
+  '100-slot-attendee': [
+    'public/js/ui/views/visitEditor.js', 'public/js/domain/naming.js', 'public/js/domain/slotDraft.js',
+    'public/js/domain/visits.js', 'public/js/ui/views/calendar.js',
+  ],
   // 來訪編輯器按儲存那一刻重讀這位客戶的全部來訪（small-fixes-2026-11-05 01，11/4 健檢 #1）
   '88-editor-rereads-on-save': [
     'public/js/ui/views/visitEditor.js', 'public/js/data/visits.js',
