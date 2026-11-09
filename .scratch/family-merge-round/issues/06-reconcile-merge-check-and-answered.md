@@ -1,6 +1,6 @@
 # 月底對帳：固定多一塊「合併扣課可能忘了勾／多勾」，並讀「她答過的」
 
-Status: todo
+Status: done
 Blocked by: 05（判斷要跟拍照同一套）
 動工前先讀：`.claude/skills/month-end-reconciliation/SKILL.md`、`scripts/reconcile.mjs`、`scripts/report.mjs`、`tests/month-end-reconciliation.test.js`、
 記憶 `reconciliation-report-format`（六張小表、不寫推論段落）、`.local/references/月底對帳/她答過的.md`（**讀一律接 `| node .local/references/redact.mjs`**）
@@ -34,4 +34,9 @@ Blocked by: 05（判斷要跟拍照同一套）
 
 ## 做完時留下的
 
-（做完寫）
+- **合併扣課那一塊**：`reconcile.mjs` 的 `mergeChecks` —— 同一份抄字、這個月的來訪拿掉再叫一次 `readAbovee()`，讀 `mergeGuess`（→ `mergeForgot` 可能忘了勾）、`mergeSplit`／`mergeOrphan`（→ `mergeExtra` 可能多勾）。結果頁第 2½ 塊「合併扣課可能忘了勾／多勾」（`report.mjs`），沒有的話「不影響次數」那一塊寫一行 ✓。
+- **她答過的**：`run.mjs` 有那個檔就給 `--answered`；對法日期＋種類＋病歷號（空著看「誰」裡的名字），沒有「種類」那一欄的列對不到。答過的照樣列、寫「答過了：…」，不算進要看的 N 件、月曆數字、每一位的 ✗；`summary.answered` 數幾件。那一份加了「種類」「病歷號」兩欄（`.local` 私人 repo `1148e2c`，沒 push；病歷號 4 列由程式從重對的 JSON 填，其餘 4 列靠名字）。
+- **次數**：沒勾的後一半（`halfGuess`）算進前一列那一段的額度（以前後一半沒有自己的段、掉進「沒有扣額度」）；`mergeGuess` 算兩次、`mergeSplit` 後一列不算（Abovee 照勾扣）。
+- **重跑 5～10 月**（全部重對留下的抄本＋11/9 快照，只跑比對）：10 月 10/30 `mergeForgot`、10/29 `mergeExtra` 都答過；9 月 9/24 `mergeExtra` 答過；5～8 月合併扣課那一塊沒有東西（11 對額度不是兩列加起來的都不列）。
+- 測試：`tests/month-end-reconciliation.test.js` 多 11 支（那一塊 6 支、答過的 3 支、改寫 2 支），結果頁有一支真的跑 `report.mjs`。
+- **沒做**：結果頁沒有用真資料重產一次給她看（`run.mjs` 整條要逐像素驗證，額度不夠；判斷已用真資料跑過比對那一步）。

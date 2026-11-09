@@ -8,10 +8,12 @@
 // 讓她知道要去找哪一天的誰。順序固定：
 //   1. 可能少截（哪一天幾點到幾點、有誰）
 //   2. Abovee 和 app 對不上（次數不一樣）
+//   2½. 合併扣課可能忘了勾／多勾（family-merge-round 06：每個月固定查，判斷跟拍 Abovee 同一支）
 //   3. 只有時間不一樣（次數對）
 //   4. 舊表（.xlsx）多勾／少勾
 //   5. Abovee 上有、app 裡沒有這個人
 //   6. 不影響次數，看看就好（幾行字）
+// **她答過的**（`她答過的.md`）照樣列在那一塊、寫「答過了：她怎麼說」，不算進「要看的 N 件」與月曆的數字。
 // 沒事的那一塊整塊不畫。不寫推論段落（「多半是……」）；要她做的事一塊最多一句。每一位的次數表、這一頁怎麼來的收起來。
 // 不出現程式的字（kind、bucket、entitlement）。有真名，只能留在 .local/，不要發佈成 Artifact。
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -36,6 +38,8 @@ const APP_WORD = { pending_confirm: '待確認', confirmed: '已確認', done: '
 /** 2：次數不一樣（Abovee 與 app 的狀態或有沒有這一段不一樣） */
 const COUNT = new Set(['unsigned', 'closeBlocked', 'missing', 'appCancelled', 'status', 'stillBooked', 'extra', 'extraOpen',
   'missingOpen', 'bothOpen', 'aboveeBehind', 'course', 'mergeUnmarked', 'timeAndStatus', 'familyMissing', 'charge']);
+/** 2½：合併扣課的勾跟額度的分鐘對不起來（`mergeChecks`） */
+const MERGE = new Set(['mergeForgot', 'mergeExtra']);
 /** 3：只差時間 */
 const TIME = new Set(['timeOnly', 'moved']);
 /** app 自己要修的（不是 Abovee 對 app）：照有才畫 */
@@ -44,6 +48,9 @@ const APPFIX = new Set(['cache', 'sheet', 'unknown', 'unknownCourse', 'other']);
 const issues = R.issues ?? [];
 const minor = R.minor ?? [];
 const countRows = issues.filter((i) => COUNT.has(i.type));
+const mergeRows = issues.filter((i) => MERGE.has(i.type));
+/** 還沒答過的（答過的照樣列，不算數） */
+const open = (list) => list.filter((g) => !(Array.isArray(g) ? g.every((i) => i.answered) : g.answered));
 const timeRows = [...issues, ...minor].filter((i) => TIME.has(i.type));
 const appFix = issues.filter((i) => APPFIX.has(i.type));
 const quiet = minor.filter((i) => !TIME.has(i.type));
@@ -58,12 +65,16 @@ const aboveeCell = (i) => {
   if (!a) return '<span class="none">沒有這一段</span>';
   const course = a.with ? `${a.with.course}＋${a.course}` : a.course;
   const tail = (i.type === 'mergeUnmarked' ? '<span class="note">兩列，沒標合併扣課</span>' : '')
-    + (a.attendee ? `<span class="note">${esc(a.attendee)}來</span>` : '');
+    + (a.note ? `<span class="note">${esc(a.note)}</span>` : '')
+    + (a.attendee ? `<span class="note">${esc(a.attendee)}來</span>` : '')
+    + (i.answered ? `<span class="note note--done">答過了：${esc(i.answered.said)}</span>` : '');
   return `${esc(course)} <b>${esc(a.status)}</b>${i.time ? ` <span class="t">${esc(hm(a.with?.time ?? i.time))}</span>` : ''}${tail}`;
 };
 const appCell = (i) => {
   const a = i.app;
   if (!a) return '<span class="none">沒有這一段</span>';
+  // 合併扣課那一塊：那幾列在 app 上是幾段（一段 60 分、或兩段）
+  if (i.apps?.length > 1) return i.apps.map((x) => `${esc(x.name)} <b>${esc(APP_WORD[x.status] ?? x.status)}</b> <span class="t">${esc(hm(x.time))}</span>`).join('<br>') + `<span class="note">${i.apps.length} 段</span>`;
   return `${esc(a.name)} <b>${esc(APP_WORD[a.status] ?? a.status)}</b>${a.time ? ` <span class="t">${esc(hm(a.time))}</span>` : ''}${
     i.type === 'mergeUnmarked' ? '<span class="note">一段</span>' : ''}`;
 };
@@ -72,14 +83,14 @@ const appCell = (i) => {
 function grouped(list) {
   const map = new Map();
   for (const i of list) {
-    const k = [i.date, i.customerId ?? i.name, i.type, i.abovee?.status ?? '-', i.app?.status ?? '-'].join('|');
+    const k = [i.date, i.customerId ?? i.name, i.type, i.abovee?.status ?? '-', i.app?.status ?? '-', i.answered ? 'answered' : ''].join('|');
     (map.get(k) ?? map.set(k, []).get(k)).push(i);
   }
   return [...map.values()].sort((a, b) => `${a[0].date}|${a[0].time}`.localeCompare(`${b[0].date}|${b[0].time}`));
 }
 const joinCells = (list, f) => list.map(f).join('<br>');
 
-const row = (date, cells) => `<tr data-date="${esc(date ?? '')}"><td class="d">${esc(mdShort(date))}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+const row = (date, cells, done = false) => `<tr data-date="${esc(date ?? '')}"${done ? ' class="done"' : ''}><td class="d">${esc(mdShort(date))}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 const table = (heads, body) => `<div class="tw"><table class="tbl"><thead><tr><th>日期</th>${heads.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body.join('')}</tbody></table></div>`;
 const block = (id, title, n, inner, todo = '') => `<section class="block" id="${id}"><h2>${esc(title)}<span class="n">${n}</span></h2>${inner}${
   todo ? `<p class="todo">${esc(todo)}</p>` : ''}</section>`;
@@ -95,17 +106,30 @@ const gapHtml = gaps.length ? block('gaps', '可能少截', `${gaps.length} 段`
       `${esc(x.course)} <b>${esc(APP_WORD[x.status] ?? x.status)}</b>`]))) : ''}</div>`;
 }).join(''), 'Abovee 補截這幾段，放進截圖資料夾，跟 Claude 說「補好了」。') : '';
 
+/** 那一塊右上角的數字：還沒答過的幾件（有答過的另外寫） */
+const countWord = (groups) => {
+  const left = open(groups).length;
+  const done = groups.length - left;
+  return done ? `${left} 件（另 ${done} 件答過了）` : `${left} 件`;
+};
+const groupRows = (groups) => groups.map((g) => row(g[0].date, [`<span class="who">${esc(g[0].name)}</span>`,
+  joinCells(g, aboveeCell), joinCells(g, appCell)], g.every((i) => i.answered)));
+
 // 2. 次數不一樣
 const countGroups = grouped(countRows);
-const countHtml = countGroups.length ? block('count', 'Abovee 和 app 對不上', `${countGroups.length} 件`,
-  table(['誰', 'Abovee', 'app'], countGroups.map((g) => row(g[0].date, [`<span class="who">${esc(g[0].name)}</span>`,
-    joinCells(g, aboveeCell), joinCells(g, appCell)])))) : '';
+const countHtml = countGroups.length ? block('count', 'Abovee 和 app 對不上', countWord(countGroups),
+  table(['誰', 'Abovee', 'app'], groupRows(countGroups))) : '';
+
+// 2½. 合併扣課（一件一列，不收：一對就是一件）
+const mergeGroups = [...mergeRows].sort((a, b) => `${a.date}|${a.time}`.localeCompare(`${b.date}|${b.time}`)).map((i) => [i]);
+const mergeHtml = mergeGroups.length ? block('merge', '合併扣課可能忘了勾／多勾', countWord(mergeGroups),
+  table(['誰', 'Abovee', 'app'], groupRows(mergeGroups)),
+  'app 照這位額度的分鐘記（60 分一次的兩列 30 分算一次）；確認那天是一次還是兩次，跟 app 不一樣的話告訴 Claude。') : '';
 
 // 3. 只差時間
 const timeGroups = grouped(timeRows);
-const timeHtml = timeGroups.length ? block('time', '只有時間不一樣（次數對）', `${timeGroups.length} 件`,
-  table(['誰', 'Abovee', 'app'], timeGroups.map((g) => row(g[0].date, [`<span class="who">${esc(g[0].name)}</span>`,
-    joinCells(g, aboveeCell), joinCells(g, appCell)]))), '去 app 日曆把時間改成跟 Abovee 一樣。') : '';
+const timeHtml = timeGroups.length ? block('time', '只有時間不一樣（次數對）', countWord(timeGroups),
+  table(['誰', 'Abovee', 'app'], groupRows(timeGroups)), '去 app 日曆把時間改成跟 Abovee 一樣。') : '';
 
 // 4. 舊表（同一天同一位、同一種（多勾或少勾）的幾格收成一列）
 const legacyGroups = [...(legacy.rows ?? []).reduce((m, r) => {
@@ -148,13 +172,15 @@ const quietLines = [
   ...QUIET.map(([type, label]) => [label, quiet.filter((i) => i.type === type)]).filter(([, l]) => l.length).map(([label, l]) => `${esc(label)}：${esc(who(l))}`),
   ...(tt.file && tt.missing.length ? [`TimeTree 那天沒寫（Abovee 有做完）：${esc(tt.missing.map((m) => `${mdShort(m.date)} ${m.name}`).join('、'))}`] : []),
   ...(appFix.some((i) => i.type === 'sheet') ? [] : ['試算表（app 推過去的那一份）跟 app 一樣 ✓']),
+  ...(R.mergeChecks && !mergeRows.length ? ['合併扣課：Abovee 的勾跟額度的分鐘都對得上 ✓'] : []),
 ];
 const quietHtml = quietLines.length ? `<section class="block block--quiet" id="quiet"><h2>不影響次數，看看就好</h2><ul class="lines">${
   quietLines.map((l) => `<li>${l}</li>`).join('')}</ul></section>` : '';
 
 // ---------- 結論、三個數字 ----------
 const parts = [
-  [gaps.length, '可能少截', 'gaps'], [countGroups.length, '次數不一樣', 'count'], [timeGroups.length, '只差時間', 'time'],
+  [gaps.length, '可能少截', 'gaps'], [open(countGroups).length, '次數不一樣', 'count'], [open(mergeGroups).length, '合併扣課', 'merge'],
+  [open(timeGroups).length, '只差時間', 'time'],
   [legacyGroups.length, '舊表', 'legacy'], [appFix.length, 'app 要修', 'appfix'],
 ].filter(([n]) => n);
 const total = parts.reduce((n, [k]) => n + k, 0);
@@ -177,7 +203,7 @@ const three = `<section class="three"><p class="three__t">有額度的課，這�
 
 // ---------- 月曆 ----------
 const perDay = {};
-for (const g of [...countGroups, ...timeGroups]) perDay[g[0].date] = (perDay[g[0].date] ?? 0) + 1;
+for (const g of open([...countGroups, ...mergeGroups, ...timeGroups])) perDay[g[0].date] = (perDay[g[0].date] ?? 0) + 1;
 for (const g of legacyGroups) perDay[g[0].date] = (perDay[g[0].date] ?? 0) + 1;
 const lead = (dow(`${R.meta.month}-01`) + 6) % 7; // 星期一開頭
 const cells = [];
@@ -241,6 +267,7 @@ h2{font-size:18px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
 .tbl td.d{white-space:nowrap;font-weight:700}.who{font-weight:700;white-space:nowrap}
 .t{color:var(--mute);font-size:12px;white-space:nowrap}.none{color:var(--mute)}.note{display:block;font-size:12px;color:var(--warn)}
 .todo{margin:10px 0 0;font-size:13px;color:var(--mute)}
+.note--done{color:var(--ok)}.tbl tr.done td{opacity:.7}
 .gap{border-left:4px solid var(--warn);background:var(--warn-bg);border-radius:10px;padding:10px 12px;margin:0 0 10px}
 .gap__h{margin:0;font-weight:700}.gap__why{margin:2px 0 6px;font-size:13px;color:var(--mute)}.gap .tbl td{border-color:rgba(0,0,0,.08)}
 .lines{margin:0;padding-left:20px;font-size:14px}.lines li{margin:4px 0}
@@ -266,6 +293,7 @@ ${three}
 ${calendar}
 ${gapHtml}
 ${countHtml}
+${mergeHtml}
 ${timeHtml}
 ${legacyHtml}
 ${strangerHtml}

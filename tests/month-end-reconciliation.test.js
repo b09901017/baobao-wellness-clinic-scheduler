@@ -229,13 +229,18 @@ describe('健檢不是她排的（ADR-0169，exam-not-mine 03）：不另開桶'
 // ---------- 2026-11-04 她定的樣子：可能少截、只差時間、合併扣課沒標、舊表、TimeTree ----------
 
 /** 照原樣跑一次：自己組好的快照、Abovee、（選填）舊表與行事曆 */
-function runRaw(snap, data, legacy = null) {
+function runRaw(snap, data, legacy = null, answered = null) {
   const dir = mkdtempSync(join(tmpdir(), 'mer-'));
   try {
     writeFileSync(join(dir, 's.json'), JSON.stringify(snap));
     writeFileSync(join(dir, 'a.json'), JSON.stringify(data));
     const extra = legacy ? ['--legacy', join(dir, 'l.json')] : [];
     if (legacy) writeFileSync(join(dir, 'l.json'), JSON.stringify(legacy));
+    // 她答過的（family-merge-round 06）
+    if (answered != null) {
+      writeFileSync(join(dir, 'answered.md'), answered);
+      extra.push('--answered', join(dir, 'answered.md'));
+    }
     execFileSync(process.execPath, [SCRIPT, '--abovee', join(dir, 'a.json'), '--snapshot', join(dir, 's.json'),
       '--month', '2026-10', '--today', '2026-11-02', '--out', join(dir, 'r.json'), ...extra], { stdio: 'pipe' });
     return JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8'));
@@ -262,11 +267,26 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
   });
 
-  test('Abovee 兩列各 30 分都課程完成、沒標合併扣課，app 一段 60 分蓋住兩列 → 一件「沒標合併扣課」', () => {
+  // family-merge-round 05／06：那一段扣的那一筆是兩列加起來的分鐘（60 ＝ 30＋30）→ 拍 Abovee 照分鐘認成後一半（ADR-0185），
+  // 對帳列在「合併扣課」那一塊（可能忘了勾）；Abovee 照勾算兩次
+  test('Abovee 兩列各 30 分都課程完成、沒標合併扣課，app 一段 60 分蓋住兩列 → 一件「可能忘了勾」', () => {
+    const rows = [...THREE.slice(0, 2),
+      ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30', resource: '陳小芳' }],
+      ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:00', resource: '陳小芳' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), ['10-16 mergeForgot']);
+    assert.equal(r.issues[0].abovee.course, 'SIS 30＋高能量30');
+    assert.equal(r.issues[0].apps.length, 1, 'app 那一段');
+    assert.deepEqual(r.summary.totals, { abovee: 4, app: 3, sheet: 3 });
+  });
+
+  test('沒標、app 一段蓋住兩列、可是那一筆每次 30 分（分鐘對不起來）→ 照舊一件「沒標合併扣課」', () => {
     const rows = [...THREE.slice(0, 2),
       ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30' }],
       ['10-16', '王小明', '課程完成', { course: '高能量30', time: '10:30 - 11:00' }]];
-    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    const snap = snapshot(CLEAN);
+    snap.entitlements.find((e) => e.parentId === 'c-wang').durationMin = 30;
+    const r = runRaw(snap, abovee(rows));
     assert.deepEqual(types(r), ['10-16 mergeUnmarked']);
     assert.equal(r.issues[0].abovee.with.course, 'SIS 30');
   });
@@ -504,3 +524,117 @@ describe('合成抄本：補截的單日清單（`# 單日`）', () => {
   });
 });
 
+
+// ---------- 合併扣課那一塊、她答過的（family-merge-round 06）----------
+//
+// 她 11/9：Abovee 是給櫃檯看的，合併扣課可能忘了勾、也可能多勾；月底對帳以後固定查（判斷跟拍 Abovee 同一支，ADR-0185）。
+// 10/30 她：「反正過去了，幫我記得就好」—— 答過的那一件以後照樣列、標「答過了」，不算進要看的。
+
+const REPORT = '.claude/skills/month-end-reconciliation/scripts/report.mjs';
+const HALVES = (merged = '', second = '高能量30') => [
+  // 同一位治療師（`looksMerged()` 要的）
+  ['10-16', '王小明', '課程完成', { course: 'SIS 30', time: '10:00 - 10:30', merged, resource: '陳小芳' }],
+  ['10-16', '王小明', '課程完成', { course: second, time: '10:30 - 11:15', merged, resource: '陳小芳' }],
+];
+/** 王小明那一筆額度改成每次 30 分 */
+const thirty = (snap) => {
+  snap.entitlements.find((e) => e.parentId === 'c-wang').durationMin = 30;
+  return snap;
+};
+/** 10/16 那一天 app 是兩段 30 分（10:00、10:30），都已完成 */
+const twoSlots = (snap) => {
+  const v = snap.visits.find((x) => x.date === '2026-10-16');
+  v.slots = [{ ...v.slots[0], endsAt: '10:30' }, { ...v.slots[0], equipmentId: 'eq-laser', startsAt: '10:30', endsAt: '11:00' }];
+  return recount(snap);
+};
+const ANSWERED = (rows) => ['# 她答過的', '', '| 日期 | 誰 | 種類 | 病歷號 | Abovee | app | 她怎麼說 | 什麼時候答的 |', '|---|---|---|---|---|---|---|---|',
+  ...rows.map((r) => `| ${r.join(' | ')} |`), ''].join('\n');
+const html = (r) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mer-'));
+  try {
+    writeFileSync(join(dir, 'r.json'), JSON.stringify(r));
+    execFileSync(process.execPath, [REPORT, join(dir, 'r.json'), join(dir, 'r.html')], { stdio: 'pipe' });
+    return readFileSync(join(dir, 'r.html'), 'utf8');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+describe('月底對帳：合併扣課那一塊（勾跟額度的分鐘對不起來）', () => {
+  test('兩列 30 分都沒勾、額度 60 分一次、app 是兩段 → 一件「可能忘了勾」（mergeForgot），app 那一格寫兩段', () => {
+    const r = runRaw(twoSlots(snapshot(CLEAN)), abovee([...THREE.slice(0, 2), ...HALVES()]));
+    assert.deepEqual(types(r), ['10-16 mergeForgot']);
+    const [m] = r.issues;
+    assert.equal(m.abovee.course, 'SIS 30＋高能量30');
+    assert.match(m.abovee.note, /兩列都沒標合併扣課（額度 60 分一次）/);
+    assert.equal(m.apps.length, 2);
+    assert.deepEqual(r.mergeChecks, [m.id]);
+  });
+
+  test('兩列都沒勾、額度 30 分一次 → 不列（那是兩次）', () => {
+    const r = runRaw(thirty(twoSlots(snapshot(CLEAN))), abovee([...THREE.slice(0, 2), ...HALVES()]));
+    assert.deepEqual(types(r).filter((t) => /merge/.test(t)), []);
+  });
+
+  test('兩列都勾、額度 30 分一次 → 一件「可能多勾」（mergeExtra），一對只列一次', () => {
+    const r = runRaw(thirty(twoSlots(snapshot(CLEAN))), abovee([...THREE.slice(0, 2), ...HALVES('是')]));
+    assert.deepEqual(types(r).filter((t) => /merge/.test(t)), ['10-16 mergeExtra']);
+    assert.match(r.issues.find((i) => i.type === 'mergeExtra').abovee.note, /兩列都標了合併扣課（額度 30 分一次）/);
+  });
+
+  test('兩列都勾、額度 60 分一次（勾得對）→ 不列', () => {
+    const snap = snapshot(CLEAN);
+    const r = runRaw(snap, abovee([...THREE.slice(0, 2), ...HALVES('是')]));
+    assert.deepEqual(types(r).filter((t) => /merge/.test(t)), []);
+  });
+
+  test('一列勾了、找不到另一半 → 一件「可能多勾」', () => {
+    const rows = [...THREE.slice(0, 2), ['10-16', '王小明', '課程完成', { merged: '是' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), ['10-16 mergeExtra']);
+    assert.match(r.issues[0].abovee.note, /找不到另一半/);
+  });
+
+  test('app 上沒有、兩列沒勾、額度 60 分一次 → 「app 沒有這一段」＋「可能忘了勾」；Abovee 那一天照勾算兩次', () => {
+    const { '2026-10-16': _, ...two } = CLEAN['c-wang'];
+    const r = runRaw(snapshot({ 'c-wang': two }), abovee([...THREE.slice(0, 2), ...HALVES()]));
+    assert.deepEqual(types(r).sort(), ['10-16 mergeForgot', '10-16 missing']);
+    assert.deepEqual(r.summary.totals, { abovee: 4, app: 2, sheet: 2 });
+  });
+});
+
+describe('月底對帳：她答過的', () => {
+  const rows = [...THREE.slice(0, 2), ...HALVES()];
+
+  test('對到日期＋種類＋病歷號 → 標「答過了」、不算進要看的；那一頁照樣列、寫「答過了」', () => {
+    const md = ANSWERED([['2026-10-16', '王小明', '`mergeForgot`', '00001234', '兩列沒勾', '兩段', '當成忘了按，Abovee 不補勾', '2026-11-09']]);
+    const r = runRaw(twoSlots(snapshot(CLEAN)), abovee(rows), null, md);
+    assert.deepEqual(r.issues[0].answered, { said: '當成忘了按，Abovee 不補勾', when: '2026-11-09' });
+    assert.equal(r.summary.fix, 0);
+    assert.equal(r.summary.answered, 1);
+    const page = html(r);
+    assert.match(page, /合併扣課可能忘了勾／多勾/);
+    assert.match(page, /答過了：當成忘了按，Abovee 不補勾/);
+    assert.match(page, /0 件（另 1 件答過了）/);
+    assert.match(page, /全部對得上/, '答過的不算進「要看的 N 件」');
+  });
+
+  test('病歷號那一格空著 → 看「誰」裡有沒有這一位的名字', () => {
+    const md = ANSWERED([['2026-10-16', '王小明（她自己）', 'mergeForgot', '', '', '', '答過', '2026-11-09']]);
+    assert.ok(runRaw(twoSlots(snapshot(CLEAN)), abovee(rows), null, md).issues[0].answered);
+  });
+
+  test('沒列在裡面的新一件照舊要處理：日期不一樣、種類不一樣、病歷號不一樣、沒有「種類」那一欄都不算', () => {
+    const cases = [
+      ANSWERED([['2026-10-15', '王小明', 'mergeForgot', '00001234', '', '', '答過', '2026-11-09']]),
+      ANSWERED([['2026-10-16', '王小明', 'mergeExtra', '00001234', '', '', '答過', '2026-11-09']]),
+      ANSWERED([['2026-10-16', '王小明', 'mergeForgot', '00002222', '', '', '答過', '2026-11-09']]),
+      ['| 日期 | 誰 | Abovee | app | 她怎麼說 | 什麼時候答的 |', '|---|---|---|---|---|---|', '| 2026-10-16 | 王小明 | 兩列 | 兩段 | 答過 | 2026-11-09 |'].join('\n'),
+    ];
+    for (const md of cases) {
+      const r = runRaw(twoSlots(snapshot(CLEAN)), abovee(rows), null, md);
+      assert.equal(r.issues[0].answered, undefined, md);
+      assert.equal(r.summary.fix, 1);
+    }
+  });
+});

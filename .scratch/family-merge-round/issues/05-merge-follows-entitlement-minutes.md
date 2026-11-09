@@ -1,6 +1,6 @@
 # 拍 Abovee：合併扣課照額度的分鐘，跟勾不一樣就講一句
 
-Status: todo
+Status: done
 Blocked by: —（跟 03 同一支檔，排在 03 之後做）
 動工前先讀：`.scratch/abovee-merge-check/issues/01-remind-when-merge-looks-wrong-on-photo.md`（整份，含「現在的行為」那張表與 Comments 的數字）、`.claude/rules/abovee.md`「拍 Abovee 記很多段」、
 `public/js/domain/aboveeImport.js` 的 `mergeRows()`／`looksMerged()`／`obviousEntitlement()`／`claimHalves()`／`mergedNotices()`／`warningsByRow()`／`mustSee()`／`warningTag()`／`problemsPage()`、
@@ -53,4 +53,9 @@ kickoff（11/9）她選「照額度的分鐘＋講一句」：
 
 ## 做完時留下的
 
-（做完寫：旗標名、句子、ADR 號碼）
+- **ADR-0185**（推翻 ADR-0123 第 09 段「有那一欄就照勾」；索引兩張表都改了）。`68b78232`。
+- **旗標**：合起來那一列 `mergeGuess`（`'none'` 兩列都沒勾／`'one'` 只勾一列）、兩列都勾卻拆開的兩列 `mergeSplit`、沒勾卻認成後一半的 `halfGuess`；三個都在 `resolveItem()` 的 `next` 與 `asRecorded()` 清。
+- **句子**（`mergeMinutesSay()`，source `mergeMinutes` 進 `mustSee`、短字「合併」排在「健檢」後面）：「Abovee 沒勾合併扣課，這位的額度是 60 分一次 —— 先當成一段、扣一次；是兩次的話按「拆開成兩段」」（只勾一列：「Abovee 只勾了一列合併扣課…」）；「Abovee 勾了合併扣課，可是這位的額度是 30 分一次 —— 先記成兩段、各扣一次」。後一半（`recordedBaseSay()`）：「Abovee 沒勾合併扣課，可是 app 上 15:30 那一段扣的額度剛好是兩列加起來的分鐘 —— 當成合併扣課的後一半，不用再記。」
+- **分鐘**：`rowMinutes()` 取課程字與起訖較小的；`rowEnd()` 給 `claimHalves()` 的「蓋得住」（10/28 重拍不再變找不到另一半，現有的 bug 一起修了）。沒勾的後一半要 `slotFitsPair()`（app 那一段扣的那一筆＝兩列加起來）。
+- **自己判斷的**：①只勾一列、旁邊那一列沒勾、分鐘對得起來 → 也照分鐘合（同一條規則；不然勾的那一列是 orphan、沒勾的那一列安靜地扣一次 60）。②兩列都勾、兩邊都挑不到額度（身上沒有這類）→ 照勾合（跟以前一樣）。③拆開的那兩列不給「合併成一段」（合起來沒有額度扣得下）。④後一半那一句只在點開「已經記了」那一列看得到（不寫入任何東西、不進 `mustSee`）。⑤`looksMerged()` 照舊要同一位治療師（5～10 月 18 對全是同一位）。
+- 回歸表在 `tests/abovee-merged.test.js`「照額度的分鐘」（9 種真實形狀，假名）；`abovee-recorded-shapes` 那一支舊判準改成新的。月底對帳次數照 Abovee 的勾算。sw v323。

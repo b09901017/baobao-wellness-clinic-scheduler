@@ -17,7 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 const D = (f) => import(pathToFileURL(resolve(REPO, 'public/js/domain', f)).href);
 
-const { readAbovee, absentFromPhoto, statusFromAbovee, mergedMark } = await D('aboveeImport.js');
+const { readAbovee, absentFromPhoto, statusFromAbovee, mergedMark, aboveeEnd } = await D('aboveeImport.js');
 const { counts, slotOutcome, isProduct } = await D('entitlements.js');
 const { syncBundle } = await D('sheetReport.js');
 const { slotStatus, isActive, isLiveSlot, markFor } = await D('visits.js');
@@ -26,7 +26,7 @@ const { giftKindOf, giftLabel, isOneTime, isOneTimeSlot } = await D('masterData.
 const { nthOf } = await D('nthFollowup.js');
 const { todayISO } = await D('dates.js');
 const { bookingSystemOf } = await D('taskRules.js');
-const { identifyCustomer } = await D('identify.js');
+const { identifyCustomer, chartNosOf, normalizeChartNo } = await D('identify.js');
 
 // ---------- 參數 ----------
 
@@ -73,6 +73,7 @@ const customers = snap.customers.filter(alive);
 const customersById = Object.fromEntries(snap.customers.map((c) => [c.id, c]));
 const entitlementsBy = groupBy(snap.entitlements.filter(alive), 'parentId');
 const entitlementsById = Object.fromEntries(snap.entitlements.map((e) => [e.id, e]));
+const liveEntsOf = (customerId) => entitlementsBy[customerId] ?? [];
 const visitsAlive = snap.visits.filter(alive);
 const visitsBy = groupBy(visitsAlive, 'customerId');
 const visitsById = Object.fromEntries(snap.visits.map((v) => [v.id, v]));
@@ -423,17 +424,8 @@ for (const item of items) {
     if (item.diffs) {
       push('note', 'diffs', base, '治療師或診間跟 Abovee 不一樣', '不影響次數；要改去日曆');
     }
-    // 沒勾合併扣課、app 那一段（扣的那一筆是兩列加起來的分鐘）包著它 —— 拍 Abovee 照分鐘認成後一半（family-merge-round 05，`halfGuess`）。
-    // app 扣一次、Abovee 扣兩次：跟以前 `coveringSlot()` 那一件同一種
-    if (item.halfGuess) {
-      const first = items.find((o) => o !== item && o.customerId === item.customerId && o.date === item.date
-        && o.startsAt === item.halfOf && Boolean(o.attendee) === Boolean(item.attendee));
-      const hit = first ? appSlotOf(first) : null;
-      if (hit) base.app = appView(hit.visit, hit.slot, hit.index);
-      base.abovee.with = { course: first?.row?.course ?? '', time: String(first?.row?.time ?? '').slice(0, 5) };
-      push('fix', 'mergeUnmarked', base, `Abovee 兩列（${base.abovee.with.course}、${item.row?.course ?? ''}）沒標合併扣課，app 記成一段`,
-        '回 Abovee 把這兩列標「合併扣課」（不然 Abovee 扣兩次）');
-    }
+    // 沒勾合併扣課、app 那一段（扣的那一筆是兩列加起來的分鐘）包著它（`halfGuess`，family-merge-round 05）：
+    // 列在「合併扣課」那一塊（`mergeChecks`，底下），這裡不再另講一件
     // 家人那一列對到的是誰來的空著的舊段（8/27 那種，family-merge-round 04）：次數對，只是 app 上看不出不是本人
     if (item.oldFamily) {
       push('note', 'familyNoAttendee', base, `${familyWho(item)}來的，app 那一段沒寫「誰來的」`, '不影響次數；要的話去日曆那一段補「誰來的」');
@@ -502,8 +494,9 @@ for (const item of items) {
         push('note', 'mergedOneSlot', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）標了合併扣課，app 記成一段`, '一致，不影響次數');
         continue;
       }
+      // 沒標、而且 app 那一段扣的那一筆**不是**兩列加起來的分鐘（是的話 `claimHalves()` 已經認成後一半、列在「合併扣課」那一塊）
       push('fix', 'mergeUnmarked', base, `Abovee 兩列（${cover.first.course}、${item.row?.course ?? ''}）沒標合併扣課，app 記成一段`,
-        '回 Abovee 把這兩列標「合併扣課」（不然 Abovee 扣兩次）');
+        '確認那天是一次還是兩次：兩次的話 app 補一段；一次的話回 Abovee 標「合併扣課」');
       continue;
     }
   }
@@ -565,6 +558,114 @@ for (const m of issues.filter((i) => i.type === 'missing')) {
   m.todo = '以 Abovee 為準，去日曆改這一段的時間';
 }
 
+// ---------- 合併扣課：勾跟額度的分鐘對不起來（family-merge-round 06）----------
+// 她 11/9：Abovee 是給櫃檯看的，合併扣課可能忘了勾、也可能多勾。**判斷照 app 拍 Abovee 同一支**（`readAbovee()` → `mergeRows()`，ADR-0185），
+// 不在這裡另寫一套：拿同一份抄字、**假裝 app 上這個月什麼都還沒記**（全部是新的列）再讀一次 —— 有記的那幾段會被認成「已經記了」、
+// 不經過合併那一步。額度剩幾次照月初的樣子算（這個月的來訪拿掉）。看哪幾列被照分鐘合（`mergeGuess`：可能忘了勾）、
+// 照分鐘拆（`mergeSplit`）或勾了找不到另一半（`mergeOrphan`）—— 後兩種是可能多勾。只列出來，不改 app。
+const mergeChecks = [];
+{
+  const before = Object.fromEntries(Object.entries(visitsBy).map(([id, list]) => [id, list.filter((v) => !inMonth(v.date))]));
+  const fresh = readAbovee([transcript], { ...ctx, visitsBy: before }).items;
+  const partKeys = (it) => String(it.key).split('+');
+  /** 那幾列在這一次（真的 app）對到的 app 段（去重；合併扣課的後一半沒有自己的段） */
+  const appOf = (keys) => {
+    const seenSlot = new Set();
+    const out = [];
+    for (const key of keys) {
+      const mine = items.find((i) => partKeys(i).includes(key));
+      const hit = mine ? appSlotOf(mine) : null;
+      if (!hit || seenSlot.has(`${hit.visit.id}:${hit.index}`)) continue;
+      seenSlot.add(`${hit.visit.id}:${hit.index}`);
+      out.push(appView(hit.visit, hit.slot, hit.index));
+    }
+    return out;
+  };
+  const add = (type, parts, note, say) => {
+    const first = parts[0];
+    const keys = parts.map((p) => p.key);
+    const app = appOf(keys);
+    const customerId = first.customerId ?? null;
+    const out = push('fix', type, {
+      date: first.date, time: first.row?.time ?? '', startsAt: first.startsAt ?? null, customerId,
+      name: customerId ? customersById[customerId]?.name ?? first.row?.name : first.row?.name,
+      abovee: { status: first.row?.status ?? '', course: parts.map((p) => p.row?.course ?? '').join('＋'), resource: first.row?.resource ?? '',
+        src: rowOf(first)?.src ?? null, row: rowOf(first)?.row ?? null, attendee: first.attendee ?? null, note },
+      app: app[0] ?? null, apps: app, courseId: first.course?.courseId ?? null,
+    }, say, type === 'mergeForgot'
+      ? '確認那天是一次還是兩次：一次的話 Abovee 補勾「合併扣課」；兩次的話 app 那一段拆成兩段'
+      : '確認那天是一次還是兩次：兩次的話 Abovee 拿掉「合併扣課」的勾；一次的話 app 那兩段併成一段');
+    return out;
+  };
+  for (const it of fresh) {
+    if (!inRange(it.date) || it.cancelled) continue;
+    if (it.mergeGuess && it.merged) {
+      const [a, b] = it.merged.parts;
+      const note = it.mergeGuess === 'one' ? '只標了一列合併扣課' : '兩列都沒標合併扣課';
+      mergeChecks.push(add('mergeForgot', it.merged.parts, `${note}（額度 ${it.merged.minutes} 分一次）`,
+        `Abovee 兩列（${a.row?.course ?? ''}、${b.row?.course ?? ''}）${note}，這位的額度是 ${it.merged.minutes} 分一次 —— 看起來是一次`));
+    } else if (it.mergeSplit) {
+      // 一對只列一次：前一列帶後一列
+      const tail = fresh.find((o) => o !== it && o.mergeSplit && o.customerId === it.customerId && o.date === it.date
+        && aboveeEnd(it.row?.time) === o.startsAt);
+      if (!tail) continue;
+      const minutes = Number(liveEntsOf(it.customerId).find((e) => e.id === it.entitlementId)?.durationMin) || null;
+      mergeChecks.push(add('mergeExtra', [it, tail], `兩列都標了合併扣課（額度 ${minutes ?? '?'} 分一次）`,
+        `Abovee 兩列（${it.row?.course ?? ''}、${tail.row?.course ?? ''}）都標了合併扣課，可是這位的額度是 ${minutes ?? '?'} 分一次 —— 看起來是兩次`));
+    } else if (it.mergeOrphan) {
+      mergeChecks.push(add('mergeExtra', [it], '標了合併扣課，找不到另一半',
+        `Abovee 這一列（${it.row?.course ?? ''}）標了合併扣課，旁邊沒有另一半 —— 看起來是單獨一段`));
+    }
+  }
+}
+
+// ---------- 她答過的（`.local/references/月底對帳/她答過的.md`，`run.mjs` 給 `--answered`）----------
+// 對到的那幾件標 `answered`（她怎麼說、什麼時候答的）：照樣列在那一塊、看得出是答過的，**不算在「要看的 N 件」裡**。
+// 對法：日期一樣、種類（那一張表的「種類」欄，寫這裡的 type；可以寫好幾個，用頓號隔開）一樣、而且病歷號一樣（那一格空著就看「誰」裡有沒有這一位的名字）。
+// 那一份沒有「種類」那一欄的列一件都對不到 —— 寧可再問一次，不可以把新的一件安靜地標成答過了。
+const answeredRows = opt.answered && opt.answered !== 'none' ? readAnswered(opt.answered) : [];
+for (const i of [...issues, ...minor]) {
+  const hit = answeredRows.find((a) => answers(a, i));
+  if (hit) i.answered = { said: hit.said, when: hit.when };
+}
+
+function readAnswered(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  let head = null;
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim().startsWith('|')) {
+      head = null; // 一張表結束
+      continue;
+    }
+    const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    if (!head) {
+      head = cells;
+      continue;
+    }
+    const get = (name) => (head.indexOf(name) >= 0 ? cells[head.indexOf(name)] ?? '' : '');
+    const types = get('種類').replace(/`/g, '').split(/[、,，\s]+/).filter(Boolean);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(get('日期')) || !types.length) continue;
+    out.push({ date: get('日期'), who: get('誰'), types, chartNo: get('病歷號').replace(/`/g, ''), said: get('她怎麼說'), when: get('什麼時候答的') });
+  }
+  return out;
+}
+
+function answers(a, issue) {
+  if (a.date !== issue.date || !a.types.includes(issue.type)) return false;
+  if (a.chartNo) {
+    const mine = chartNosOf(customersById[issue.customerId] ?? {}).map(normalizeChartNo);
+    return mine.includes(normalizeChartNo(a.chartNo));
+  }
+  return Boolean(issue.name) && a.who.includes(issue.name);
+}
+
 // ---------- 次數：每一位、每一筆額度，這個月做了幾次 ----------
 
 const people = new Map();
@@ -583,7 +684,10 @@ const bucketIn = (person, key) => {
  * 照片是正式課、app 記成體驗／送的 → 算在 app 會挑的那一筆額度（挑不出就照課程）。
  */
 function aboveeBucket(item) {
-  const hit = appSlotOf(item);
+  // 合併扣課的後一半沒有自己的段：算進前一列對到的那一段（沒勾的那一種 Abovee 另扣了一次，`halfGuess`）
+  const first = item.halfOf ? items.find((o) => o !== item && o.customerId === item.customerId && o.date === item.date
+    && o.startsAt === item.halfOf && Boolean(o.attendee) === Boolean(item.attendee)) : null;
+  const hit = appSlotOf(first ?? item);
   const ch = item.chargeChange;
   const courseId = hit?.slot?.courseId ?? item.course?.courseId ?? '?';
   if (ch?.to === 'trial') return `gift:${courseId}:trial`;
@@ -604,8 +708,12 @@ for (const item of items) {
   if (guestItem(item)) continue;
   // 沒勾的後一半（`halfGuess`，family-merge-round 05）不跳過：Abovee 那一列真的另扣了一次
   if (mergedTails.has(item) || (item.halfOf && !item.halfGuess)) continue;
+  // Abovee 照勾扣（ADR-0185 之後 app 照額度的分鐘合／拆，Abovee 不會跟著變）：照分鐘合成一列的（`mergeGuess`）Abovee 扣了兩次；
+  // 兩列都勾、照分鐘拆成兩列的（`mergeSplit`）Abovee 只扣一次 —— 後一列不另算
+  if (item.mergeSplit && items.some((o) => o !== item && o.mergeSplit && o.customerId === item.customerId && o.date === item.date
+    && aboveeEnd(o.row?.time) === item.startsAt)) continue;
   const b = bucketIn(personOf(who, item.row?.name), aboveeBucket(item));
-  b.abovee += 1;
+  b.abovee += item.mergeGuess && item.merged ? item.merged.parts.length : 1;
   b.aboveeBooked = true;
 }
 // app：這個月每一段做完的
@@ -664,7 +772,7 @@ const peopleOut = [...people.values()].map((p) => {
     const abovee = b.aboveeBooked ? b.abovee : null;
     return { ...b, abovee, ok: (abovee == null || abovee === b.app) && sheetOk && remainOk };
   }).sort((a, b) => Number(a.ok) - Number(b.ok) || a.label.localeCompare(b.label, 'zh-TW'));
-  const mine = issues.filter((i) => i.customerId === p.customerId);
+  const mine = issues.filter((i) => i.customerId === p.customerId && !i.answered);
   const alias = [...strangers.values()].filter((x) => x.maybe.has(p.customerId)).map((x) => x.name);
   return { customerId: p.customerId, name: p.name, buckets, issues: mine.length, alias, ok: buckets.every((b) => b.ok) && !mine.length };
 }).sort((a, b) => Number(a.ok) - Number(b.ok) || a.name.localeCompare(b.name, 'zh-TW'));
@@ -770,7 +878,7 @@ for (let d = 1; d <= Number(monthEnd.slice(8)); d += 1) {
     abovee: aboveeRows.length,
     aboveeDone: aboveeRows.filter((r) => statusFromAbovee(r.status).status === 'done').length,
     app: appSlots.length,
-    fix: issues.filter((i) => i.date === date).length,
+    fix: issues.filter((i) => i.date === date && !i.answered).length,
     note: minor.filter((i) => i.date === date).length,
   });
 }
@@ -803,7 +911,7 @@ const result = {
     aboveeStatus,
     matched: items.filter((i) => i.kind === 'recorded').length,
     appSlotsInMonth: days.reduce((n, d) => n + d.app, 0),
-    fix: issues.length, note: minor.length, cache: cacheIssues.length, strangers: strangers.size,
+    fix: issues.filter((i) => !i.answered).length, answered: [...issues, ...minor].filter((i) => i.answered).length, note: minor.length, cache: cacheIssues.length, strangers: strangers.size,
     gaps: gaps.length, legacyRows: legacyOut.rows.length, timetreeMissing: timetreeOut.missing.length,
     people: peopleOut.length, peopleOk: peopleOut.filter((p) => p.ok).length,
     totals,
@@ -816,6 +924,7 @@ const result = {
   days,
   unverified,
   gaps,
+  mergeChecks: mergeChecks.map((i) => i.id),
   legacy: legacyOut,
   timetree: timetreeOut,
 };

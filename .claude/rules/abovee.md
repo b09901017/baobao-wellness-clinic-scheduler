@@ -84,5 +84,6 @@ paths:
 
 - `.claude/skills/month-end-reconciliation/scripts/reconcile.mjs` 照它們分類、數次數（2026-10-16）—— 改了形狀或新增一種 `reason` 要回去對它的分類表，`tests/month-end-reconciliation.test.js` 用假資料整支跑一次盯著。
 - **抄字的 `COLS` 有「實際扣課病歷號」「關係」**（family-merge-round 04）：家人那一列在 `readAbovee()` 裡就記在被扣的那一位身上 —— 對帳自己的 `paidByOf()` 只剩畫面上講「扣誰的號碼」與舊表那一步；它自己比對「同一個時間那一段」的地方（`coveringSlot()`）也問誰來的一樣。
+- **合併扣課那一塊**（family-merge-round 06）：拿同一份抄字、這個月的來訪拿掉再叫一次 `readAbovee()`，讀它的 `mergeGuess`／`mergeSplit`／`mergeOrphan` —— 改了這三個旗標的意思或名字要回去對 `reconcile.mjs` 的 `mergeChecks`；次數照 Abovee 的勾算（`mergeGuess` 算兩次、`mergeSplit` 的後一列不算、`halfGuess` 算進前一列那一段）。
 - **它叫 `absentFromPhoto()` 一定傳 `{ everyone: true }`**（一整個月、每一位都要對；不傳就照照片上幾位只對那一兩位，ADR-0153）。
 - 那支 skill **只讀 Firebase**（`snapshot.mjs` 把寫入的入口換成丟錯），有真名的東西只在 `.local/references/月底對帳/`
