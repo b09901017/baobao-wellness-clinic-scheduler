@@ -82,5 +82,6 @@ paths:
 ## 月底對帳 skill 讀的那幾支（`readAbovee()` 每一列的 `kind`／`reason`／`statusChange`／`existing`、`absentFromPhoto()`、`counts()`、`syncBundle()` 額度列的順序）
 
 - `.claude/skills/month-end-reconciliation/scripts/reconcile.mjs` 照它們分類、數次數（2026-10-16）—— 改了形狀或新增一種 `reason` 要回去對它的分類表，`tests/month-end-reconciliation.test.js` 用假資料整支跑一次盯著。
+- **抄字的 `COLS` 有「實際扣課病歷號」「關係」**（family-merge-round 04）：家人那一列在 `readAbovee()` 裡就記在被扣的那一位身上 —— 對帳自己的 `paidByOf()` 只剩畫面上講「扣誰的號碼」與舊表那一步；它自己比對「同一個時間那一段」的地方（`coveringSlot()`）也問誰來的一樣。
 - **它叫 `absentFromPhoto()` 一定傳 `{ everyone: true }`**（一整個月、每一位都要對；不傳就照照片上幾位只對那一兩位，ADR-0153）。
 - 那支 skill **只讀 Firebase**（`snapshot.mjs` 把寫入的入口換成丟錯），有真名的東西只在 `.local/references/月底對帳/`

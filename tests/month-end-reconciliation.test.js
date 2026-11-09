@@ -124,7 +124,8 @@ describe('月底對帳', () => {
   test('用家人的額度（實際扣課病歷號是別人的）：講出扣的是哪一位', () => {
     const r = reconcile({ ...CLEAN, 'c-a': { '2026-10-20': 'done' } },
       [...THREE, ['10-20', '王小明', '課程完成', { actualChartNo: CHART.客戶甲, relation: '夫妻' }]]);
-    const row = r.issues.find((i) => i.date === '2026-10-20' && i.abovee);
+    // family-merge-round 04 起那一列記在被扣的那一位（客戶甲）身上、對到她那天那一段（誰來的空著 → 小字那一件）
+    const row = [...r.issues, ...r.minor].find((i) => i.date === '2026-10-20' && i.abovee);
     assert.deepEqual(row.abovee.paidBy, { chartNo: CHART.客戶甲, relation: '夫妻', name: '客戶甲', customerId: 'c-a' });
   });
 
@@ -297,15 +298,45 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     const r = runRaw(snapshot(CLEAN), abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
     assert.deepEqual(types(r), ['10-20 familyMissing']);
     assert.equal(r.issues[0].customerId, 'c-wang');
+    assert.match(r.issues[0].say, /陌生人.*夫妻/);
     assert.deepEqual(r.summary.totals, { abovee: 4, app: 3, sheet: 3 });
-    assert.equal(r.strangers.length, 1); // 來的人照舊列在「app 裡沒有這個人」
+    // family-merge-round 04：那一列認得是扣王小明的（`readAbovee()` 讀那兩欄，ADR-0184）—— 來的人不再另外列在「app 裡沒有這個人」
+    assert.equal(r.strangers.length, 0);
   });
 
-  test('家人用那一位的號碼、app 記在那一位身上同一個時間 → 次數對、不講少扣', () => {
+  test('家人用那一位的號碼、app 記在那一位身上同一個時間（舊資料：誰來的空著，8/27 那種）→ 次數對、不講少扣，小字提一句沒寫誰來的', () => {
     const r = runRaw(snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-20': 'done' } }),
       abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
-    assert.ok(!types(r).some((t) => t.includes('familyMissing')), JSON.stringify(types(r)));
-    assert.equal(r.summary.totals.abovee, r.summary.totals.app);
+    assert.deepEqual(types(r), []);
+    assert.deepEqual(r.summary.totals, { abovee: 4, app: 4, sheet: 4 });
+    assert.equal(r.strangers.length, 0, '那一列對到 app 裡那一段，不在「app 裡沒有這個人」');
+    assert.deepEqual(r.minor.filter((i) => i.type === 'familyNoAttendee').map((i) => [i.date, i.customerId]), [['2026-10-20', 'c-wang']]);
+  });
+
+  test('family-merge-round 04：10/29 那一種補進 app 之後（那一段寫了誰來的）→ 對上、不在 familyMissing、看得出是家人來的', () => {
+    const snap = snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-20': 'done' } });
+    snap.visits.find((v) => v.date === '2026-10-20').slots[0].attendee = '陌生人（夫妻）';
+    const r = runRaw(snap, abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
+    assert.deepEqual(types(r), []);
+    assert.equal(r.minor.filter((i) => i.type === 'familyNoAttendee').length, 0);
+    assert.deepEqual(r.summary.totals, { abovee: 4, app: 4, sheet: 4 });
+    assert.equal(r.strangers.length, 0);
+    assert.ok(r.people.every((p) => p.ok));
+  });
+
+  test('family-merge-round 04：王小明本人同一個時間也來了、app 只記了本人那一段 → 家人那一列不搶它，一件 familyMissing', () => {
+    const snap = snapshot({ 'c-wang': { ...CLEAN['c-wang'], '2026-10-20': 'done' } });
+    const r = runRaw(snap, abovee([...THREE, ['10-20', '王小明', '課程完成'],
+      ['10-20', '陌生人', '課程完成', { actualChartNo: CHART.王小明, relation: '夫妻' }]]));
+    assert.deepEqual(types(r), ['10-20 familyMissing']);
+    assert.deepEqual(r.summary.totals, { abovee: 5, app: 4, sheet: 4 });
+  });
+
+  test('family-merge-round 04：被扣的號碼 app 裡沒有 → 照舊列在「app 裡沒有這個人」，不算次數', () => {
+    const r = runRaw(snapshot(CLEAN), abovee([...THREE, ['10-20', '陌生人', '課程完成', { actualChartNo: '00007777', relation: '夫妻' }]]));
+    assert.deepEqual(types(r), []);
+    assert.equal(r.strangers.length, 1);
+    assert.deepEqual(r.summary.totals, { abovee: 3, app: 3, sheet: 3 });
   });
 
   test('Abovee 那一列預約來源寫體驗（不扣額度）、app 那一段扣著額度 → 一件「扣法不一樣」，Abovee 那一次不算進額度', () => {

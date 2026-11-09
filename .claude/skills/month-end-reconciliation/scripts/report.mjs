@@ -57,7 +57,8 @@ const aboveeCell = (i) => {
   const a = i.abovee;
   if (!a) return '<span class="none">沒有這一段</span>';
   const course = a.with ? `${a.with.course}＋${a.course}` : a.course;
-  const tail = i.type === 'mergeUnmarked' ? '<span class="note">兩列，沒標合併扣課</span>' : '';
+  const tail = (i.type === 'mergeUnmarked' ? '<span class="note">兩列，沒標合併扣課</span>' : '')
+    + (a.attendee ? `<span class="note">${esc(a.attendee)}來</span>` : '');
   return `${esc(course)} <b>${esc(a.status)}</b>${i.time ? ` <span class="t">${esc(hm(a.with?.time ?? i.time))}</span>` : ''}${tail}`;
 };
 const appCell = (i) => {
