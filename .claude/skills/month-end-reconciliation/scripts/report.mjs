@@ -35,7 +35,7 @@ const APP_WORD = { pending_confirm: '待確認', confirmed: '已確認', done: '
 // ---------- 每一件放進哪一塊 ----------
 /** 2：次數不一樣（Abovee 與 app 的狀態或有沒有這一段不一樣） */
 const COUNT = new Set(['unsigned', 'closeBlocked', 'missing', 'appCancelled', 'status', 'stillBooked', 'extra', 'extraOpen',
-  'missingOpen', 'bothOpen', 'aboveeBehind', 'course', 'mergeUnmarked', 'timeAndStatus', 'familyMissing']);
+  'missingOpen', 'bothOpen', 'aboveeBehind', 'course', 'mergeUnmarked', 'timeAndStatus', 'familyMissing', 'charge']);
 /** 3：只差時間 */
 const TIME = new Set(['timeOnly', 'moved']);
 /** app 自己要修的（不是 Abovee 對 app）：照有才畫 */

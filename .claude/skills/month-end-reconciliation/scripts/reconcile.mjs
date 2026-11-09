@@ -412,6 +412,13 @@ for (const item of items) {
     } else if (item.move) {
       push('note', 'moved', base, `時間不一樣：app 是 ${item.movedFrom?.startsAt ?? item.move?.from ?? ''}`, '以 Abovee 為準的話去日曆改期');
     }
+    // 扣法不一樣（ADR-0154）：Abovee 那一列是體驗（預約來源寫體驗、或 EECP20）、app 那一段扣著額度 —— Abovee 沒扣、app 扣了一次；
+    // 反過來（Abovee 正式課、app 記成體驗／送的）是 Abovee 扣了、app 沒扣。次數那一步照這個分格（`aboveeBucket()`）
+    if (item.chargeChange?.to === 'trial') {
+      push('fix', 'charge', base, `Abovee 預約來源是體驗（不扣額度），app 那一段扣了一次`, '確認那一次算不算：算的話 Abovee 那一列要改；不算的話 app 那一段改成體驗');
+    } else if (item.chargeChange?.to === 'counted') {
+      push('fix', 'charge', base, `Abovee 是正式課（扣額度），app 那一段記成體驗／送的（沒扣）`, '確認那一次算不算：算的話 app 那一段改成扣額度');
+    }
     if (item.diffs) {
       push('note', 'diffs', base, '治療師或診間跟 Abovee 不一樣', '不影響次數；要改去日曆');
     }
@@ -564,6 +571,20 @@ function familyBucket(item, payerId) {
   return same.length === 1 ? `e:${same[0].id}` : bucketOfItem(item);
 }
 
+/**
+ * Abovee 這一列扣的是哪一格：照它在 app 上對到的那一段（沒對到就是 app 預選的那一筆）—— 除了扣法不一樣的（`chargeChange`）：
+ * 照片是體驗、app 扣著額度 → Abovee 那一次算在體驗那一格（Abovee 沒扣額度，2026-11-09 全部重對：7/8 那一列預約來源寫體驗、以前算成扣了）；
+ * 照片是正式課、app 記成體驗／送的 → 算在 app 會挑的那一筆額度（挑不出就照課程）。
+ */
+function aboveeBucket(item) {
+  const hit = appSlotOf(item);
+  const ch = item.chargeChange;
+  const courseId = hit?.slot?.courseId ?? item.course?.courseId ?? '?';
+  if (ch?.to === 'trial') return `gift:${courseId}:trial`;
+  if (ch?.to === 'counted') return ch.entitlementId ? `e:${ch.entitlementId}` : `course:${courseId}`;
+  return hit ? bucketOfSlot(hit.slot) : bucketOfItem(item);
+}
+
 // Abovee：課程完成的列，算進它在 app 上對到的那一段的桶（沒對到就算進 app 預選的那一筆）。
 // 兩條（2026-11-09 全部重對抓到的）：
 // - 合併扣課的後一半被 `claimHalves()` 認成「已經記了」（`halfOf`，app 那一段蓋得住它）→ 那一對在 Abovee 只扣一次、前一列算過了。
@@ -577,9 +598,7 @@ for (const item of items) {
   // 一次性的段不拿去比次數（它沒有額度，ADR-0172）：有沒有記，上面那幾塊已經講了
   if (guestItem(item)) continue;
   if (mergedTails.has(item) || item.halfOf) continue;
-  const hit = appSlotOf(item);
-  const b = bucketIn(personOf(who, family ? paid.name : item.row?.name),
-    family ? familyBucket(item, who) : hit ? bucketOfSlot(hit.slot) : bucketOfItem(item));
+  const b = bucketIn(personOf(who, family ? paid.name : item.row?.name), family ? familyBucket(item, who) : aboveeBucket(item));
   b.abovee += 1;
   b.aboveeBooked = true;
 }

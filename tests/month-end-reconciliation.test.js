@@ -308,6 +308,14 @@ describe('月底對帳：她 2026-11-04 定的那幾塊', () => {
     assert.equal(r.summary.totals.abovee, r.summary.totals.app);
   });
 
+  test('Abovee 那一列預約來源寫體驗（不扣額度）、app 那一段扣著額度 → 一件「扣法不一樣」，Abovee 那一次不算進額度', () => {
+    // 2026-11-09 全部重對（驗證那一邊抓到的）：7/8 那一列寫體驗，以前照 app 那一段算成 Abovee 也扣了一次
+    const rows = [...THREE.slice(0, 2), ['10-16', '王小明', '課程完成', { source: '體驗' }]];
+    const r = runRaw(snapshot(CLEAN), abovee(rows));
+    assert.deepEqual(types(r), ['10-16 charge']);
+    assert.deepEqual(r.summary.totals, { abovee: 2, app: 3, sheet: 3 });
+  });
+
   /** 三張截圖：a（滿頁兩列）、b（跟 a 一模一樣）、c；app 在 a 的最後一列與 c 的第一列之間多一段 */
   function paged({ twin }) {
     const data = abovee([['10-02', '王小明', '課程完成'], ['10-09', '王小明', '課程完成'], ['10-16', '王小明', '課程完成']]);
