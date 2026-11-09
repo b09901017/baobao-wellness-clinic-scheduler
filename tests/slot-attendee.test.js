@@ -204,3 +204,29 @@ describe('貼給客戶的話：先生那一段照樣列、後面加（先生）'
     assert.match(text(plain), /有復健門診的課程/);
   });
 });
+
+// ---------- 時段反查不把先生那一段、取消掉的那一段當成她在忙（family-merge-round 段一中途發現 1，她 11/9 說修）----------
+describe('時段反查（candidatesFor）：同一個時間只有先生那一段、或那一段取消了 → 照樣推她', async () => {
+  const { candidatesFor } = await import('../public/js/domain/scheduling.js');
+  const { SEED: S } = await import('../public/js/domain/seed.js');
+  const course = S.courses.find((c) => c.id === 'course-recovery');
+  const wang = { id: 'c1', name: '王小明', active: true, flags: [] };
+  const ENTS = { c1: [{ id: 'e1', parentId: 'c1', type: 'pool', label: '復能-三選一(60)', optionEquipmentIds: ['eq-sis', 'eq-laser', 'eq-indiba'],
+    durationMin: 60, totalQty: 10 }] };
+  const day = (slot) => ({ c1: [{ id: 'v1', customerId: 'c1', date: '2026-11-20', status: 'confirmed',
+    slots: [{ entitlementId: 'e1', courseId: 'course-recovery', equipmentId: 'eq-sis', startsAt: '14:00', endsAt: '15:00', status: 'confirmed', ...slot }] }] });
+  const ask = (visitsBy) => candidatesFor({
+    course, date: '2026-11-20', startsAt: '14:00', endsAt: '15:00', customers: [wang], entitlementsBy: ENTS, visitsBy, availabilityBy: {}, today: '2026-11-05',
+  });
+  const where = (r) => (r.candidates.some((c) => c.customerId === 'c1') ? 'candidate' : r.excluded.find((x) => x.customerId === 'c1')?.why ?? 'none');
+
+  test('她自己那一段還活著 → 排除（照舊）', () => {
+    assert.match(where(ask(day({}))), /這個時間他已經有來訪了/);
+  });
+  test('那一段是先生來的（誰來的有字）→ 她不算在忙', () => {
+    assert.equal(where(ask(day({ attendee: '先生' }))), 'candidate');
+  });
+  test('那一段取消了（整天沒取消）→ 那個時間空出來了', () => {
+    assert.equal(where(ask(day({ status: 'cancelled' }))), 'candidate');
+  });
+});

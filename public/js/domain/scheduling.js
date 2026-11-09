@@ -13,7 +13,8 @@
 
 import { counts, isProduct, poolOrder } from './entitlements.js';
 import { availableDates, collectionFor, currentCollection, dayStatus } from './availability.js';
-import { isActive, coursesForEntitlement } from './visits.js';
+import { isActive, isLiveSlot, coursesForEntitlement } from './visits.js';
+import { attendeeOf } from './naming.js';
 import { overlaps, toMinutes } from './visitTime.js';
 import { addMonths, daysBetween, isValidDate, lastDayOf, monthLabel } from './dates.js';
 import { readMarks } from './customerMarks.js';
@@ -1020,6 +1021,7 @@ function sameTimeVisit(visits, date, startsAt, endsAt) {
   const want = { startsAt, endsAt: endsAt ?? startsAt };
   return (visits ?? [])
     .filter((v) => isActive(v) && v.date === date)
-    .find((v) => (v.slots ?? []).some((s) => overlaps(s, want))) ?? null;
+    // 取消掉的那一段不佔時間；誰來的有字的那一段是家人來的（ADR-0183），她自己那個時間沒在忙（family-merge-round 段一中途發現 1）
+    .find((v) => (v.slots ?? []).some((s) => isLiveSlot(s) && !attendeeOf(s) && overlaps(s, want))) ?? null;
 }
 
