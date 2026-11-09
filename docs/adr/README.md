@@ -170,7 +170,7 @@
 | [0100](./0100-the-first-server-code-and-its-five-locks.md) | 第一支伺服器程式 —— 一支 Cloud Function、五道防護、自己數的上限 | 2026-09-17 | 現行 |
 | [0101](./0101-photos-and-privacy.md) | 照片與隱私 —— 哪些送出去、哪些留下來、什麼時候真的刪 | 2026-09-17 | 現行 |
 | [0102](./0102-new-customer-warnings-become-a-triangle.md) | 新增客戶那一頁的提醒收成 ⚠，存檔前再講一次 | 2026-09-17 | 現行 |
-| [0103](./0103-chart-number-helps-identify.md) | 認人時名字與病歷號一起比，對不上就不挑 | 2026-09-17 | 現行 |
+| [0103](./0103-chart-number-helps-identify.md) | 認人時名字與病歷號一起比，對不上就不挑 | 2026-09-17 | 部分被推翻 → ADR-0184（拍 Abovee 的「實際扣課病歷號」只照號碼認） |
 | [0104](./0104-many-slots-from-one-photo.md) | 照片一次記很多段 —— 確認層就是第一道、存檔前只問一次、直接標成壓完 | 2026-09-17 | 部分被推翻 → ADR-0149 |
 | [0105](./0105-treatment-sheets-kept-and-matched.md) | 療程單怎麼留、怎麼比 —— 同一張由規則認、拿不準就是新的一張、舊照片最後才刪、只比到最後一次簽名 | 2026-09-17 | 現行 |
 | [0106](./0106-a-deleted-task-counts-only-if-it-was-ticked.md) | 被刪掉的任務，勾過的才算做過 | 2026-09-23 | 現行 |
@@ -251,3 +251,4 @@
 | [0181](./0181-keyboard-resizes-the-layout.md) | 鍵盤跳出來時版面跟著縮（`interactive-widget=resizes-content`），打字時收起底部導覽列 | 2026-11-06 | 現行 |
 | [0182](./0182-camera-stays-black-with-the-system-camera-below.md) | 拍照畫面出不來就照舊黑著、不換頁（底下那排照樣按得到系統相機）；快門不拍黑的 | 2026-11-08 | 現行 |
 | [0183](./0183-family-member-uses-a-customers-entitlement.md) | 家人用這位客戶的額度：那一段記在被扣的那一位身上，多寫「誰來的」（`slot.attendee`）；誰來的不一樣不算時間重疊，撞期照講 | 2026-11-09 | 現行 |
+| [0184](./0184-abovee-family-row-charges-the-payer-by-number.md) | 拍 Abovee 的家人那一列：照「實際扣課病歷號」認被扣的那一位（候選剛好一位，ADR-0103 的例外）、記在她身上、自動填誰來的；比對「已經記了」要誰來的一樣 | 2026-11-09 | 現行 |

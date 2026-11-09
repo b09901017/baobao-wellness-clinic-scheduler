@@ -730,6 +730,8 @@ audit/{eventId}                   // append-only 稽核紀錄
                               // 這一位身上、扣她的次數；名字後面接「(先生來)」（slotName()），
                               // 貼給客戶的接「（先生）」。誰來的不一樣的兩段不算時間重疊，
                               // 同診間／同治療師照舊算撞期。讀只走 attendeeOf()
+                              // 拍 Abovee 讀「實際扣課病歷號／關係」自動填（ADR-0184）：記在被扣的那一位身上、
+                              // 這一格寫照片上的名字＋關係（'王小明（夫妻）'）
       courseId, courseName,
       equipmentId,            // pool 型態時這次選的器材
       ivProductId,            // 營養點滴品項

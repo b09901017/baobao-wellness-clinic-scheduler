@@ -94,7 +94,7 @@ paths:
 - **讀只走 `naming.js` 的 `attendeeOf()`**（空的＝本人；去頭尾空白）；本人那一段**不寫這一格**（`slotDraft.js` 的 `withAttendee()` 清成空就拿掉那個鍵）—— 舊資料讀回來、存回去一個字都不變。
 - 名字只在 `naming.js`：`slotName()` 的 `short` 最後接 `(先生來)`（`attendeeTag()`，接在 `(體驗)` 後面）；`line` **不接在 `slotName()` 裡**（設定頁的名稱預覽也讀它），貼給客戶的那幾則走 `visitNames(…, 'line')` 與 `messages.js` 的 `slotLines()` 接 `（先生）`。
 - **判斷「是不是同一個人」要問它**：`overlapWarnings()`（誰來的不一樣不算重疊）、`conflictWarnings()`（同一筆裡誰來的不一樣的段當成別人，算診間人頭與治療師；ADR-0133「同一位客戶另一段」那一句跳過誰來的不一樣的）。新增一種「同一個人同時兩段」的判斷也要問。
-- **組時段的入口都要帶得過去**：`slotFromPicks()` 收 `attendee`；來訪編輯器 `readDraft()` 五條出口讀完再套一次 `withAttendee()`（有幾條走 `slotFromPicks()` 重組、不帶這一格）；`rebookSlot()`、`applyPhotoMove()` 是 `...old` 帶過去。拍 Abovee 的 `picksOf()` 要自己加（family-merge-round 03）。
+- **組時段的入口都要帶得過去**：`slotFromPicks()` 收 `attendee`；來訪編輯器 `readDraft()` 五條出口讀完再套一次 `withAttendee()`（有幾條走 `slotFromPicks()` 重組、不帶這一格）；`rebookSlot()`、`applyPhotoMove()` 是 `...old` 帶過去。拍 Abovee 的 `picksOf()` 帶 `item.attendee`（家人那一列怎麼認、比對要誰來的一樣，見 `abovee.md`「拍 Abovee 記很多段」最後那幾條，ADR-0184）。
 - 日曆 `markClashes()`、資料健檢 `checkConflicts()` 照舊跳過同一筆 —— 同一筆裡家人與本人的撞期只在存檔前講
 
 ## 一段來訪在畫面上叫什麼

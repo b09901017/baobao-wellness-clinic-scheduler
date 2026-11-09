@@ -1,6 +1,6 @@
 # 拍 Abovee：讀「實際扣課病歷號／關係」，扣被扣的那一位、自動填誰來的
 
-Status: todo
+Status: done
 Blocked by: 01
 動工前先讀：`.claude/rules/abovee.md`（整份，尤其「拍 Abovee 記很多段」「照片上的人是 app 裡的哪一位」「整張一起看才認領的欄位…要清掉」）、`.claude/rules/photos.md`（抄字格式、Function 部署）、
 `functions/transcripts/aboveeList.js`、`public/js/domain/aboveeImport.js` 的 `readAbovee()`／`resolveItem()`／`asRecorded()`／`warningsByRow()`、`identify.js` 的 `identifyCustomer()`、
@@ -46,4 +46,15 @@ kickoff（11/9）照建議：
 
 ## 做完時留下的
 
-（做完寫：抄字欄名、哪幾支函式改了、staging Function 部署了沒）
+- **抄字**：兩份 `ABOVEE_COLUMNS` 多「實際扣課病歷號」「關係」（排在合併扣課與預約來源之間，十三欄）；列上叫 `actualChartNo`／`relation`（對齊 `assemble.mjs`），也進 `RIGHT_KEYS`／`EDGE_KEYS`。提示詞多一句（照抄、0 留著、通常空白）。寫死欄數的只有 `abovee-halves-room` 那一支要改（另外兩支比的是兩份一樣）。
+- **ADR-0184**（照號碼認被扣者是 ADR-0103 的例外；索引上 0103 標「部分被推翻 → 0184」）。`abovee.md` 多三條、`visits.md` 那一條改指過去、`SPEC.md` 時段那一格、操作手冊「要多看一眼的列」多一條。
+- **新的幾支**（`aboveeImport.js`）：`familyOf()`（有字、跟病歷號不一樣 → 家人那一列；只照號碼、候選剛好一位）、`attendeeFor()`、`photoPickOf()`、`ownerOf()`、`sameAttendee()`／`sameWho()`（有沒有字一樣，不比字）、`takenSlots()`、`withOldFamilySlots()`、`familySay()`。
+- **改的**：`resolveItem()`（第五個參數 `{ taken }`；`attendee`／`oldFamily` 每次重算）、`pickedByHand()`（問 `photoPickOf()`）、`existingAt()`（`attendee`、`spare`）、`alreadyInApp()`、`customersOnPhoto()`（收被扣的那一位）、`readAbovee()`、`rebookedHere()`、`claimHalves()`＋`appSlotOf()`（先認認領的那一段）、`mergeRows()`（排序也分開）、`claimTimeless()`（本人先認）、`flagMoved()`／`movedSlots()`、`looksRepeated()`、`absentFromPhoto()` 的 `onPhoto()`、`picksOf()`（帶 `attendee`）、`nearSay()`（第一句是 `familySay()`）、`recordedBaseSay()`（`oldFamily`）、`needsAttention()`、`adoptAbovee()`（先用 `existing.slotIndex`）、`asRecorded()` 清 `oldFamily`。確認層「照片上寫的」多一顆丸子（號碼＋關係）。
+- **自己判斷的**：
+  - 那一句**不進 `mustSee`**：照片怎麼寫就怎麼記，收著的那一行看得到名字（被扣的那一位）與 `(王小明（夫妻）來)`；認不得被扣者的才排進要你看。
+  - **「換一位」不清誰來的**（issue 寫清，我改了）：被扣者是照片上的 `family`（不是整張認領的欄位，換一位不清）；誰來的每次 `resolveItem()` 照新的那一位重算 —— 換成來的那一位本人才清掉，換成別人照樣寫（認不得被扣者、或號碼抄錯時，她選的就是被扣的那一位）。人是她選的照舊不先勾。`asRecorded()` 不清 `attendee`：已經記了的列不寫段，而後面幾支比對要靠它分家人／本人。
+  - **8/27 那種舊段**：算「已經記了」（`oldFamily`，句子講「那一段沒寫誰來的，要的話去日曆補」），**不另外給一行「要改的」補誰來的** —— 那種舊段 07 一次補，之後拍進來的都會帶；多一種「要改的」要動 `changeLines()`／`offersChange()`／`photoDayPlan()` 三處，划不來。
+  - 「誰來的」字樣：`王小明（夫妻）`（照片上的名字＋全形括號關係，最多 20 字）；名字空著寫「家人」。
+- **測試**：`tests/abovee-family-charge.test.js`（25 支：抄字、10/29、本人同一天也來、8/27 舊段、換一位、改期／合併／app 有照片沒有不搶、認不得、舊照片不變、改成 Abovee 的改對那一段）。
+- `sw.js` v322。
+- **staging Function**：見下一行（部署完補）。
