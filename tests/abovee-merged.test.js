@@ -208,6 +208,15 @@ describe('照額度的分鐘：跟勾不一樣就講一句', () => {
     assert.ok(p.mustSeeBy[items[0].key].some((t) => /只勾了一列/.test(t)), p.mustSeeBy[items[0].key].join('\n'));
   });
 
+  test('三列：沒勾、勾、勾（額度 60）→ 勾了的那兩列照舊合成一對，沒勾的那一列不去搶（段四審查）', () => {
+    const items = read([r('10:00 - 10:30', 'SIS 30', ''), r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')]);
+    assert.equal(items.length, 2, '合成幾列');
+    const m = items.find((i) => i.merged);
+    assert.deepEqual(m.merged.parts.map((p) => p.startsAt), ['10:30', '11:00']);
+    assert.equal(m.mergeGuess ?? null, null, '勾得對的那一對不講');
+    assert.ok(items.every((i) => !i.mergeOrphan));
+  });
+
   test('兩列都勾、額度 30 分一次：兩段各扣 (30) 那一筆、兩列都講「勾了合併扣課…30 分一次」', () => {
     const c = ctx([pool('w-30', 30)]);
     const items = read([r('10:30 - 11:00', 'IN 30', '是'), r('11:00 - 11:30', 'SIS 30', '是')], c);

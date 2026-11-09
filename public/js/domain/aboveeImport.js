@@ -2453,14 +2453,22 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
   const used = new Set();
   // 拆開的那兩列：列 → `{ with: 另一列的 key, tail }`（月底對帳照它配回一對，不自己照時間猜 —— 四列連著都勾時猜得出中間那一對，段四審查）
   const split = new Map();
-  for (let k = 0; k + 1 < pool.length; k += 1) {
-    const [a, b] = [pool[k], pool[k + 1]];
-    if (used.has(a.key) || used.has(b.key)) continue;
-    if (a.customerId !== b.customerId || a.date !== b.date || !sameWho(a, b)) continue;
-    if (aboveeEnd(a.row?.time) !== b.startsAt || a.course.courseId !== b.course.courseId) continue;
-    const marks = [mergedMark(a.row?.merged), mergedMark(b.row?.merged)].filter(Boolean).length;
+  // **兩列都勾的那幾對先配**，剩下的才照分鐘配（段四審查）：沒勾、勾、勾三列連著時，一格一格往下配的話
+  // 「沒勾＋勾」那一對先被照分鐘合走，勾得對的那一對被拆散（後一列變找不到另一半、少扣一次）
+  const marksOf = (a, b) => [mergedMark(a.row?.merged), mergedMark(b.row?.merged)].filter(Boolean).length;
+  for (const ticked of hasColumn ? [true, false] : [false]) {
+    const rest = pool.filter((i) => !used.has(i.key));
+    for (let k = 0; k + 1 < rest.length; k += 1) pairUp(rest[k], rest[k + 1], ticked);
+  }
+
+  function pairUp(a, b, ticked) {
+    if (used.has(a.key) || used.has(b.key)) return;
+    if (a.customerId !== b.customerId || a.date !== b.date || !sameWho(a, b)) return;
+    if (aboveeEnd(a.row?.time) !== b.startsAt || a.course.courseId !== b.course.courseId) return;
+    const marks = marksOf(a, b);
+    if (ticked !== (hasColumn && marks === 2)) return;
     let merged = null;
-    if (hasColumn && marks === 2) {
+    if (ticked) {
       merged = mergedItem(a, b, ctx);
       // 多勾了（這位的額度是單列的分鐘）：拆成兩段各扣一次、兩列都講
       if (!fitsMinutes(merged, rowMinutes(a) && rowMinutes(b) ? rowMinutes(a) + rowMinutes(b) : null, ctx)
@@ -2468,13 +2476,13 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
         used.add(a.key);
         used.add(b.key);
         split.set(a.key, { with: b.key, tail: false }).set(b.key, { with: a.key, tail: true });
-        continue;
+        return;
       }
     } else if (looksMerged(a, b, ctx)) {
       // 沒有那一欄照舊靠它認、不講；有那一欄卻沒勾全 → 照分鐘合、講一句
       merged = mergedItem(a, b, ctx, { guess: hasColumn ? (marks ? 'one' : 'none') : null });
     }
-    if (!merged) continue;
+    if (!merged) return;
     used.add(a.key);
     used.add(b.key);
     pairs.set(a.key, merged);
