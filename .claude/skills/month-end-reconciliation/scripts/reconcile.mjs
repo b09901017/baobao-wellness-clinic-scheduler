@@ -605,9 +605,10 @@ const mergeChecks = [];
       mergeChecks.push(add('mergeForgot', it.merged.parts, `${note}（額度 ${it.merged.minutes} 分一次）`,
         `Abovee 兩列（${a.row?.course ?? ''}、${b.row?.course ?? ''}）${note}，這位的額度是 ${it.merged.minutes} 分一次 —— 看起來是一次`));
     } else if (it.mergeSplit) {
-      // 一對只列一次：前一列帶後一列
-      const tail = fresh.find((o) => o !== it && o.mergeSplit && o.customerId === it.customerId && o.date === it.date
-        && aboveeEnd(it.row?.time) === o.startsAt);
+      // 一對只列一次：前一列帶後一列。另一半是 `mergeRows()` 配的那一列（`mergeSplit.with`），不照時間猜 ——
+      // 四列連著都勾時照時間猜會配出中間那一對（段四審查）
+      if (it.mergeSplit.tail) continue;
+      const tail = fresh.find((o) => o.key === it.mergeSplit.with);
       if (!tail) continue;
       const minutes = Number(liveEntsOf(it.customerId).find((e) => e.id === it.entitlementId)?.durationMin) || null;
       mergeChecks.push(add('mergeExtra', [it, tail], `兩列都標了合併扣課（額度 ${minutes ?? '?'} 分一次）`,
@@ -709,9 +710,8 @@ for (const item of items) {
   // 沒勾的後一半（`halfGuess`，family-merge-round 05）不跳過：Abovee 那一列真的另扣了一次
   if (mergedTails.has(item) || (item.halfOf && !item.halfGuess)) continue;
   // Abovee 照勾扣（ADR-0185 之後 app 照額度的分鐘合／拆，Abovee 不會跟著變）：照分鐘合成一列的（`mergeGuess`）Abovee 扣了兩次；
-  // 兩列都勾、照分鐘拆成兩列的（`mergeSplit`）Abovee 只扣一次 —— 後一列不另算
-  if (item.mergeSplit && items.some((o) => o !== item && o.mergeSplit && o.customerId === item.customerId && o.date === item.date
-    && aboveeEnd(o.row?.time) === item.startsAt)) continue;
+  // 兩列都勾、照分鐘拆成兩列的（`mergeSplit`）Abovee 只扣一次 —— 後一列（`mergeRows()` 配的那一對的 `tail`）不另算
+  if (item.mergeSplit?.tail) continue;
   const b = bucketIn(personOf(who, item.row?.name), aboveeBucket(item));
   b.abovee += item.mergeGuess && item.merged ? item.merged.parts.length : 1;
   b.aboveeBooked = true;

@@ -2437,7 +2437,7 @@ function looksMerged(a, b, ctx) {
  * | 照片上 | 額度 | 記成 | 旗標 |
  * |---|---|---|---|
  * | 兩列都沒勾（或只勾一列） | 分鐘＝兩列加起來（`looksMerged()`） | 一段、扣一次 | 合起來那一列 `mergeGuess`（`'none'`／`'one'`） |
- * | 兩列都勾 | 合起來挑不到分鐘＝加起來的、兩列各自挑得到分鐘一樣的 | 兩段、各扣一次 | 兩列都 `mergeSplit` |
+ * | 兩列都勾 | 合起來挑不到分鐘＝加起來的、兩列各自挑得到分鐘一樣的 | 兩段、各扣一次 | 兩列都 `mergeSplit`（`{ with: 另一列的 key, tail }`） |
  * | 其餘 | —— | 照勾（跟以前一樣） | —— |
  *
  * 句子在 `mergeMinutesSay()`（進 `mustSee`）；「拆開成兩段」照舊按得到（拆開之後沒有合回去的按鈕 —— 那是她拆的）。
@@ -2451,7 +2451,8 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
       .localeCompare(`${b.customerId}|${b.attendee ? 1 : 0}|${b.date}|${b.startsAt}`));
   const pairs = new Map();
   const used = new Set();
-  const split = new Set();
+  // 拆開的那兩列：列 → `{ with: 另一列的 key, tail }`（月底對帳照它配回一對，不自己照時間猜 —— 四列連著都勾時猜得出中間那一對，段四審查）
+  const split = new Map();
   for (let k = 0; k + 1 < pool.length; k += 1) {
     const [a, b] = [pool[k], pool[k + 1]];
     if (used.has(a.key) || used.has(b.key)) continue;
@@ -2466,7 +2467,7 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
         && fitsMinutes(a, rowMinutes(a), ctx) && fitsMinutes(b, rowMinutes(b), ctx)) {
         used.add(a.key);
         used.add(b.key);
-        split.add(a.key).add(b.key);
+        split.set(a.key, { with: b.key, tail: false }).set(b.key, { with: a.key, tail: true });
         continue;
       }
     } else if (looksMerged(a, b, ctx)) {
@@ -2481,7 +2482,7 @@ export function mergeRows(items, ctx, { hasColumn = false } = {}) {
 
   return (items ?? []).flatMap((i) => {
     if (pairs.has(i.key)) return [pairs.get(i.key)];
-    if (split.has(i.key)) return [{ ...i, mergeSplit: true }];
+    if (split.has(i.key)) return [{ ...i, mergeSplit: split.get(i.key) }];
     if (used.has(i.key)) return [];
     // 送的／體驗的列不扣，沒有「扣兩次」的風險 —— 不標（06）；一次性的段也不扣（ADR-0172），同一條
     if (hasColumn && i.kind === 'new' && !i.cancelled && !i.giftCourseId && !i.guestCourseId && mergedMark(i.row?.merged)) {

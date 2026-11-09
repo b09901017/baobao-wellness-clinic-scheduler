@@ -582,6 +582,18 @@ describe('月底對帳：合併扣課那一塊（勾跟額度的分鐘對不起�
     assert.match(r.issues.find((i) => i.type === 'mergeExtra').abovee.note, /兩列都標了合併扣課（額度 30 分一次）/);
   });
 
+  test('四列連著都勾、額度 30 分一次、app 沒有那一天 → 兩對各一件「可能多勾」，不配出中間那一對；Abovee 照勾算兩次（段四審查）', () => {
+    const { '2026-10-16': _, ...two } = CLEAN['c-wang'];
+    const row = (course, time) => ['10-16', '王小明', '課程完成', { course, time, merged: '是', resource: '陳小芳' }];
+    const r = runRaw(thirty(snapshot({ 'c-wang': two })), abovee([...THREE.slice(0, 2),
+      row('SIS 30', '10:00 - 10:30'), row('高能量30', '10:30 - 11:00'), row('SIS 30', '11:00 - 11:30'), row('高能量30', '11:30 - 12:00')]));
+    const extra = r.issues.filter((i) => i.type === 'mergeExtra');
+    assert.deepEqual(extra.map((i) => i.abovee.course), ['SIS 30＋高能量30', 'SIS 30＋高能量30']);
+    assert.deepEqual(extra.map((i) => i.startsAt), ['10:00', '11:00']);
+    // 前兩天各一次＋兩對各一次（照勾，一對 Abovee 扣一次）
+    assert.equal(r.summary.totals.abovee, 4);
+  });
+
   test('兩列都勾、額度 60 分一次（勾得對）→ 不列', () => {
     const snap = snapshot(CLEAN);
     const r = runRaw(snap, abovee([...THREE.slice(0, 2), ...HALVES('是')]));
